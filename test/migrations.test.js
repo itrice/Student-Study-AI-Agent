@@ -1,0 +1,177 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { LearningRepository } from "../src/database.js";
+import {
+  BASELINE_SCHEMA_SQL,
+  getSchemaVersion,
+  migrateDatabase
+} from "../src/migrations.js";
+
+function withTemporaryDirectory(callback) {
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "math-coach-migrations-")
+  );
+  try {
+    return callback(directory);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+function createLegacyDatabase(filePath) {
+  const db = new DatabaseSync(filePath);
+  db.exec("PRAGMA foreign_keys = ON;");
+  db.exec(BASELINE_SCHEMA_SQL);
+  db.prepare(
+    "INSERT INTO students (name, grade, created_at) VALUES (?, ?, ?)"
+  ).run("旧版学生", 6, "2026-01-01T00:00:00.000Z");
+  db.prepare(
+    "INSERT INTO knowledge_points (name, position) VALUES (?, ?)"
+  ).run("百分数", 0);
+  db.prepare(
+    `INSERT INTO mistakes (
+      student_id, question, student_answer, correct_answer, analysis,
+      knowledge_point, error_type, hint, method_steps, common_errors,
+      diagnosis, status, consecutive_correct, attempt_count, due_at,
+      last_reviewed_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    1,
+    "一件商品原价 100 元，涨价 20% 后是多少元？",
+    "100元",
+    "120元",
+    "",
+    "百分数",
+    "单位“1”找错",
+    "先求涨价部分",
+    '["步骤一","步骤二","步骤三"]',
+    '["单位“1”找错"]',
+    "旧版诊断",
+    "practicing",
+    1,
+    2,
+    null,
+    null,
+    "2026-01-01T00:00:00.000Z",
+    "2026-01-02T00:00:00.000Z"
+  );
+  db.close();
+}
+
+test("新数据库建立版本化迁移记录并初始化基线数据", () => {
+  const repository = new LearningRepository();
+
+  assert.equal(repository.getSchemaVersion(), 1);
+  assert.equal(repository.lastBackupPath, null);
+  assert.equal(repository.getStudent().name, "六年级同学");
+  assert.equal(repository.getKnowledgePoints().length, 9);
+
+  const migration = repository.db
+    .prepare("SELECT version, name, checksum FROM schema_migrations")
+    .get();
+  assert.equal(migration.version, 1);
+  assert.equal(migration.name, "baseline_learning_schema");
+  assert.equal(migration.checksum.length, 64);
+  assert.equal(
+    Number(repository.db.prepare("PRAGMA user_version").get().user_version),
+    1
+  );
+  repository.close();
+});
+
+test("旧数据库自动升级、创建校验备份并保留学习记录", () => {
+  withTemporaryDirectory((directory) => {
+    const databasePath = path.join(directory, "learning.sqlite");
+    createLegacyDatabase(databasePath);
+
+    const repository = new LearningRepository(databasePath);
+    assert.equal(repository.getSchemaVersion(), 1);
+    assert.ok(repository.lastBackupPath);
+    assert.equal(fs.existsSync(repository.lastBackupPath), true);
+    assert.equal(fs.existsSync(`${repository.lastBackupPath}-wal`), false);
+    assert.equal(fs.existsSync(`${repository.lastBackupPath}-shm`), false);
+
+    const mistakes = repository.listMistakes();
+    assert.equal(mistakes.length, 1);
+    assert.equal(mistakes[0].status, "practicing");
+    assert.equal(mistakes[0].consecutiveCorrect, 1);
+
+    const backup = new DatabaseSync(repository.lastBackupPath, {
+      readOnly: true
+    });
+    try {
+      assert.equal(
+        backup.prepare("SELECT COUNT(*) AS count FROM mistakes").get().count,
+        1
+      );
+      assert.equal(backup.prepare("PRAGMA quick_check").get().quick_check, "ok");
+    } finally {
+      backup.close();
+    }
+
+    repository.close();
+    const reopened = new LearningRepository(databasePath);
+    assert.equal(reopened.lastBackupPath, null);
+    assert.equal(reopened.getSchemaVersion(), 1);
+    assert.equal(reopened.listMistakes().length, 1);
+    assert.equal(
+      reopened.db
+        .prepare("SELECT COUNT(*) AS count FROM schema_migrations")
+        .get().count,
+      1
+    );
+    reopened.close();
+  });
+});
+
+test("迁移失败会回滚数据变更且不记录版本", () => {
+  const db = new DatabaseSync(":memory:");
+  const failingMigrations = [
+    {
+      version: 1,
+      name: "failing_migration",
+      checksumSource: "failing_migration_v1",
+      up(database) {
+        database.exec("CREATE TABLE partial_change (id INTEGER PRIMARY KEY);");
+        throw new Error("模拟迁移失败");
+      }
+    }
+  ];
+
+  assert.throws(
+    () => migrateDatabase(db, { migrations: failingMigrations }),
+    /执行失败/
+  );
+  assert.equal(getSchemaVersion(db), 0);
+  assert.equal(
+    db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
+      )
+      .get("partial_change"),
+    undefined
+  );
+  db.close();
+});
+
+test("检测已执行迁移被修改和未知的未来版本", () => {
+  const db = new DatabaseSync(":memory:");
+  migrateDatabase(db);
+  db.prepare(
+    "UPDATE schema_migrations SET checksum = ? WHERE version = 1"
+  ).run("tampered");
+  assert.throws(() => migrateDatabase(db), /已执行内容被修改/);
+  db.close();
+
+  const futureDb = new DatabaseSync(":memory:");
+  futureDb.exec("PRAGMA user_version = 99;");
+  assert.throws(
+    () => migrateDatabase(futureDb),
+    /高于当前程序支持的版本/
+  );
+  futureDb.close();
+});

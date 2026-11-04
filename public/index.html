@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="面向六年级数学的错题诊断、掌握练习和学习情况跟踪工具。"
+    />
+    <meta name="theme-color" content="#17324d" />
+    <title>小步数学 · 六年级错题教练</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#home" aria-label="回到首页">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 40 40" role="img">
+              <path d="M7 24.5 16 9l8.5 14.8L31 14l3 12.5H7Z" />
+              <path d="M8 31h25" />
+            </svg>
+          </span>
+          <span>
+            <strong>小步数学</strong>
+            <small>六年级错题教练</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="主要导航">
+          <button class="nav-item is-active" data-view="home">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 10.5 12 4l8 6.5V20h-5v-6H9v6H4v-9.5Z" />
+            </svg>
+            <span>今日学习</span>
+          </button>
+          <button class="nav-item" data-view="review">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 5.5h14v13H5z" />
+              <path d="M8 9h8M8 13h5M15.5 15.5l3 3" />
+            </svg>
+            <span>开始复习</span>
+            <span class="nav-badge" id="nav-due-count" hidden>0</span>
+          </button>
+          <button class="nav-item" data-view="mistakes">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 3.5h9l3 3V20H6z" />
+              <path d="M14.5 3.5V7h3M9 11h6M9 14.5h4" />
+            </svg>
+            <span>我的错题</span>
+          </button>
+          <button class="nav-item" data-view="knowledge">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="5" r="2.5" />
+              <circle cx="6" cy="17.5" r="2.5" />
+              <circle cx="18" cy="17.5" r="2.5" />
+              <path d="m10.8 7.2-3.6 7.8M13.2 7.2l3.6 7.8M8.5 17.5h7" />
+            </svg>
+            <span>知识点地图</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-tip">
+          <span class="tip-icon">i</span>
+          <p>错题不是终点。能独立重做，才是真的掌握。</p>
+        </div>
+
+        <div class="profile">
+          <span class="avatar">六</span>
+          <span>
+            <strong id="student-name">六年级同学</strong>
+            <small>小学数学 · 人教版</small>
+          </span>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <button class="menu-button" id="menu-button" aria-label="打开菜单">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
+          <div class="breadcrumb">
+            <span>学习空间</span>
+            <b>/</b>
+            <strong id="page-label">今日学习</strong>
+          </div>
+          <div class="topbar-actions">
+            <span class="today-chip" id="today-label"></span>
+            <button class="primary-button compact" id="top-add-button">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              录入错题
+            </button>
+          </div>
+        </header>
+
+        <section class="view is-active" id="view-home" data-view-panel="home">
+          <div class="hero">
+            <div class="hero-copy">
+              <span class="eyebrow">六年级数学 · 今日计划</span>
+              <h1>先把不会的，<br /><em>一步一步弄懂。</em></h1>
+              <p>
+                从错题中找到真正的薄弱点。先自己重做，再看提示，最后用连续答对证明掌握。
+              </p>
+              <div class="hero-actions">
+                <button class="primary-button large" id="start-review-button">
+                  开始今日复习
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m9 5 7 7-7 7" />
+                  </svg>
+                </button>
+                <button class="text-button" id="quick-add-button">
+                  录入一道新错题
+                </button>
+              </div>
+            </div>
+            <div class="hero-visual" aria-hidden="true">
+              <div class="orbit orbit-one"></div>
+              <div class="orbit orbit-two"></div>
+              <div class="formula-card card-one">
+                <span>百分数</span>
+                <strong>× (1 + 20%)</strong>
+              </div>
+              <div class="formula-card card-two">
+                <span>圆</span>
+                <strong>S = πr²</strong>
+              </div>
+              <div class="step-note">
+                <b>1</b>
+                <span>先判断<br />知识点</span>
+              </div>
+              <div class="hero-dot dot-one"></div>
+              <div class="hero-dot dot-two"></div>
+            </div>
+          </div>
+
+          <div class="stats-grid" aria-label="学习概况">
+            <article class="stat-card stat-due">
+              <span class="stat-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="8" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+              </span>
+              <span>
+                <small>今天要复习</small>
+                <strong id="stat-due">0</strong>
+                <em>道</em>
+              </span>
+            </article>
+            <article class="stat-card">
+              <span class="stat-icon icon-blue">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 4h9l3 3v13H6z" />
+                  <path d="M9 10h6M9 14h4" />
+                </svg>
+              </span>
+              <span>
+                <small>错题库</small>
+                <strong id="stat-total">0</strong>
+                <em>道</em>
+              </span>
+            </article>
+            <article class="stat-card">
+              <span class="stat-icon icon-gold">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m12 3 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3Z" />
+                </svg>
+              </span>
+              <span>
+                <small>已经掌握</small>
+                <strong id="stat-mastered">0</strong>
+                <em>道</em>
+              </span>
+            </article>
+            <article class="stat-card">
+              <span class="stat-icon icon-purple">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 19V9M12 19V5M19 19v-7" />
+                </svg>
+              </span>
+              <span>
+                <small>掌握率</small>
+                <strong id="stat-rate">--</strong>
+                <em>%</em>
+              </span>
+            </article>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="panel focus-panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="section-kicker">优先解决</span>
+                  <h2>下一道，从哪里开始？</h2>
+                </div>
+                <span class="small-pill">按“不会 → 再练”排序</span>
+              </div>
+              <div id="priority-content" class="priority-content">
+                <div class="skeleton-line wide"></div>
+                <div class="skeleton-line"></div>
+              </div>
+            </section>
+
+            <section class="panel weakness-panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="section-kicker">学习情况</span>
+                  <h2>当前薄弱知识点</h2>
+                </div>
+                <button class="link-button" data-go-view="knowledge">
+                  查看全部
+                </button>
+              </div>
+              <div id="weakness-list" class="weakness-list">
+                <div class="empty-mini">还没有足够的学习记录</div>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel recent-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">最近录入</span>
+                <h2>我的错题动态</h2>
+              </div>
+              <button class="link-button" data-go-view="mistakes">
+                打开错题库
+              </button>
+            </div>
+            <div id="recent-list" class="recent-list"></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-review" data-view-panel="review">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">独立重做 · 找到缺口</span>
+              <h1>今日复习</h1>
+              <p>不急着看答案。先写思路，卡住了再使用提示。</p>
+            </div>
+            <div class="session-progress">
+              <span id="review-session-label">优先处理当前不会的题</span>
+              <div class="progress-track"><i id="review-progress"></i></div>
+            </div>
+          </div>
+
+          <div id="review-loading" class="review-card loading-card">
+            <div class="skeleton-line wide"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line medium"></div>
+          </div>
+
+          <article id="review-card" class="review-card" hidden>
+            <div class="review-meta">
+              <span class="knowledge-badge" id="review-point"></span>
+              <span class="attempt-label" id="review-attempt"></span>
+            </div>
+            <div class="question-block">
+              <span class="question-label">题目</span>
+              <p id="review-question"></p>
+            </div>
+            <div class="review-instruction">
+              <span>先自己想一想：这道题在问什么？需要先求什么？</span>
+            </div>
+
+            <div id="review-answer-area">
+              <div class="answer-actions" id="review-pre-actions">
+                <button class="secondary-button" id="show-hint-button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M9 18h6M10 21h4M8.2 14.5a7 7 0 1 1 7.6 0c-.8.6-1.3 1.4-1.3 2.5H9.5c0-1.1-.5-1.9-1.3-2.5Z" />
+                  </svg>
+                  我不会，给我提示
+                </button>
+                <button class="primary-button" id="retry-button">
+                  我会了，重新作答
+                </button>
+              </div>
+              <div id="hint-panel" class="hint-panel" hidden>
+                <div class="hint-heading">
+                  <span class="hint-number">提示 1</span>
+                  <strong>先补上关键的一步</strong>
+                </div>
+                <p id="review-hint"></p>
+                <ol id="review-steps"></ol>
+                <button class="secondary-button" id="retry-after-hint-button">
+                  我明白了，开始重做
+                </button>
+              </div>
+              <form id="answer-form" class="answer-form" hidden>
+                <label for="review-answer">写出你的答案或关键步骤</label>
+                <textarea
+                  id="review-answer"
+                  rows="3"
+                  placeholder="例如：先求……再求……"
+                  autocomplete="off"
+                ></textarea>
+                <button class="primary-button" type="submit">提交这次作答</button>
+              </form>
+            </div>
+
+            <div id="review-result" class="review-result" hidden></div>
+          </article>
+
+          <div id="review-empty" class="empty-state" hidden>
+            <span class="empty-illustration">
+              <svg viewBox="0 0 80 80" aria-hidden="true">
+                <path d="M24 67h32M29 61h22M22 21h36v35H22z" />
+                <path d="m32 38 5 5 11-12" />
+                <path d="M31 13h18M34 13v8M46 13v8" />
+              </svg>
+            </span>
+            <h2 id="review-empty-title">今天暂时没有要复习的题</h2>
+            <p id="review-empty-copy">
+              可以录入一道最近不会的题，系统会把它放到优先位置。
+            </p>
+            <button class="primary-button" data-open-add>录入错题</button>
+          </div>
+        </section>
+
+        <section class="view" id="view-mistakes" data-view-panel="mistakes">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">错题不是收藏品</span>
+              <h1>我的错题</h1>
+              <p>每道题都要走完“定位错因 → 补足思路 → 再次做对”。</p>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <div class="filter-group" role="group" aria-label="筛选错题">
+              <button class="filter-chip is-active" data-filter="all">
+                全部 <span id="filter-count-all">0</span>
+              </button>
+              <button class="filter-chip" data-filter="new">
+                待复习 <span id="filter-count-new">0</span>
+              </button>
+              <button class="filter-chip" data-filter="practicing">
+                练习中 <span id="filter-count-practicing">0</span>
+              </button>
+              <button class="filter-chip" data-filter="mastered">
+                已掌握 <span id="filter-count-mastered">0</span>
+              </button>
+            </div>
+            <span class="data-hint">只保存在本机</span>
+          </div>
+
+          <div id="mistake-list" class="mistake-list"></div>
+        </section>
+
+        <section class="view" id="view-knowledge" data-view-panel="knowledge">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">从一道题，看见一类题</span>
+              <h1>知识点地图</h1>
+              <p>掌握度由错题状态和连续独立答对情况共同计算。</p>
+            </div>
+          </div>
+          <div class="knowledge-summary" id="knowledge-summary"></div>
+          <div id="knowledge-grid" class="knowledge-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="add-dialog" class="add-dialog">
+      <form id="add-form" method="dialog">
+        <div class="dialog-header">
+          <div>
+            <span class="eyebrow">建立学习证据</span>
+            <h2>录入一道错题</h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            id="close-dialog-button"
+            aria-label="关闭"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="dialog-body">
+          <label class="field full-field">
+            <span>题目 <b>*</b></span>
+            <textarea
+              name="question"
+              id="question-input"
+              rows="4"
+              required
+              maxlength="3000"
+              placeholder="把原题完整抄下来，包括数字和单位"
+            ></textarea>
+          </label>
+
+          <div class="form-row">
+            <label class="field">
+              <span>你当时的答案</span>
+              <input
+                name="studentAnswer"
+                maxlength="500"
+                placeholder="不会做可以留空"
+              />
+            </label>
+            <label class="field">
+              <span>正确答案 <b>*</b></span>
+              <input
+                name="correctAnswer"
+                required
+                maxlength="500"
+                placeholder="例如：12 或 3/4"
+              />
+            </label>
+          </div>
+
+          <div class="form-row">
+            <label class="field">
+              <span>知识点</span>
+              <select name="knowledgePoint" id="knowledge-point-select">
+                <option value="">自动判断</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>主要错因</span>
+              <select name="errorType">
+                <option value="">自动判断</option>
+                <option>不会做</option>
+                <option>审题错误</option>
+                <option>概念混淆</option>
+                <option>计算错误</option>
+                <option>步骤遗漏</option>
+                <option>单位没有统一</option>
+                <option>乘除法意义混淆</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="field full-field">
+            <span>订正记录 <small>可选</small></span>
+            <textarea
+              name="analysis"
+              rows="3"
+              maxlength="3000"
+              placeholder="简单写下老师讲的思路，或自己卡在哪一步"
+            ></textarea>
+          </label>
+
+          <div id="diagnosis-preview" class="diagnosis-preview" hidden>
+            <span class="diagnosis-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v3M5.6 5.6l2.1 2.1M3 12h3M18 12h3M16.3 7.7l2.1-2.1" />
+                <path d="M8 15.5a5 5 0 1 1 8 0c-.8.7-1.2 1.5-1.2 2.5h-5.6c0-1-.4-1.8-1.2-2.5Z" />
+              </svg>
+            </span>
+            <p>
+              <strong>初步诊断</strong>
+              <span id="diagnosis-copy">输入题目后会判断知识点。</span>
+            </p>
+          </div>
+        </div>
+
+        <div class="dialog-footer">
+          <p>保存后会优先进入今日复习。</p>
+          <div>
+            <button
+              class="secondary-button"
+              type="button"
+              id="cancel-dialog-button"
+            >
+              取消
+            </button>
+            <button class="primary-button" type="submit" id="save-mistake-button">
+              保存并开始复习
+            </button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast-region" class="toast-region" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

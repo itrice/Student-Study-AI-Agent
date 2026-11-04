@@ -1,0 +1,15 @@
+{
+  "name": "math-mistake-coach",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "面向六年级学生的数学错题诊断与掌握练习 MVP",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

@@ -54,6 +54,9 @@ $env:DB_PATH = "D:\learning-data\math.sqlite"
 npm start
 ```
 
+当已有数据库需要升级时，程序会在执行迁移前将一致性备份写入
+`data/backups/`，并对备份执行 SQLite 完整性检查。迁移按版本执行，重复启动不会重复变更数据库。
+
 首次进入空错题库时，页面可载入 5 道六年级数学示例题，便于体验完整复习流程。
 
 ## 项目结构
@@ -62,6 +65,7 @@ npm start
 public/              无构建步骤的网页界面
 src/agent.js         知识点识别、错因诊断与答案等价判断
 src/database.js      错题、复习记录、学习统计和 SQLite 访问
+src/migrations.js    版本化数据库迁移、基线和完整性校验
 src/server.js        零依赖 HTTP API 与静态页面服务
 test/                规则与学习数据流程测试
 docs/MVP.md          首版产品范围与验收标准
