@@ -246,10 +246,18 @@ export class LearningRepository {
       this.db
         .prepare(
           `INSERT INTO attempts
-           (mistake_id, answer, is_correct, feedback, created_at)
-           VALUES (?, ?, ?, ?, ?)`
+           (mistake_id, answer, is_correct, outcome, evaluation_source,
+            feedback, created_at)
+           VALUES (?, ?, ?, ?, 'rule', ?, ?)`
         )
-        .run(id, String(answer || ""), correct ? 1 : 0, feedback, timestamp);
+        .run(
+          id,
+          String(answer || ""),
+          correct ? 1 : 0,
+          correct ? "correct" : "incorrect",
+          feedback,
+          timestamp
+        );
       this.db
         .prepare(
           `UPDATE mistakes

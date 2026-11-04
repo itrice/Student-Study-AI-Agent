@@ -52,12 +52,28 @@ test("答错后延后复习，连续两次答对后标记掌握", () => {
   assert.equal(wrong.mistake.consecutiveCorrect, 0);
   assert.equal(wrong.mistake.attemptCount, 1);
   assert.equal(repository.getNextReview(), null);
+  const storedWrongAttempt = repository.db
+    .prepare(
+      "SELECT outcome, independent, evaluation_source FROM attempts WHERE mistake_id = ?"
+    )
+    .get(mistake.id);
+  assert.equal(storedWrongAttempt.outcome, "incorrect");
+  assert.equal(storedWrongAttempt.independent, null);
+  assert.equal(storedWrongAttempt.evaluation_source, "rule");
 
   const firstCorrect = repository.recordAttempt(mistake.id, "288元");
   assert.equal(firstCorrect.correct, true);
   assert.equal(firstCorrect.mastered, false);
   assert.equal(firstCorrect.mistake.status, "practicing");
   assert.equal(firstCorrect.mistake.consecutiveCorrect, 1);
+  assert.equal(
+    repository.db
+      .prepare(
+        "SELECT outcome FROM attempts WHERE mistake_id = ? ORDER BY id DESC LIMIT 1"
+      )
+      .get(mistake.id).outcome,
+    "correct"
+  );
 
   const secondCorrect = repository.recordAttempt(mistake.id, "288");
   assert.equal(secondCorrect.correct, true);

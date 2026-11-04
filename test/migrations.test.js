@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { LearningRepository } from "../src/database.js";
 import {
   BASELINE_SCHEMA_SQL,
+  SCHEMA_MIGRATIONS,
   getSchemaVersion,
   migrateDatabase
 } from "../src/migrations.js";
@@ -59,27 +60,78 @@ function createLegacyDatabase(filePath) {
     "2026-01-01T00:00:00.000Z",
     "2026-01-02T00:00:00.000Z"
   );
+  db.prepare(
+    `INSERT INTO attempts
+     (mistake_id, answer, is_correct, feedback, created_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(
+    1,
+    "100元",
+    0,
+    "需要先计算涨价部分",
+    "2026-01-02T00:00:00.000Z"
+  );
   db.close();
 }
 
 test("新数据库建立版本化迁移记录并初始化基线数据", () => {
   const repository = new LearningRepository();
 
-  assert.equal(repository.getSchemaVersion(), 1);
+  assert.equal(repository.getSchemaVersion(), 2);
   assert.equal(repository.lastBackupPath, null);
   assert.equal(repository.getStudent().name, "六年级同学");
   assert.equal(repository.getKnowledgePoints().length, 9);
 
-  const migration = repository.db
-    .prepare("SELECT version, name, checksum FROM schema_migrations")
-    .get();
-  assert.equal(migration.version, 1);
-  assert.equal(migration.name, "baseline_learning_schema");
-  assert.equal(migration.checksum.length, 64);
+  const migrations = repository.db
+    .prepare(
+      "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
+    )
+    .all();
+  assert.deepEqual(
+    migrations.map((migration) => migration.name),
+    ["baseline_learning_schema", "agent_learning_records"]
+  );
+  assert.equal(migrations[0].checksum.length, 64);
+  assert.equal(migrations[1].checksum.length, 64);
   assert.equal(
     Number(repository.db.prepare("PRAGMA user_version").get().user_version),
-    1
+    2
   );
+
+  for (const table of [
+    "agent_runs",
+    "diagnoses",
+    "hint_events",
+    "review_schedule",
+    "mastery_evidence",
+    "tool_calls",
+    "llm_calls"
+  ]) {
+    assert.ok(
+      repository.db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
+        )
+        .get(table),
+      `缺少 ${table} 表`
+    );
+  }
+
+  const attemptColumns = new Set(
+    repository.db
+      .prepare('PRAGMA table_info("attempts")')
+      .all()
+      .map((column) => column.name)
+  );
+  for (const column of [
+    "outcome",
+    "hint_level",
+    "independent",
+    "evaluation_source",
+    "agent_run_id"
+  ]) {
+    assert.ok(attemptColumns.has(column), `attempts 缺少 ${column}`);
+  }
   repository.close();
 });
 
@@ -89,7 +141,7 @@ test("旧数据库自动升级、创建校验备份并保留学习记录", () =>
     createLegacyDatabase(databasePath);
 
     const repository = new LearningRepository(databasePath);
-    assert.equal(repository.getSchemaVersion(), 1);
+    assert.equal(repository.getSchemaVersion(), 2);
     assert.ok(repository.lastBackupPath);
     assert.equal(fs.existsSync(repository.lastBackupPath), true);
     assert.equal(fs.existsSync(`${repository.lastBackupPath}-wal`), false);
@@ -99,6 +151,15 @@ test("旧数据库自动升级、创建校验备份并保留学习记录", () =>
     assert.equal(mistakes.length, 1);
     assert.equal(mistakes[0].status, "practicing");
     assert.equal(mistakes[0].consecutiveCorrect, 1);
+    const migratedAttempt = repository.db
+      .prepare(
+        "SELECT outcome, hint_level, independent, evaluation_source FROM attempts"
+      )
+      .get();
+    assert.equal(migratedAttempt.outcome, "incorrect");
+    assert.equal(migratedAttempt.hint_level, null);
+    assert.equal(migratedAttempt.independent, null);
+    assert.equal(migratedAttempt.evaluation_source, "legacy_rule");
 
     const backup = new DatabaseSync(repository.lastBackupPath, {
       readOnly: true
@@ -116,16 +177,36 @@ test("旧数据库自动升级、创建校验备份并保留学习记录", () =>
     repository.close();
     const reopened = new LearningRepository(databasePath);
     assert.equal(reopened.lastBackupPath, null);
-    assert.equal(reopened.getSchemaVersion(), 1);
+    assert.equal(reopened.getSchemaVersion(), 2);
     assert.equal(reopened.listMistakes().length, 1);
     assert.equal(
       reopened.db
         .prepare("SELECT COUNT(*) AS count FROM schema_migrations")
         .get().count,
-      1
+      2
     );
     reopened.close();
   });
+});
+
+test("已有 v1 数据库可以增量升级到 v2", () => {
+  const db = new DatabaseSync(":memory:");
+  migrateDatabase(db, { migrations: [SCHEMA_MIGRATIONS[0]] });
+  assert.equal(getSchemaVersion(db), 1);
+
+  const result = migrateDatabase(db);
+  assert.equal(result.fromVersion, 1);
+  assert.equal(result.toVersion, 2);
+  assert.deepEqual(result.appliedVersions, [2]);
+  assert.equal(
+    db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
+      )
+      .get("agent_runs").name,
+    "agent_runs"
+  );
+  db.close();
 });
 
 test("迁移失败会回滚数据变更且不记录版本", () => {
