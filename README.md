@@ -15,6 +15,9 @@
 当前诊断由可解释的本地规则完成，适合验证学习闭环。项目下一阶段将按照
 [实施计划](docs/IMPLEMENTATION_PLAN.md)逐步接入 LLM、受控工具调用和可检索知识库。
 
+各阶段完成情况、完成日期和验证证据见
+[实施进度表](docs/IMPLEMENTATION_STATUS.md)。
+
 ## 运行
 
 需要 Node.js 22.5 或更高版本。
@@ -71,6 +74,8 @@ test/                规则与学习数据流程测试
 docs/MVP.md          首版产品范围与验收标准
 docs/IMPLEMENTATION_PLAN.md
                      项目实施基线、阶段计划与验收门禁
+docs/IMPLEMENTATION_STATUS.md
+                     表格化实施进度、完成日期和验证证据
 ```
 
 ## 重要限制

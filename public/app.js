@@ -125,6 +125,14 @@ function showView(name, { updateHash = true } = {}) {
   }
 }
 
+function readRoute() {
+  const [rawView, rawId] = window.location.hash.slice(1).split("/");
+  const view = viewLabels[rawView] ? rawView : "home";
+  const mistakeId =
+    view === "review" && /^\d+$/.test(rawId || "") ? Number(rawId) : null;
+  return { view, mistakeId };
+}
+
 function navigateTo(name) {
   showView(name);
   if (name === "review") {
@@ -549,12 +557,15 @@ function renderReview() {
     review.status === "new" ? "优先处理当前不会的题" : "逐步把思路补完整";
 }
 
-async function openReview(id) {
+async function openReview(id, { updateHash = true } = {}) {
   try {
     const review = await api(`/api/mistakes/${id}`);
     state.review = review;
-    navigateTo("review");
+    showView("review", { updateHash: false });
     renderReview();
+    if (updateHash && window.location.hash !== `#review/${id}`) {
+      history.pushState(null, "", `#review/${id}`);
+    }
   } catch (error) {
     showToast(error.message, true);
   }
@@ -847,9 +858,15 @@ function bindEvents() {
   });
 
   window.addEventListener("hashchange", () => {
-    const name = window.location.hash.slice(1);
-    showView(viewLabels[name] ? name : "home", { updateHash: false });
-    if (name === "review") loadNextReview();
+    const route = readRoute();
+    showView(route.view, { updateHash: false });
+    if (route.view === "review") {
+      if (route.mistakeId) {
+        openReview(route.mistakeId, { updateHash: false });
+      } else {
+        loadNextReview();
+      }
+    }
   });
 
   document.addEventListener("keydown", (event) => {
@@ -867,11 +884,15 @@ async function init() {
   try {
     await loadBootstrap();
     await refreshAll();
-    const initialView = window.location.hash.slice(1);
-    showView(viewLabels[initialView] ? initialView : "home", {
-      updateHash: false
-    });
-    if (initialView === "review") await loadNextReview();
+    const initialRoute = readRoute();
+    showView(initialRoute.view, { updateHash: false });
+    if (initialRoute.view === "review") {
+      if (initialRoute.mistakeId) {
+        await openReview(initialRoute.mistakeId, { updateHash: false });
+      } else {
+        await loadNextReview();
+      }
+    }
   } catch (error) {
     showToast(`页面初始化失败：${error.message}`, true);
     $("#priority-content").replaceChildren(
