@@ -1,7 +1,7 @@
 # Agent 工具契约 v1
 
 > 更新日期：2026-11-09
-> 实现状态：M2 待复核；M2.2 待验收
+> 实现状态：M2、M2.2、M3 已完成；M4 待验收
 > 代码入口：`src/tools/index.js`
 
 ## 1. 设计原则
@@ -14,6 +14,7 @@
 - 工具调用写入 `agent_runs` 和 `tool_calls` 审计记录。
 - Agent 默认不能通过 `get_mistake` 获取完整答案和解析。
 - 不知道历史提示次数或独立作答状态时使用 `NULL`，不得伪造成“无提示独立答对”。
+- 完整答案回填必须经过一次性编辑授权；复习作答前不得通过编辑接口查看答案。
 
 ## 2. 调用约定
 
@@ -205,6 +206,14 @@ tools.invoke(toolName, arguments, {
 
 修改 `question`、`correctAnswer` 或 `knowledgePoint` 时，将错题恢复为待复习，连续答对次数和当前复习计数归零。历史作答记录和修改前内容保留在审计表中。Agent 不会从该工具获得答案或解析。
 
+HTTP 编辑流程使用以下门控：
+
+- `POST /api/mistakes/:id/edit-session`：显式确认后签发两分钟有效、只可使用一次的编辑令牌。
+- `GET /api/mistakes/:id/edit`：必须携带 `X-Edit-Session`，否则返回 403。
+- `GET /api/review/:id` 和 `GET /api/review/next` 会签发本轮复习会话。
+- 复习上下文申请令牌时，本轮复习会话必须已提交作答；历史作答不能解锁当前复习，否则返回 409。
+- 复习页在本次作答完成前不显示“修改题目”入口。
+
 ### 5.9 `build_learning_summary`
 
 | 输入 | 类型 | 必填 | 约束 |
@@ -225,7 +234,7 @@ tools.invoke(toolName, arguments, {
 
 ## 6. M2.2 多小问与多答案契约
 
-本节描述已实现并等待验收的工具契约。单答案字符串继续作为兼容路径保留。
+本节描述已完成验收的工具契约。单答案字符串继续作为兼容路径保留。
 
 ### 6.1 数据结构
 

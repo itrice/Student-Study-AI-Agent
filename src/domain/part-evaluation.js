@@ -1,10 +1,36 @@
 import { answersMatch, parseAnswerValue } from "../agent.js";
+import { LearningValidationError } from "./errors.js";
 
 function normalizeText(value = "") {
   return String(value)
     .trim()
     .replace(/\s+/g, "")
     .replace(/[∶：]/g, ":");
+}
+
+const UNIT_ALIASES = new Map([
+  ["cm", "cm"],
+  ["厘米", "cm"],
+  ["mm", "mm"],
+  ["毫米", "mm"],
+  ["dm", "dm"],
+  ["分米", "dm"],
+  ["m", "m"],
+  ["米", "m"],
+  ["km", "km"],
+  ["千米", "km"],
+  ["公里", "km"],
+  ["cm2", "cm²"],
+  ["cm²", "cm²"],
+  ["平方厘米", "cm²"],
+  ["m2", "m²"],
+  ["m²", "m²"],
+  ["平方米", "m²"]
+]);
+
+function normalizeUnit(unit = "") {
+  const normalizedUnit = String(unit).replace(/\s+/g, "").toLowerCase();
+  return UNIT_ALIASES.get(normalizedUnit) || normalizedUnit;
 }
 
 function parseRatio(value) {
@@ -53,7 +79,17 @@ export function comparePartAnswer({
     if (rule === "exact" || rule === "text") {
       return normalizeText(answer) === normalizeText(acceptedAnswer);
     }
-    return answersMatch(answer, acceptedAnswer);
+    if (answersMatch(answer, acceptedAnswer)) return true;
+    const studentValue = parseAnswerValue(answer);
+    const acceptedValue = parseAnswerValue(acceptedAnswer);
+    return Boolean(
+      studentValue &&
+        acceptedValue &&
+        studentValue.unit &&
+        acceptedValue.unit &&
+        normalizeUnit(studentValue.unit) === normalizeUnit(acceptedValue.unit) &&
+        Math.abs(studentValue.number - acceptedValue.number) < 1e-9
+    );
   });
 }
 
@@ -109,4 +145,32 @@ export function evaluatePartResponses(parts, submittedAnswers = []) {
     outcome,
     allCorrect: outcome === "correct"
   };
+}
+
+export function validateSubmittedPartAnswers(parts, answers) {
+  if (!Array.isArray(answers)) return;
+  const partIds = new Set((parts || []).map((part) => Number(part.id)));
+  const seen = new Set();
+  for (const answer of answers) {
+    const partId = Number(answer?.partId);
+    if (!Number.isInteger(partId) || partId <= 0) {
+      throw new LearningValidationError(
+        "INVALID_ARGUMENTS",
+        "作答中的 partId 无效"
+      );
+    }
+    if (seen.has(partId)) {
+      throw new LearningValidationError(
+        "INVALID_ARGUMENTS",
+        "同一个小问不能重复提交"
+      );
+    }
+    if (!partIds.has(partId)) {
+      throw new LearningValidationError(
+        "INVALID_ARGUMENTS",
+        "作答包含不属于当前错题的小问"
+      );
+    }
+    seen.add(partId);
+  }
 }

@@ -15,8 +15,10 @@
 - 支持一道题包含多个小问，为每个小问保存独立答案、可接受答案变体和判题结果。
 - 数据默认保存在本机 SQLite 文件，不依赖云服务。
 
-M3 已接入 OpenAI-compatible LLM 网关、知识检索工具和结构化诊断，真实 DeepSeek 模型 30/30 题自测已通过，当前等待最终验收；
+M3 已接入 OpenAI-compatible LLM 网关、知识检索工具和结构化诊断，真实 DeepSeek 模型 30/30 题自测已通过并完成验收；
 本地规则继续作为模型未配置或调用失败时的降级方案。
+
+M4 已加入安全复习、分级提示、追问和 LLM 步骤评价，当前等待验收。
 
 LLM 未配置时系统自动使用本地规则；配置方式、诊断链路和安全边界见
 [LLM 接入说明](docs/LLM_SETUP.md)。
@@ -84,6 +86,8 @@ docs/MVP.md          首版产品范围与验收标准
 docs/TOOL_CONTRACTS.md
                      九项受控工具的输入、输出、权限和错误契约
 docs/LLM_SETUP.md    LLM 环境配置、诊断链路和降级策略
+docs/reports/m4-ui-validation-2026-11-09.md
+                     M4 真实模型教学闭环验证记录
 docs/IMPLEMENTATION_PLAN.md
                      项目实施基线、阶段计划与验收门禁
 docs/IMPLEMENTATION_STATUS.md

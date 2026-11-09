@@ -8,7 +8,10 @@ import {
   evaluateAttemptState,
   toIsoAfterDays
 } from "./domain/learning-policy.js";
-import { evaluatePartResponses } from "./domain/part-evaluation.js";
+import {
+  evaluatePartResponses,
+  validateSubmittedPartAnswers
+} from "./domain/part-evaluation.js";
 import { LearningValidationError } from "./domain/errors.js";
 import {
   getSchemaVersion,
@@ -175,8 +178,8 @@ function normalizeParts(input) {
   });
 }
 
-function mapPart(row, answers = []) {
-  return {
+function mapPart(row, answers = [], { includeSolution = false } = {}) {
+  const part = {
     id: row.id,
     partNo: row.part_no,
     label: row.label,
@@ -184,55 +187,24 @@ function mapPart(row, answers = []) {
     studentAnswer: row.student_answer,
     answerType: row.answer_type,
     comparisonRule: row.comparison_rule,
-    knowledgePoint: row.knowledge_point,
-    hint: row.hint,
-    explanation: row.explanation,
-    acceptedAnswers: answers
+    knowledgePoint: row.knowledge_point
   };
-}
-
-function validateSubmittedPartAnswers(mistake, answers) {
-  if (!Array.isArray(answers)) return;
-  const partIds = new Set((mistake.parts || []).map((part) => Number(part.id)));
-  const seen = new Set();
-  for (const answer of answers) {
-    const partId = Number(answer?.partId);
-    if (!Number.isInteger(partId) || partId <= 0) {
-      throw new LearningValidationError(
-        "INVALID_ARGUMENTS",
-        "作答中的 partId 无效"
-      );
-    }
-    if (seen.has(partId)) {
-      throw new LearningValidationError(
-        "INVALID_ARGUMENTS",
-        "同一个小问不能重复提交"
-      );
-    }
-    if (!partIds.has(partId)) {
-      throw new LearningValidationError(
-        "INVALID_ARGUMENTS",
-        "作答包含不属于当前错题的小问"
-      );
-    }
-    seen.add(partId);
+  if (includeSolution) {
+    part.hint = row.hint;
+    part.explanation = row.explanation;
+    part.acceptedAnswers = answers;
   }
+  return part;
 }
 
 function mapMistake(row, { includeSolution = false } = {}) {
   if (!row) return null;
-  return {
+  const mistake = {
     id: row.id,
     question: row.question,
     studentAnswer: row.student_answer,
-    correctAnswer: includeSolution ? row.correct_answer : undefined,
-    analysis: includeSolution ? row.analysis : "",
     knowledgePoint: row.knowledge_point,
     errorType: row.error_type,
-    hint: includeSolution ? row.hint : "",
-    methodSteps: includeSolution ? parseJson(row.method_steps) : [],
-    commonErrors: includeSolution ? parseJson(row.common_errors) : [],
-    diagnosis: includeSolution ? row.diagnosis : "",
     revision: row.revision,
     status: row.status,
     consecutiveCorrect: row.consecutive_correct,
@@ -242,6 +214,17 @@ function mapMistake(row, { includeSolution = false } = {}) {
     updatedAt: row.updated_at,
     lastReviewedAt: row.last_reviewed_at
   };
+  if (includeSolution) {
+    Object.assign(mistake, {
+      correctAnswer: row.correct_answer,
+      analysis: row.analysis,
+      hint: row.hint,
+      methodSteps: parseJson(row.method_steps),
+      commonErrors: parseJson(row.common_errors),
+      diagnosis: row.diagnosis
+    });
+  }
+  return mistake;
 }
 
 export class LearningRepository {
@@ -554,12 +537,7 @@ export class LearningRepository {
       const answers = includeSolution
         ? answersStatement.all(row.id).map((answer) => answer.answer)
         : [];
-      const part = mapPart(row, answers);
-      if (!includeSolution) {
-        part.explanation = "";
-        delete part.acceptedAnswers;
-      }
-      return part;
+      return mapPart(row, answers, { includeSolution });
     });
   }
 
@@ -932,7 +910,12 @@ export class LearningRepository {
     if (!mistake) {
       return null;
     }
-    validateSubmittedPartAnswers(mistake, answers);
+    validateSubmittedPartAnswers(mistake.parts || [], answers);
+    const pendingHints = this.getPendingHintContext(id);
+    const effectiveIndependent =
+      pendingHints.count > 0 ? false : independent;
+    const effectiveHintLevel =
+      pendingHints.count > 0 ? pendingHints.maxLevel : hintLevel;
 
     const submittedAnswers =
       Array.isArray(answers) && answers.length
@@ -949,11 +932,12 @@ export class LearningRepository {
       outcome: evaluation.outcome,
       correctPartCount: evaluation.correctPartCount,
       totalPartCount: evaluation.totalPartCount,
-      independent,
-      hintLevel,
+      independent: effectiveIndependent,
+      hintLevel: effectiveHintLevel,
       now: timestamp
     });
 
+    let attemptId = null;
     this.db.exec("BEGIN");
     try {
       const attemptResult = this.db
@@ -970,14 +954,27 @@ export class LearningRepository {
             : String(answer || ""),
           policy.correct ? 1 : 0,
           policy.outcome,
-          hintLevel,
-          independent === true ? 1 : independent === false ? 0 : null,
+          effectiveHintLevel,
+          effectiveIndependent === true
+            ? 1
+            : effectiveIndependent === false
+              ? 0
+              : null,
           evaluationSource,
           agentRunId,
           policy.feedback,
           timestamp
         );
-      const attemptId = Number(attemptResult.lastInsertRowid);
+      attemptId = Number(attemptResult.lastInsertRowid);
+      if (pendingHints.count > 0) {
+        this.db
+          .prepare(
+            `UPDATE hint_events
+             SET attempt_id = ?
+             WHERE mistake_id = ? AND attempt_id IS NULL`
+          )
+          .run(attemptId, id);
+      }
       const insertPartResult = this.db.prepare(
         `INSERT INTO attempt_part_results (
           attempt_id, part_id, raw_answer, outcome, feedback, created_at
@@ -1022,6 +1019,10 @@ export class LearningRepository {
     }
 
     return {
+      attemptId,
+      independent: effectiveIndependent,
+      hintLevel: effectiveHintLevel,
+      linkedHintCount: pendingHints.count,
       correct: policy.correct,
       mastered: policy.mastered,
       feedback: policy.feedback,
@@ -1085,6 +1086,98 @@ export class LearningRepository {
       partId,
       createdAt: timestamp
     };
+  }
+
+  getMaxHintLevel(mistakeId, partId = null) {
+    const row =
+      partId === null
+        ? this.db
+            .prepare(
+              `SELECT COALESCE(MAX(hint_level), 0) AS level
+               FROM hint_events WHERE mistake_id = ?`
+            )
+            .get(mistakeId)
+        : this.db
+            .prepare(
+              `SELECT COALESCE(MAX(hint_level), 0) AS level
+               FROM hint_events
+               WHERE mistake_id = ? AND part_id = ?`
+            )
+            .get(mistakeId, partId);
+    return Number(row?.level || 0);
+  }
+
+  getPendingHintContext(mistakeId) {
+    const row = this.db
+      .prepare(
+        `SELECT
+          COUNT(*) AS count,
+          COALESCE(MAX(hint_level), 0) AS max_level
+         FROM hint_events
+         WHERE mistake_id = ? AND attempt_id IS NULL`
+      )
+      .get(mistakeId);
+    return {
+      count: Number(row?.count || 0),
+      maxLevel: Number(row?.max_level || 0)
+    };
+  }
+
+  saveAttemptEvaluation({
+    attemptId,
+    outcome,
+    finalAnswerAssessment = "",
+    stepAssessment = [],
+    firstError = "",
+    feedback = "",
+    nextHintLevel = 0,
+    masteryEvidence = [],
+    sources = [],
+    provider = "",
+    model = "",
+    promptVersion = "",
+    createdAt = nowIso()
+  }) {
+    this.db
+      .prepare(
+        `INSERT INTO attempt_evaluations (
+          attempt_id, outcome, final_answer_assessment, step_assessment_json,
+          first_error, feedback, next_hint_level, mastery_evidence_json,
+          sources_json, provider, model, prompt_version, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        attemptId,
+        outcome,
+        finalAnswerAssessment,
+        JSON.stringify(stepAssessment),
+        firstError,
+        feedback,
+        nextHintLevel,
+        JSON.stringify(masteryEvidence),
+        JSON.stringify(sources),
+        provider,
+        model,
+        promptVersion,
+        createdAt
+      );
+    return this.db
+      .prepare("SELECT * FROM attempt_evaluations WHERE attempt_id = ?")
+      .get(attemptId);
+  }
+
+  getLatestAttemptEvaluation(mistakeId) {
+    return (
+      this.db
+        .prepare(
+          `SELECT e.*
+           FROM attempt_evaluations e
+           JOIN attempts a ON a.id = e.attempt_id
+           WHERE a.mistake_id = ?
+           ORDER BY e.id DESC LIMIT 1`
+        )
+        .get(mistakeId) || null
+    );
   }
 
   createAgentRun({

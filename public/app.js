@@ -6,8 +6,12 @@ const state = {
   knowledge: [],
   filter: "all",
   review: null,
+  reviewSessionId: null,
   reviewAttemptsThisSession: 0,
   reviewHintLevel: 0,
+  hintRequestKey: null,
+  followUpRequestKey: null,
+  attemptRequestKey: null,
   dialogMode: "create",
   editingMistakeId: null,
   editSubmissionKey: null,
@@ -718,7 +722,9 @@ function renderReview() {
   $("#review-loading").hidden = true;
   $("#review-empty").hidden = true;
   $("#review-card").hidden = false;
+  state.reviewSessionId = review.reviewSessionId || null;
   $("#review-point").textContent = review.knowledgePoint;
+  $("#review-edit-button").hidden = true;
   $("#review-attempt").textContent = review.attemptCount
     ? `第 ${review.attemptCount + 1} 次独立练习`
     : "第一次独立重做";
@@ -740,6 +746,13 @@ function renderReview() {
   $("#review-result").hidden = true;
   $("#review-result").replaceChildren();
   state.reviewHintLevel = 0;
+  state.hintRequestKey = null;
+  state.followUpRequestKey = null;
+  state.attemptRequestKey = null;
+  $("#follow-up-input").value = "";
+  $("#follow-up-answer").hidden = true;
+  $("#follow-up-answer").replaceChildren();
+  $("#return-to-answer-button").hidden = true;
   $("#review-progress").style.width = `${Math.min(
     90,
     20 + state.reviewAttemptsThisSession * 18
@@ -750,7 +763,7 @@ function renderReview() {
 
 async function openReview(id, { updateHash = true } = {}) {
   try {
-    const review = await api(`/api/mistakes/${id}`);
+    const review = await api(`/api/review/${id}`);
     state.review = review;
     showView("review", { updateHash: false });
     renderReview();
@@ -762,10 +775,41 @@ async function openReview(id, { updateHash = true } = {}) {
   }
 }
 
-function showHint() {
-  state.reviewHintLevel = Math.max(1, state.reviewHintLevel);
+async function loadHintLevel(level) {
+  if (!state.review || state.busy) return;
+  if (!state.hintRequestKey) state.hintRequestKey = crypto.randomUUID();
   $("#review-pre-actions").hidden = true;
   $("#hint-panel").hidden = false;
+  const nextButton = $("#next-hint-button");
+  setBusy(nextButton, true, "正在给提示…");
+  state.busy = true;
+  try {
+    const hint = await api(`/api/review/${state.review.id}/hints`, {
+      method: "POST",
+      headers: { "Idempotency-Key": state.hintRequestKey },
+      body: JSON.stringify({ level })
+    });
+    state.reviewHintLevel = hint.level;
+    $(".hint-number").textContent = `提示 ${hint.level}`;
+    $("#review-hint-title").textContent = hint.title;
+    $("#review-hint").textContent = hint.content;
+    const steps = $("#review-steps");
+    steps.replaceChildren();
+    for (const question of hint.guidingQuestions || []) {
+      steps.append(createElement("li", "", question));
+    }
+    nextButton.hidden = hint.level >= 4;
+    state.hintRequestKey = null;
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    state.busy = false;
+    setBusy(nextButton, false);
+  }
+}
+
+function showHint() {
+  loadHintLevel(Math.min(4, state.reviewHintLevel + 1));
 }
 
 function showAnswerForm() {
@@ -773,6 +817,53 @@ function showAnswerForm() {
   $("#hint-panel").hidden = true;
   $("#answer-form").hidden = false;
   $("#review-parts input")?.focus();
+}
+
+async function submitFollowUp() {
+  if (!state.review || state.busy) return;
+  const question = $("#follow-up-input").value.trim();
+  if (!question) {
+    showToast("请先写下你的疑问", true);
+    return;
+  }
+  if (!state.followUpRequestKey) {
+    state.followUpRequestKey = crypto.randomUUID();
+  }
+  const button = $("#follow-up-button");
+  state.busy = true;
+  setBusy(button, true, "正在回答…");
+  try {
+    const answer = await api(
+      `/api/review/${state.review.id}/follow-up`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": state.followUpRequestKey },
+        body: JSON.stringify({
+          question,
+          hintLevel: Math.max(1, state.reviewHintLevel)
+        })
+      }
+    );
+    const target = $("#follow-up-answer");
+    target.replaceChildren(
+      createElement("strong", "", answer.title),
+      createElement("p", "", answer.content),
+      createElement(
+        "p",
+        "",
+        `下一步：${answer.suggestedNextStep}`
+      )
+    );
+    target.hidden = false;
+    $("#return-to-answer-button").hidden = false;
+    $("#follow-up-input").value = "";
+    state.followUpRequestKey = null;
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    state.busy = false;
+    setBusy(button, false);
+  }
 }
 
 async function submitAttempt(event) {
@@ -785,11 +876,18 @@ async function submitAttempt(event) {
     })
   );
   const button = $("#answer-form button[type='submit']");
+  if (!state.attemptRequestKey) state.attemptRequestKey = crypto.randomUUID();
   state.busy = true;
   setBusy(button, true, "正在判断…");
   try {
     const result = await api(`/api/mistakes/${state.review.id}/attempts`, {
       method: "POST",
+      headers: {
+        "Idempotency-Key": state.attemptRequestKey,
+        ...(state.reviewSessionId
+          ? { "X-Review-Session": state.reviewSessionId }
+          : {})
+      },
       body: JSON.stringify({
         answer: answers.length === 1 ? answers[0].value : "",
         answers,
@@ -798,6 +896,7 @@ async function submitAttempt(event) {
       })
     });
     state.reviewAttemptsThisSession += 1;
+    state.attemptRequestKey = null;
     renderReviewResult(result);
     await Promise.all([loadDashboard(), loadMistakes(), loadKnowledge()]);
   } catch (error) {
@@ -812,6 +911,7 @@ function renderReviewResult(result) {
   const area = $("#review-answer-area");
   const target = $("#review-result");
   area.hidden = true;
+  $("#review-edit-button").hidden = false;
   target.hidden = false;
   target.className = `review-result ${
     result.outcome === "correct"
@@ -854,6 +954,32 @@ function renderReviewResult(result) {
   target.append(heading);
 
   target.append(createElement("p", "result-copy", result.feedback));
+  if (result.stepAssessment?.length || result.firstError) {
+    const stepFeedback = createElement("div", "result-step-feedback");
+    stepFeedback.append(
+      createElement(
+        "p",
+        "result-step-label",
+        "步骤分析（最终结果以系统判定为准）"
+      )
+    );
+    if (result.finalAnswerAssessment) {
+      stepFeedback.append(
+        createElement("p", "", result.finalAnswerAssessment)
+      );
+    }
+    for (const step of result.stepAssessment || []) {
+      stepFeedback.append(
+        createElement("p", "", `第 ${step.partNo} 个小问：${step.assessment}`)
+      );
+    }
+    if (result.firstError) {
+      stepFeedback.append(
+        createElement("p", "", `最早出现的错误：${result.firstError}`)
+      );
+    }
+    target.append(stepFeedback);
+  }
   if (result.partResults?.length) {
     const partList = createElement("div", "result-parts");
     for (const part of result.partResults) {
@@ -943,9 +1069,26 @@ function openAddDialog() {
   window.setTimeout(() => $("#question-input").focus(), 80);
 }
 
-async function openEditDialog(id) {
+async function openEditDialog(
+  id,
+  { context = "mistake-library" } = {}
+) {
   try {
-    const mistake = await api(`/api/mistakes/${id}`);
+    const session = await api(`/api/mistakes/${id}/edit-session`, {
+      method: "POST",
+      body: JSON.stringify({
+        confirmed: true,
+        context,
+        ...(context === "review" && state.reviewSessionId
+          ? { reviewSessionId: state.reviewSessionId }
+          : {})
+      })
+    });
+    const mistake = await api(`/api/mistakes/${id}/edit`, {
+      headers: {
+        "X-Edit-Session": session.token
+      }
+    });
     const form = $("#add-form");
     form.reset();
     form.elements.question.value = mistake.question;
@@ -1248,12 +1391,23 @@ function bindEvents() {
   });
 
   $("#show-hint-button").addEventListener("click", showHint);
+  $("#next-hint-button").addEventListener("click", showHint);
   $("#retry-button").addEventListener("click", showAnswerForm);
   $("#retry-after-hint-button").addEventListener("click", showAnswerForm);
+  $("#return-to-answer-button").addEventListener("click", showAnswerForm);
+  $("#follow-up-button").addEventListener("click", submitFollowUp);
   $("#review-edit-button").addEventListener("click", () => {
-    if (state.review) openEditDialog(state.review.id);
+    if (state.review) {
+      openEditDialog(state.review.id, { context: "review" });
+    }
   });
   $("#answer-form").addEventListener("submit", submitAttempt);
+  $("#review-parts").addEventListener("input", () => {
+    state.attemptRequestKey = null;
+  });
+  $("#follow-up-input").addEventListener("input", () => {
+    state.followUpRequestKey = null;
+  });
   $("#review-result").addEventListener("click", (event) => {
     if (event.target.closest("#next-review-button")) {
       loadNextReview();

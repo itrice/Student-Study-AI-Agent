@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,7 @@ import { createLearningTools } from "./tools/index.js";
 import {
   createDiagnosisAgent,
   createGatewayFromEnvironment,
+  createTutoringAgent,
   diagnosisOutputSchema
 } from "./llm/index.js";
 import { validateAndNormalize } from "./tools/schema.js";
@@ -29,6 +30,11 @@ const diagnosisAgent = createDiagnosisAgent({
   tools: learningTools,
   gateway: llmGateway
 });
+const tutoringAgent = createTutoringAgent({
+  repository,
+  tools: learningTools,
+  gateway: llmGateway
+});
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -39,6 +45,10 @@ const MIME_TYPES = {
   ".png": "image/png",
   ".ico": "image/x-icon"
 };
+const EDIT_SESSION_TTL_MS = 2 * 60 * 1000;
+const REVIEW_SESSION_TTL_MS = 30 * 60 * 1000;
+const editSessions = new Map();
+const reviewSessions = new Map();
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -98,6 +108,64 @@ function parseId(value) {
     throw new HttpError(400, "题目编号无效");
   }
   return id;
+}
+
+function issueEditSession(mistakeId, context) {
+  const token = randomUUID();
+  editSessions.set(token, {
+    mistakeId,
+    context,
+    expiresAt: Date.now() + EDIT_SESSION_TTL_MS
+  });
+  return {
+    token,
+    expiresAt: new Date(
+      Date.now() + EDIT_SESSION_TTL_MS
+    ).toISOString()
+  };
+}
+
+function consumeEditSession(token, mistakeId) {
+  const session = editSessions.get(token);
+  editSessions.delete(token);
+  if (
+    !session ||
+    session.expiresAt <= Date.now() ||
+    session.mistakeId !== mistakeId
+  ) {
+    return null;
+  }
+  return session;
+}
+
+function issueReviewSession(mistakeId) {
+  const id = randomUUID();
+  reviewSessions.set(id, {
+    mistakeId,
+    answered: false,
+    expiresAt: Date.now() + REVIEW_SESSION_TTL_MS
+  });
+  return id;
+}
+
+function getReviewSession(id, mistakeId) {
+  const session = reviewSessions.get(id);
+  if (
+    !session ||
+    session.expiresAt <= Date.now() ||
+    session.mistakeId !== mistakeId
+  ) {
+    if (session) reviewSessions.delete(id);
+    return null;
+  }
+  return session;
+}
+
+function markReviewSessionAnswered(id, mistakeId) {
+  const session = getReviewSession(id, mistakeId);
+  if (!session) return false;
+  session.answered = true;
+  return true;
 }
 
 const ANSWER_TYPES = new Set([
@@ -320,7 +388,11 @@ async function handleApi(request, response, url) {
         throw new HttpError(409, "题目或答案已变化，请重新诊断后再保存");
       }
     }
-    return sendJson(response, 201, repository.createMistake(input));
+    const created = repository.createMistake(input);
+    return sendJson(response, 201, {
+      ...created,
+      reviewSessionId: issueReviewSession(created.id)
+    });
   }
 
   if (request.method === "POST" && url.pathname === "/api/diagnose") {
@@ -352,7 +424,15 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/review/next") {
-    return sendJson(response, 200, repository.getNextReview());
+    const next = repository.getNextReview();
+    if (!next) return sendJson(response, 200, null);
+    const review = repository.getMistake(next.id, {
+      includeSolution: false
+    });
+    return sendJson(response, 200, {
+      ...review,
+      reviewSessionId: issueReviewSession(next.id)
+    });
   }
 
   if (request.method === "POST" && url.pathname === "/api/demo") {
@@ -362,6 +442,57 @@ async function handleApi(request, response, url) {
   const mistakeMatch = url.pathname.match(/^\/api\/mistakes\/(\d+)$/);
   if (mistakeMatch && request.method === "GET") {
     const mistake = repository.getMistake(parseId(mistakeMatch[1]), {
+      includeSolution: false
+    });
+    if (!mistake) throw new HttpError(404, "没有找到这道错题");
+    return sendJson(response, 200, mistake);
+  }
+
+  const editSessionMatch = url.pathname.match(
+    /^\/api\/mistakes\/(\d+)\/edit-session$/
+  );
+  if (editSessionMatch && request.method === "POST") {
+    const body = await readJson(request);
+    if (body.confirmed !== true) {
+      throw new HttpError(400, "请先确认进入题目修正流程");
+    }
+    const mistakeId = parseId(editSessionMatch[1]);
+    const mistake = repository.getMistake(mistakeId, {
+      includeSolution: false
+    });
+    if (!mistake) throw new HttpError(404, "没有找到这道错题");
+    const context =
+      body.context === "review" ? "review" : "mistake-library";
+    if (context === "review" && mistake.attemptCount < 1) {
+      throw new HttpError(409, "请先完成本次作答，再查看答案并修正题目");
+    }
+    if (context === "review") {
+      const reviewSession = getReviewSession(
+        body.reviewSessionId,
+        mistakeId
+      );
+      if (!reviewSession?.answered) {
+        throw new HttpError(409, "请先完成本次作答，再查看答案并修正题目");
+      }
+    }
+    return sendJson(
+      response,
+      200,
+      issueEditSession(mistakeId, context)
+    );
+  }
+
+  const editMatch = url.pathname.match(/^\/api\/mistakes\/(\d+)\/edit$/);
+  if (editMatch && request.method === "GET") {
+    const mistakeId = parseId(editMatch[1]);
+    const token = request.headers["x-edit-session"];
+    if (!token || !consumeEditSession(token, mistakeId)) {
+      throw new HttpError(
+        403,
+        "题目修正会话无效或已过期，请重新进入修正流程"
+      );
+    }
+    const mistake = repository.getMistake(mistakeId, {
       includeSolution: true
     });
     if (!mistake) throw new HttpError(404, "没有找到这道错题");
@@ -424,15 +555,82 @@ async function handleApi(request, response, url) {
   if (attemptMatch && request.method === "POST") {
     const body = await readJson(request);
     const answers = parseAttemptAnswers(body.answers);
-    const result = repository.recordAttempt(
-      parseId(attemptMatch[1]),
-      optionalText(body.answer),
-      {
-        answers
-      }
-    );
-    if (!result) throw new HttpError(404, "没有找到这道错题");
+    const result = await tutoringAgent.submitAttempt({
+      mistakeId: parseId(attemptMatch[1]),
+      answer: optionalText(body.answer),
+      answers,
+      independent:
+        typeof body.independent === "boolean" ? body.independent : null,
+      hintLevel: Number.isInteger(body.hintLevel) ? body.hintLevel : 0
+    });
+    const reviewSessionId = request.headers["x-review-session"];
+    if (reviewSessionId) {
+      markReviewSessionAnswered(
+        reviewSessionId,
+        parseId(attemptMatch[1])
+      );
+    }
     return sendJson(response, 200, result);
+  }
+
+  const reviewMatch = url.pathname.match(/^\/api\/review\/(\d+)$/);
+  if (reviewMatch && request.method === "GET") {
+    const mistake = repository.getMistake(parseId(reviewMatch[1]), {
+      includeSolution: false
+    });
+    if (!mistake) throw new HttpError(404, "没有找到这道错题");
+    return sendJson(response, 200, {
+      ...mistake,
+      reviewSessionId: issueReviewSession(mistake.id)
+    });
+  }
+
+  const hintMatch = url.pathname.match(/^\/api\/review\/(\d+)\/hints$/);
+  if (hintMatch && request.method === "POST") {
+    const body = await readJson(request);
+    const level = Number(body.level);
+    if (!Number.isInteger(level) || level < 1 || level > 4) {
+      throw new HttpError(400, "提示等级必须为 1～4");
+    }
+    const idempotencyKey = request.headers["idempotency-key"];
+    if (!idempotencyKey) {
+      throw new HttpError(400, "提示请求缺少幂等键");
+    }
+    return sendJson(
+      response,
+      200,
+      await tutoringAgent.getHint({
+        mistakeId: parseId(hintMatch[1]),
+        level,
+        partId:
+          body.partId === undefined ? null : parseId(body.partId),
+        idempotencyKey
+      })
+    );
+  }
+
+  const followUpMatch = url.pathname.match(
+    /^\/api\/review\/(\d+)\/follow-up$/
+  );
+  if (followUpMatch && request.method === "POST") {
+    const body = await readJson(request);
+    const question = requireText(body.question, "追问", 2000);
+    const idempotencyKey = request.headers["idempotency-key"];
+    if (!idempotencyKey) {
+      throw new HttpError(400, "追问请求缺少幂等键");
+    }
+    return sendJson(
+      response,
+      200,
+      await tutoringAgent.followUp({
+        mistakeId: parseId(followUpMatch[1]),
+        question,
+        level: Number.isInteger(body.hintLevel) ? body.hintLevel : 1,
+        partId:
+          body.partId === undefined ? null : parseId(body.partId),
+        idempotencyKey
+      })
+    );
   }
 
   throw new HttpError(404, "接口不存在");

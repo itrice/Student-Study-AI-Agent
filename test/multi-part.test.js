@@ -134,7 +134,7 @@ test("Agent 读取多小问题目时不暴露小问答案", async () => {
   );
   assert.equal(forAgent.parts.length, 2);
   assert.equal(Object.hasOwn(forAgent.parts[0], "acceptedAnswers"), false);
-  assert.equal(forAgent.parts[0].explanation, "");
+  assert.equal(Object.hasOwn(forAgent.parts[0], "explanation"), false);
   assert.equal(forAgent.parts[0].label, "工作效率比");
 
   const forUi = await tools.invoke(

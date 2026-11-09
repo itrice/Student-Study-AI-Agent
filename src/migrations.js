@@ -569,6 +569,49 @@ const MULTI_PART_SCHEMA_REQUIRED_COLUMNS = {
   hint_events: ["part_id"]
 };
 
+export const ATTEMPT_EVALUATION_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS attempt_evaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    attempt_id INTEGER NOT NULL UNIQUE,
+    outcome TEXT NOT NULL
+      CHECK (outcome IN ('correct', 'partial', 'incorrect', 'ungraded')),
+    final_answer_assessment TEXT NOT NULL DEFAULT '',
+    step_assessment_json TEXT NOT NULL DEFAULT '[]',
+    first_error TEXT NOT NULL DEFAULT '',
+    feedback TEXT NOT NULL DEFAULT '',
+    next_hint_level INTEGER NOT NULL DEFAULT 0,
+    mastery_evidence_json TEXT NOT NULL DEFAULT '[]',
+    sources_json TEXT NOT NULL DEFAULT '[]',
+    provider TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    prompt_version TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(attempt_id) REFERENCES attempts(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_attempt_evaluations_attempt
+  ON attempt_evaluations(attempt_id);
+`;
+
+const ATTEMPT_EVALUATION_REQUIRED_COLUMNS = {
+  attempt_evaluations: [
+    "id",
+    "attempt_id",
+    "outcome",
+    "final_answer_assessment",
+    "step_assessment_json",
+    "first_error",
+    "feedback",
+    "next_hint_level",
+    "mastery_evidence_json",
+    "sources_json",
+    "provider",
+    "model",
+    "prompt_version",
+    "created_at"
+  ]
+};
+
 function assertRequiredColumns(db, table, requiredColumns) {
   const rows = db.prepare(`PRAGMA table_info("${table}")`).all();
   if (!rows.length) {
@@ -628,6 +671,10 @@ const MISTAKE_EDITING_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
 
 const MULTI_PART_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: MULTI_PART_SCHEMA_SQL
+});
+
+const ATTEMPT_EVALUATION_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: ATTEMPT_EVALUATION_SCHEMA_SQL
 });
 
 export const SCHEMA_MIGRATIONS = [
@@ -693,6 +740,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(MULTI_PART_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         MULTI_PART_SCHEMA_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 6,
+    name: "attempt_evaluations",
+    checksumSource: ATTEMPT_EVALUATION_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(ATTEMPT_EVALUATION_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        ATTEMPT_EVALUATION_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

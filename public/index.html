@@ -258,7 +258,11 @@
             <div class="review-meta">
               <div class="review-meta-left">
                 <span class="knowledge-badge" id="review-point"></span>
-                <button class="review-edit-button" id="review-edit-button">
+                <button
+                  class="review-edit-button"
+                  id="review-edit-button"
+                  hidden
+                >
                   修改题目
                 </button>
               </div>
@@ -287,13 +291,49 @@
               <div id="hint-panel" class="hint-panel" hidden>
                 <div class="hint-heading">
                   <span class="hint-number">提示 1</span>
-                  <strong>先补上关键的一步</strong>
+                  <strong id="review-hint-title">先补上关键的一步</strong>
                 </div>
                 <p id="review-hint"></p>
                 <ol id="review-steps"></ol>
-                <button class="secondary-button" id="retry-after-hint-button">
-                  我明白了，开始重做
-                </button>
+                <div class="hint-actions">
+                  <button
+                    class="secondary-button"
+                    type="button"
+                    id="next-hint-button"
+                  >
+                    再给我一点提示
+                  </button>
+                  <button class="primary-button" id="retry-after-hint-button">
+                    我明白了，开始重做
+                  </button>
+                </div>
+                <div class="follow-up-box">
+                  <label for="follow-up-input">还是不明白？可以继续问</label>
+                  <div class="follow-up-row">
+                    <textarea
+                      id="follow-up-input"
+                      rows="2"
+                      maxlength="2000"
+                      placeholder="例如：为什么这里要除以总份数？"
+                    ></textarea>
+                    <button
+                      class="secondary-button"
+                      type="button"
+                      id="follow-up-button"
+                    >
+                      追问
+                    </button>
+                  </div>
+                  <div id="follow-up-answer" class="follow-up-answer" hidden></div>
+                  <button
+                    class="text-button"
+                    type="button"
+                    id="return-to-answer-button"
+                    hidden
+                  >
+                    我明白了，回到作答
+                  </button>
+                </div>
               </div>
               <form id="answer-form" class="answer-form" hidden>
                 <span class="answer-form-label">按小问分别写出答案</span>
@@ -480,6 +520,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261109-4"></script>
+    <script type="module" src="/app.js?v=20261109-6"></script>
   </body>
 </html>

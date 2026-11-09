@@ -105,7 +105,7 @@ test("知识检索、错题读取和到期复习工具可用", async () => {
   );
   assert.equal(mistakeForAgent.question, first.question);
   assert.equal(mistakeForAgent.correctAnswer, undefined);
-  assert.equal(mistakeForAgent.diagnosis, "");
+  assert.equal(Object.hasOwn(mistakeForAgent, "diagnosis"), false);
 
   const mistakeForUi = await tools.invoke(
     "get_mistake",

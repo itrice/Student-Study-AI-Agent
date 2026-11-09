@@ -1,6 +1,6 @@
 # LLM 接入与诊断
 
-> 实现状态：M3 待验收：真实模型 30 题自测已完成
+> 实现状态：M3 已完成；M4 教学闭环待验收
 > 接口形态：OpenAI-compatible Chat Completions
 > 降级策略：本地可解释规则
 
@@ -101,3 +101,14 @@ node src/server.js
 - 未验证具体供应商的兼容性差异。
 - 官方 OpenAI 文档在当前环境被 403/Cloudflare 拦截，兼容性结论不能在无凭据环境中最终确认。
 - 模型选择、成本预算和真实诊断准确率需要在 M7 评测阶段完成。
+
+## 7. M4 教学闭环
+
+M3 已通过验收，M4 当前待验收。新增接口：
+
+- `GET /api/review/:id`：安全复习数据，不返回答案、解析或答案变体。
+- `POST /api/review/:id/hints`：生成并记录 1～4 级提示。
+- `POST /api/review/:id/follow-up`：回答复习中的追问。
+- `POST /api/mistakes/:id/attempts`：确定性判定最终答案并调用 LLM 分析步骤。
+
+提示和追问都会执行答案泄露检测。最终答案正误由确定性校验器决定，LLM 不能覆盖。验证记录见 [M4 UI 验证](reports/m4-ui-validation-2026-11-09.md)。
