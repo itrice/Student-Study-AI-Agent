@@ -1665,8 +1665,8 @@ function bindEvents() {
     state.editSubmissionKey = null;
     queueDiagnosis();
   });
-  $("#add-dialog").addEventListener("click", (event) => {
-    if (event.target === $("#add-dialog")) closeAddDialog();
+  $("#add-dialog").addEventListener("cancel", (event) => {
+    event.preventDefault();
   });
 
   window.addEventListener("hashchange", () => {
