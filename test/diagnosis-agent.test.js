@@ -236,7 +236,8 @@ test("宽容规范化模型的数组字符串和分问字段变体", async () =>
   assert.equal(result.knowledgePoint, "比和比例");
   assert.equal(result.confidence, 0.88);
   assert.deepEqual(result.evidence, ["学生答案与正确答案不一致"]);
-  assert.deepEqual(result.knowledgeSources, ["本地比和比例知识片段"]);
+  assert.ok(result.knowledgeSources.length >= 1);
+  assert.match(result.knowledgeSources[0], /项目自编六年级数学知识摘要/);
   assert.equal(result.partAnalyses.length, 2);
   assert.equal(result.partAnalyses[0].initialHint, "先确认甲、乙的顺序。");
   repository.close();

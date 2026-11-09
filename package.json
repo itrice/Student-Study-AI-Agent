@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "evaluate:knowledge": "node scripts/evaluate-m5-knowledge.js"
   },
   "engines": {
     "node": ">=22.5.0"

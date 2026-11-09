@@ -32,8 +32,11 @@ function ruleDiagnosis(input, fallbackReason = null) {
     initialHint: result.hint,
     hint: result.hint,
     confidence: 0.5,
-    evidence: ["使用本地可解释规则进行降级诊断。"],
-    knowledgeSources: ["local_rule_profile"],
+    evidence: [
+      "使用本地可解释规则进行降级诊断。",
+      "本次未引用知识库来源，涉及教材结论时需教师复核。"
+    ],
+    knowledgeSources: [],
     partAnalyses: [],
     diagnosis: result.diagnosis,
     methodSteps: result.methodSteps,
@@ -113,7 +116,9 @@ function normalizeDiagnosisPayload(raw, input, knowledge, repository) {
     ? raw.knowledgeSources
     : raw.knowledgeSources
       ? [String(raw.knowledgeSources)]
-      : knowledge.items.map((item) => item.knowledgePoint);
+      : (knowledge.items || []).flatMap(
+          (item) => item.citations || []
+        );
   let knowledgePoint = String(raw.knowledgePoint || "").trim();
   if (!repository.getKnowledgePoint(knowledgePoint)) {
     knowledgePoint = inferKnowledgePoint({
@@ -167,6 +172,28 @@ function normalizeDiagnosisPayload(raw, input, knowledge, repository) {
     };
   });
 
+  const coverageStatus = knowledge.coverage?.status || "covered";
+  const allowedSources = [
+    ...new Set(
+      (knowledge.items || []).flatMap((item) => item.citations || [])
+    )
+  ];
+  let knowledgeSources = sourceValues.map(String).filter(Boolean).slice(0, 8);
+  if (coverageStatus === "not_covered") {
+    knowledgeSources = [];
+    evidence.push("知识库未覆盖该题，未引用任何知识来源。");
+  } else if (allowedSources.length) {
+    const auditable = knowledgeSources.filter((source) =>
+      allowedSources.includes(source)
+    );
+    knowledgeSources = auditable.length
+      ? auditable
+      : allowedSources.slice(0, 2);
+    if (coverageStatus === "insufficient") {
+      evidence.push("知识库匹配度较低，诊断结论需要教师复核。");
+    }
+  }
+
   return {
     knowledgePoint,
     errorType: String(raw.errorType || "需要进一步分析").slice(0, 100),
@@ -182,7 +209,7 @@ function normalizeDiagnosisPayload(raw, input, knowledge, repository) {
       evidence.length > 0
         ? evidence.map(String).filter(Boolean).slice(0, 8)
         : ["模型判断来自题目信息与已检索知识。"],
-    knowledgeSources: sourceValues.map(String).filter(Boolean).slice(0, 8),
+    knowledgeSources,
     ...(inputParts.length ? { partAnalyses } : {})
   };
 }
@@ -301,6 +328,8 @@ export class DiagnosisAgent {
             "confidence, evidence, knowledgeSources, partAnalyses。" +
             `knowledgePoint 必须严格使用以下名称之一：${knowledgePointNames}。` +
             "evidence 和 knowledgeSources 必须是字符串数组。" +
+            "knowledgeSources 只能逐字引用 retrievedKnowledge[].citations 中的来源；" +
+            "如果 knowledgeCoverage.status 不是 covered，必须减少引用并在 evidence 中说明覆盖不足，不得编造教材来源。" +
             "仅当输入包含 parts 时返回 partAnalyses，且数量和 partNo 必须与输入小问一一对应。"
         },
         {
@@ -313,7 +342,8 @@ export class DiagnosisAgent {
             correctAnswer: input.correctAnswer || "",
             analysis: input.analysis || "",
             parts: input.parts || [],
-            retrievedKnowledge: knowledge.items
+            retrievedKnowledge: knowledge.items,
+            knowledgeCoverage: knowledge.coverage
           })
         }
       ];

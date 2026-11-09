@@ -612,6 +612,146 @@ const ATTEMPT_EVALUATION_REQUIRED_COLUMNS = {
   ]
 };
 
+export const KNOWLEDGE_BASE_SCHEMA_SQL = `
+  ALTER TABLE knowledge_points ADD COLUMN slug TEXT;
+  ALTER TABLE knowledge_points ADD COLUMN aliases_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE knowledge_points ADD COLUMN unit TEXT NOT NULL DEFAULT '';
+  ALTER TABLE knowledge_points ADD COLUMN textbook_version TEXT NOT NULL DEFAULT '';
+  ALTER TABLE knowledge_points ADD COLUMN prerequisites_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE knowledge_points ADD COLUMN keywords_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE knowledge_points ADD COLUMN summary TEXT NOT NULL DEFAULT '';
+  ALTER TABLE knowledge_points ADD COLUMN hint TEXT NOT NULL DEFAULT '';
+  ALTER TABLE knowledge_points ADD COLUMN method_steps_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE knowledge_points ADD COLUMN common_errors_json TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE knowledge_points ADD COLUMN content_version TEXT NOT NULL DEFAULT '';
+  ALTER TABLE knowledge_points
+    ADD COLUMN review_status TEXT NOT NULL DEFAULT 'unreviewed'
+      CHECK (review_status IN ('unreviewed', 'self_reviewed', 'teacher_reviewed'));
+  ALTER TABLE knowledge_points ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_points_slug
+  ON knowledge_points(slug)
+  WHERE slug IS NOT NULL;
+
+  CREATE TABLE IF NOT EXISTS knowledge_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_key TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL
+      CHECK (kind IN ('self_authored_summary', 'textbook_outline', 'teacher_note')),
+    title TEXT NOT NULL,
+    publisher TEXT NOT NULL DEFAULT '',
+    edition TEXT NOT NULL DEFAULT '',
+    locator TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    verified_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    knowledge_point_id INTEGER NOT NULL,
+    chunk_key TEXT NOT NULL,
+    kind TEXT NOT NULL
+      CHECK (kind IN ('concept', 'method', 'condition', 'common_error', 'example')),
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    citation TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    content_version TEXT NOT NULL,
+    review_status TEXT NOT NULL DEFAULT 'self_reviewed'
+      CHECK (review_status IN ('unreviewed', 'self_reviewed', 'teacher_reviewed')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(knowledge_point_id) REFERENCES knowledge_points(id) ON DELETE CASCADE,
+    FOREIGN KEY(source_id) REFERENCES knowledge_sources(id) ON DELETE RESTRICT,
+    UNIQUE(knowledge_point_id, chunk_key)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_point
+  ON knowledge_chunks(knowledge_point_id, position);
+
+  CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_kind
+  ON knowledge_chunks(kind);
+
+  CREATE TABLE IF NOT EXISTS knowledge_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    knowledge_point_id INTEGER NOT NULL,
+    content_version TEXT NOT NULL,
+    checklist_version TEXT NOT NULL,
+    status TEXT NOT NULL
+      CHECK (status IN ('self_reviewed', 'teacher_reviewed', 'rejected')),
+    reviewer TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    reviewed_at TEXT NOT NULL,
+    FOREIGN KEY(knowledge_point_id) REFERENCES knowledge_points(id) ON DELETE CASCADE,
+    UNIQUE(knowledge_point_id, content_version)
+  );
+
+  CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_chunks_fts USING fts5(
+    chunk_id UNINDEXED,
+    document,
+    tokenize = 'unicode61'
+  );
+`;
+
+const KNOWLEDGE_BASE_REQUIRED_COLUMNS = {
+  knowledge_points: [
+    "slug",
+    "aliases_json",
+    "unit",
+    "textbook_version",
+    "prerequisites_json",
+    "keywords_json",
+    "summary",
+    "hint",
+    "method_steps_json",
+    "common_errors_json",
+    "content_version",
+    "review_status",
+    "updated_at"
+  ],
+  knowledge_sources: [
+    "id",
+    "source_key",
+    "kind",
+    "title",
+    "publisher",
+    "edition",
+    "locator",
+    "note",
+    "verified_at",
+    "created_at",
+    "updated_at"
+  ],
+  knowledge_chunks: [
+    "id",
+    "knowledge_point_id",
+    "chunk_key",
+    "kind",
+    "title",
+    "content",
+    "citation",
+    "source_id",
+    "position",
+    "content_version",
+    "review_status",
+    "created_at",
+    "updated_at"
+  ],
+  knowledge_reviews: [
+    "id",
+    "knowledge_point_id",
+    "content_version",
+    "checklist_version",
+    "status",
+    "reviewer",
+    "notes",
+    "reviewed_at"
+  ]
+};
+
 function assertRequiredColumns(db, table, requiredColumns) {
   const rows = db.prepare(`PRAGMA table_info("${table}")`).all();
   if (!rows.length) {
@@ -675,6 +815,10 @@ const MULTI_PART_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
 
 const ATTEMPT_EVALUATION_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: ATTEMPT_EVALUATION_SCHEMA_SQL
+});
+
+const KNOWLEDGE_BASE_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: KNOWLEDGE_BASE_SCHEMA_SQL
 });
 
 export const SCHEMA_MIGRATIONS = [
@@ -753,6 +897,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(ATTEMPT_EVALUATION_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         ATTEMPT_EVALUATION_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 7,
+    name: "knowledge_base",
+    checksumSource: KNOWLEDGE_BASE_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(KNOWLEDGE_BASE_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        KNOWLEDGE_BASE_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

@@ -1,0 +1,926 @@
+{
+  "generatedAt": "2026-11-09T16:52:01.906Z",
+  "reportDate": "2026-11-10",
+  "contentVersion": "2026.11.3",
+  "textbookVersion": "人教版六年级（上册/下册）",
+  "corpus": {
+    "knowledgePoints": 12,
+    "chunks": 84,
+    "sources": 2,
+    "reviewCounts": {
+      "self_reviewed": 12
+    }
+  },
+  "evaluation": {
+    "limit": 3,
+    "total": 48,
+    "hits": 48,
+    "accuracy": 1,
+    "top1Hits": 47,
+    "top1Accuracy": 0.9791666666666666,
+    "covered": 48,
+    "sourceCoverage": 1,
+    "heldOut": {
+      "total": 12,
+      "hits": 12,
+      "accuracy": 1,
+      "top1Hits": 12,
+      "top1Accuracy": 1,
+      "misses": []
+    },
+    "statusCounts": {
+      "covered": 48
+    },
+    "perPoint": [
+      {
+        "knowledgePoint": "分数乘除法",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      },
+      {
+        "knowledgePoint": "分数四则混合运算",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      },
+      {
+        "knowledgePoint": "比和比例",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      },
+      {
+        "knowledgePoint": "比例与图形",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      },
+      {
+        "knowledgePoint": "圆",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      },
+      {
+        "knowledgePoint": "圆柱与圆锥",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      },
+      {
+        "knowledgePoint": "百分数",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      },
+      {
+        "knowledgePoint": "统计与扇形统计图",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      },
+      {
+        "knowledgePoint": "数与形",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      },
+      {
+        "knowledgePoint": "负数",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      },
+      {
+        "knowledgePoint": "位置与方向",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      },
+      {
+        "knowledgePoint": "综合应用",
+        "total": 4,
+        "hits": 4,
+        "accuracy": 1
+      }
+    ],
+    "misses": [],
+    "rows": [
+      {
+        "id": "fraction-1",
+        "set": "card_aligned",
+        "expected": "分数乘除法",
+        "query": "一桶油重12千克，用去四分之一，用去多少千克？",
+        "top3": [
+          "分数乘除法",
+          "分数四则混合运算",
+          "圆柱与圆锥"
+        ],
+        "top1": "分数乘除法",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 47
+      },
+      {
+        "id": "fraction-2",
+        "set": "card_aligned",
+        "expected": "分数乘除法",
+        "query": "一本书看了五分之二，正好60页，这本书共有多少页？",
+        "top3": [
+          "分数乘除法",
+          "分数四则混合运算",
+          "圆柱与圆锥"
+        ],
+        "top1": "分数乘除法",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 45
+      },
+      {
+        "id": "fraction-3",
+        "set": "card_aligned",
+        "expected": "分数乘除法",
+        "query": "四分之三除以八分之三等于多少？",
+        "top3": [
+          "分数乘除法",
+          "分数四则混合运算",
+          "比和比例"
+        ],
+        "top1": "分数乘除法",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 51
+      },
+      {
+        "id": "fraction-mixed-1",
+        "set": "card_aligned",
+        "expected": "分数四则混合运算",
+        "query": "二分之一加三分之一乘四分之三等于多少？",
+        "top3": [
+          "分数四则混合运算",
+          "圆柱与圆锥",
+          "分数乘除法"
+        ],
+        "top1": "分数四则混合运算",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 66
+      },
+      {
+        "id": "fraction-mixed-2",
+        "set": "card_aligned",
+        "expected": "分数四则混合运算",
+        "query": "六分之五加三分之一的差除以九分之七",
+        "top3": [
+          "分数四则混合运算",
+          "分数乘除法",
+          "圆柱与圆锥"
+        ],
+        "top1": "分数四则混合运算",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 60
+      },
+      {
+        "id": "fraction-mixed-3",
+        "set": "card_aligned",
+        "expected": "分数四则混合运算",
+        "query": "八分之五乘九分之四加八分之三乘九分之四，怎样简便计算？",
+        "top3": [
+          "分数四则混合运算",
+          "分数乘除法",
+          "圆柱与圆锥"
+        ],
+        "top1": "分数四则混合运算",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 70
+      },
+      {
+        "id": "ratio-1",
+        "set": "card_aligned",
+        "expected": "比和比例",
+        "query": "把12比18化成最简整数比",
+        "top3": [
+          "比和比例",
+          "负数",
+          "比例与图形"
+        ],
+        "top1": "比和比例",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 167
+      },
+      {
+        "id": "ratio-2",
+        "set": "card_aligned",
+        "expected": "比和比例",
+        "query": "60个苹果按2比3分给甲乙两人，各分多少个？",
+        "top3": [
+          "比和比例",
+          "比例与图形",
+          "统计与扇形统计图"
+        ],
+        "top1": "比和比例",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 60
+      },
+      {
+        "id": "ratio-3",
+        "set": "card_aligned",
+        "expected": "比和比例",
+        "query": "解比例x比4等于3比6",
+        "top3": [
+          "比和比例",
+          "比例与图形",
+          "综合应用"
+        ],
+        "top1": "比和比例",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 206
+      },
+      {
+        "id": "scale-1",
+        "set": "card_aligned",
+        "expected": "比例与图形",
+        "query": "比例尺1比500000，图上距离4厘米，实际距离是多少千米？",
+        "top3": [
+          "比例与图形",
+          "比和比例",
+          "位置与方向"
+        ],
+        "top1": "比例与图形",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 317
+      },
+      {
+        "id": "scale-2",
+        "set": "card_aligned",
+        "expected": "比例与图形",
+        "query": "边长2厘米的正方形按3比1放大后面积是多少？",
+        "top3": [
+          "比例与图形",
+          "圆",
+          "数与形"
+        ],
+        "top1": "比例与图形",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 62
+      },
+      {
+        "id": "scale-3",
+        "set": "card_aligned",
+        "expected": "比例与图形",
+        "query": "长方形长4厘米宽3厘米，按1比2缩小后的图上面积是多少？",
+        "top3": [
+          "比例与图形",
+          "圆",
+          "圆柱与圆锥"
+        ],
+        "top1": "比例与图形",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 63
+      },
+      {
+        "id": "circle-1",
+        "set": "card_aligned",
+        "expected": "圆",
+        "query": "一个圆形花坛的半径是3米，面积是多少平方米？",
+        "top3": [
+          "圆",
+          "比例与图形",
+          "圆柱与圆锥"
+        ],
+        "top1": "圆",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 116
+      },
+      {
+        "id": "circle-2",
+        "set": "card_aligned",
+        "expected": "圆",
+        "query": "一个圆的直径是10厘米，周长是多少厘米？",
+        "top3": [
+          "圆",
+          "圆柱与圆锥",
+          "比例与图形"
+        ],
+        "top1": "圆",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 120
+      },
+      {
+        "id": "circle-3",
+        "set": "card_aligned",
+        "expected": "圆",
+        "query": "半圆直径4厘米，它的周长是多少？",
+        "top3": [
+          "圆",
+          "圆柱与圆锥",
+          "比例与图形"
+        ],
+        "top1": "圆",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 200
+      },
+      {
+        "id": "cylinder-1",
+        "set": "card_aligned",
+        "expected": "圆柱与圆锥",
+        "query": "圆柱底面半径2分米高5分米，体积是多少立方分米？",
+        "top3": [
+          "圆柱与圆锥",
+          "圆",
+          "综合应用"
+        ],
+        "top1": "圆柱与圆锥",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 147
+      },
+      {
+        "id": "cylinder-2",
+        "set": "card_aligned",
+        "expected": "圆柱与圆锥",
+        "query": "等底等高的圆柱体积是30立方厘米，圆锥体积是多少？",
+        "top3": [
+          "圆柱与圆锥",
+          "综合应用",
+          "比例与图形"
+        ],
+        "top1": "圆柱与圆锥",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 336
+      },
+      {
+        "id": "cylinder-3",
+        "set": "card_aligned",
+        "expected": "圆柱与圆锥",
+        "query": "无盖圆柱水桶底面半径2分米高5分米，需要多少平方分米铁皮？",
+        "top3": [
+          "圆柱与圆锥",
+          "圆",
+          "综合应用"
+        ],
+        "top1": "圆柱与圆锥",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 177
+      },
+      {
+        "id": "percent-1",
+        "set": "card_aligned",
+        "expected": "百分数",
+        "query": "一件商品原价240元，涨价20%后的价格是多少元？",
+        "top3": [
+          "百分数",
+          "比例与图形",
+          "圆"
+        ],
+        "top1": "百分数",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 91
+      },
+      {
+        "id": "percent-2",
+        "set": "card_aligned",
+        "expected": "百分数",
+        "query": "一件衣服80元，打八折后是多少元？",
+        "top3": [
+          "百分数",
+          "分数乘除法",
+          "比例与图形"
+        ],
+        "top1": "百分数",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 151
+      },
+      {
+        "id": "percent-3",
+        "set": "card_aligned",
+        "expected": "百分数",
+        "query": "某班60人参加测试，48人及格，及格率是多少？",
+        "top3": [
+          "百分数",
+          "综合应用",
+          "分数乘除法"
+        ],
+        "top1": "百分数",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 99
+      },
+      {
+        "id": "statistics-1",
+        "set": "card_aligned",
+        "expected": "统计与扇形统计图",
+        "query": "全班40人，喜欢篮球的占25%，喜欢篮球的有多少人？",
+        "top3": [
+          "统计与扇形统计图",
+          "百分数",
+          "综合应用"
+        ],
+        "top1": "统计与扇形统计图",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 61
+      },
+      {
+        "id": "statistics-2",
+        "set": "card_aligned",
+        "expected": "统计与扇形统计图",
+        "query": "扇形统计图中某部分占30%，对应12人，整体是多少人？",
+        "top3": [
+          "统计与扇形统计图",
+          "圆",
+          "综合应用"
+        ],
+        "top1": "统计与扇形统计图",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 307
+      },
+      {
+        "id": "statistics-3",
+        "set": "card_aligned",
+        "expected": "统计与扇形统计图",
+        "query": "要表示各部分占整体的百分比，选择哪种统计图？",
+        "top3": [
+          "统计与扇形统计图",
+          "百分数",
+          "综合应用"
+        ],
+        "top1": "统计与扇形统计图",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 235
+      },
+      {
+        "id": "number-shape-1",
+        "set": "card_aligned",
+        "expected": "数与形",
+        "query": "计算1+3+5+7+9，并说明它等于哪个正方形数。",
+        "top3": [
+          "数与形",
+          "比例与图形",
+          "圆"
+        ],
+        "top1": "数与形",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 135
+      },
+      {
+        "id": "number-shape-2",
+        "set": "card_aligned",
+        "expected": "数与形",
+        "query": "连续奇数相加的和与正方形数有什么关系？",
+        "top3": [
+          "数与形",
+          "分数四则混合运算",
+          "比例与图形"
+        ],
+        "top1": "数与形",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 251
+      },
+      {
+        "id": "number-shape-3",
+        "set": "card_aligned",
+        "expected": "数与形",
+        "query": "第1个图形有1个小正方形，第2个有4个，第3个有9个，第n个有多少个？",
+        "top3": [
+          "数与形",
+          "比例与图形",
+          "圆"
+        ],
+        "top1": "数与形",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 112
+      },
+      {
+        "id": "negative-1",
+        "set": "card_aligned",
+        "expected": "负数",
+        "query": "零下5摄氏度记作多少摄氏度？",
+        "top3": [
+          "负数",
+          "综合应用"
+        ],
+        "top1": "负数",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 83
+      },
+      {
+        "id": "negative-2",
+        "set": "card_aligned",
+        "expected": "负数",
+        "query": "海拔负20米表示什么？",
+        "top3": [
+          "负数",
+          "综合应用",
+          "比例与图形"
+        ],
+        "top1": "负数",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 84
+      },
+      {
+        "id": "negative-3",
+        "set": "card_aligned",
+        "expected": "负数",
+        "query": "比较负3和负5的大小",
+        "top3": [
+          "负数",
+          "百分数",
+          "数与形"
+        ],
+        "top1": "负数",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 54
+      },
+      {
+        "id": "position-1",
+        "set": "card_aligned",
+        "expected": "位置与方向",
+        "query": "B点在A点北偏东30度方向4千米处，是以哪个点为观测点？",
+        "top3": [
+          "位置与方向",
+          "综合应用",
+          "统计与扇形统计图"
+        ],
+        "top1": "位置与方向",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 141
+      },
+      {
+        "id": "position-2",
+        "set": "card_aligned",
+        "expected": "位置与方向",
+        "query": "从A点出发，北偏东30度方向距离4千米，怎样确定B点位置？",
+        "top3": [
+          "位置与方向",
+          "比例与图形",
+          "综合应用"
+        ],
+        "top1": "位置与方向",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 198
+      },
+      {
+        "id": "position-3",
+        "set": "card_aligned",
+        "expected": "位置与方向",
+        "query": "从学校向东走2千米再向北走1千米到图书馆，返回时怎样走？",
+        "top3": [
+          "位置与方向",
+          "综合应用",
+          "比例与图形"
+        ],
+        "top1": "位置与方向",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 89
+      },
+      {
+        "id": "integrated-1",
+        "set": "card_aligned",
+        "expected": "综合应用",
+        "query": "一项工程甲单独做10天完成，乙单独做15天完成，两人合作几天完成？",
+        "top3": [
+          "综合应用",
+          "圆",
+          "分数四则混合运算"
+        ],
+        "top1": "综合应用",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 145
+      },
+      {
+        "id": "integrated-2",
+        "set": "card_aligned",
+        "expected": "综合应用",
+        "query": "甲乙两地相距300千米，两车相向而行，速度分别是60和40千米每时，几小时相遇？",
+        "top3": [
+          "综合应用",
+          "比和比例",
+          "统计与扇形统计图"
+        ],
+        "top1": "综合应用",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 85
+      },
+      {
+        "id": "integrated-3",
+        "set": "card_aligned",
+        "expected": "综合应用",
+        "query": "圆柱形水桶底面半径2分米高5分米，装80%的水，水的体积是多少升？",
+        "top3": [
+          "圆柱与圆锥",
+          "圆",
+          "综合应用"
+        ],
+        "top1": "圆柱与圆锥",
+        "hit": true,
+        "top1Hit": false,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 161
+      },
+      {
+        "id": "heldout-fraction-1",
+        "set": "held_out",
+        "expected": "分数乘除法",
+        "query": "一根绳子长12米，用去它的三分之一，还剩多少米？",
+        "top3": [
+          "分数乘除法",
+          "圆柱与圆锥",
+          "分数四则混合运算"
+        ],
+        "top1": "分数乘除法",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 67
+      },
+      {
+        "id": "heldout-fraction-mixed-1",
+        "set": "held_out",
+        "expected": "分数四则混合运算",
+        "query": "三分之一加二分之一乘四分之三先算什么？",
+        "top3": [
+          "分数四则混合运算",
+          "圆柱与圆锥",
+          "分数乘除法"
+        ],
+        "top1": "分数四则混合运算",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 84
+      },
+      {
+        "id": "heldout-ratio-1",
+        "set": "held_out",
+        "expected": "比和比例",
+        "query": "甲数和乙数的比是3比2，甲数比乙数多10，乙数是多少？",
+        "top3": [
+          "比和比例",
+          "比例与图形",
+          "百分数"
+        ],
+        "top1": "比和比例",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 90
+      },
+      {
+        "id": "heldout-scale-1",
+        "set": "held_out",
+        "expected": "比例与图形",
+        "query": "图上距离3厘米，比例尺1比50000，实际距离是多少千米？",
+        "top3": [
+          "比例与图形",
+          "比和比例",
+          "位置与方向"
+        ],
+        "top1": "比例与图形",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 317
+      },
+      {
+        "id": "heldout-circle-1",
+        "set": "held_out",
+        "expected": "圆",
+        "query": "一个圆形花坛的直径是8米，绕花坛走一圈是多少米？",
+        "top3": [
+          "圆",
+          "统计与扇形统计图",
+          "比例与图形"
+        ],
+        "top1": "圆",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 92
+      },
+      {
+        "id": "heldout-cylinder-1",
+        "set": "held_out",
+        "expected": "圆柱与圆锥",
+        "query": "一个圆锥形沙堆的底面积是12平方米，高是1.5米，体积是多少立方米？",
+        "top3": [
+          "圆柱与圆锥",
+          "比例与图形",
+          "圆"
+        ],
+        "top1": "圆柱与圆锥",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 115
+      },
+      {
+        "id": "heldout-percent-1",
+        "set": "held_out",
+        "expected": "百分数",
+        "query": "王叔叔把20000元存入银行，年利率2.75%，存三年，利息是多少元？",
+        "top3": [
+          "百分数",
+          "比例与图形",
+          "圆"
+        ],
+        "top1": "百分数",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 237
+      },
+      {
+        "id": "heldout-statistics-1",
+        "set": "held_out",
+        "expected": "统计与扇形统计图",
+        "query": "扇形统计图中喜欢足球的占35%，全班60人，喜欢足球的有多少人？",
+        "top3": [
+          "统计与扇形统计图",
+          "圆",
+          "综合应用"
+        ],
+        "top1": "统计与扇形统计图",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 303
+      },
+      {
+        "id": "heldout-number-shape-1",
+        "set": "held_out",
+        "expected": "数与形",
+        "query": "正方形数1、4、9、16、25，第8个正方形数是多少？",
+        "top3": [
+          "数与形",
+          "比例与图形",
+          "圆"
+        ],
+        "top1": "数与形",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 153
+      },
+      {
+        "id": "heldout-negative-1",
+        "set": "held_out",
+        "expected": "负数",
+        "query": "某地气温是零下5摄氏度，记作多少摄氏度？",
+        "top3": [
+          "负数",
+          "综合应用"
+        ],
+        "top1": "负数",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 79
+      },
+      {
+        "id": "heldout-position-1",
+        "set": "held_out",
+        "expected": "位置与方向",
+        "query": "从学校出发向东偏北30度走200米到图书馆，返回时应该怎么走？",
+        "top3": [
+          "位置与方向",
+          "统计与扇形统计图",
+          "综合应用"
+        ],
+        "top1": "位置与方向",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 70
+      },
+      {
+        "id": "heldout-integrated-1",
+        "set": "held_out",
+        "expected": "综合应用",
+        "query": "一项工作，师傅单独做6小时完成，徒弟单独做9小时完成，师傅先做2小时后两人合作，还要几小时完成？",
+        "top3": [
+          "综合应用",
+          "分数四则混合运算",
+          "比和比例"
+        ],
+        "top1": "综合应用",
+        "hit": true,
+        "top1Hit": true,
+        "sourced": true,
+        "coverage": "covered",
+        "bestScore": 129
+      }
+    ]
+  }
+}

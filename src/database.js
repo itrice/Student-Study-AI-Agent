@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { DatabaseSync } from "node:sqlite";
 import { diagnoseMistake } from "./agent.js";
@@ -17,6 +17,16 @@ import {
   getSchemaVersion,
   migrateDatabase
 } from "./migrations.js";
+import {
+  KNOWLEDGE_CARDS,
+  KNOWLEDGE_CONTENT_VERSION,
+  KNOWLEDGE_SOURCES
+} from "./knowledge/catalog.js";
+import {
+  buildKnowledgeFtsQuery,
+  searchKnowledgeCards,
+  segmentKnowledgeText
+} from "./knowledge/search.js";
 
 const nowIso = () => new Date().toISOString();
 const toolWriteLeaseStorage = new AsyncLocalStorage();
@@ -256,6 +266,7 @@ export class LearningRepository {
           }
         }
       });
+      this.syncKnowledgeBase();
     } catch (error) {
       this.db.close();
       throw error;
@@ -314,6 +325,404 @@ export class LearningRepository {
         )
         .get(name) || null
     );
+  }
+
+  knowledgeContentVersion(card) {
+    const fingerprint = createHash("sha256")
+      .update(
+        JSON.stringify({
+          name: card.name,
+          aliases: card.aliases,
+          unit: card.unit,
+          prerequisites: card.prerequisites,
+          keywords: card.keywords,
+          summary: card.summary,
+          hint: card.hint,
+          steps: card.steps,
+          commonErrors: card.commonErrors,
+          sourceKeys: card.sourceKeys,
+          chunks: card.chunks
+        })
+      )
+      .digest("hex")
+      .slice(0, 12);
+    return `${KNOWLEDGE_CONTENT_VERSION}:${fingerprint}`;
+  }
+
+  knowledgeCitation(source, card, chunk) {
+    const sourceKey = source.source_key || source.key;
+    return `${source.title}（${source.edition}）· ${card.name} / ${chunk.title} [${sourceKey}]`;
+  }
+
+  rebuildKnowledgeFts() {
+    this.db.prepare("DELETE FROM knowledge_chunks_fts").run();
+    const rows = this.db
+      .prepare("SELECT id, title, content, citation FROM knowledge_chunks")
+      .all();
+    const insert = this.db.prepare(
+      "INSERT INTO knowledge_chunks_fts (chunk_id, document) VALUES (?, ?)"
+    );
+    for (const row of rows) {
+      insert.run(
+        row.id,
+        segmentKnowledgeText(`${row.title} ${row.content} ${row.citation}`)
+      );
+    }
+  }
+
+  syncKnowledgeBase() {
+    const timestamp = nowIso();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const sourceByKey = new Map();
+      const upsertSource = this.db.prepare(`
+        INSERT INTO knowledge_sources (
+          source_key, kind, title, publisher, edition, locator, note,
+          verified_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source_key) DO UPDATE SET
+          kind = excluded.kind,
+          title = excluded.title,
+          publisher = excluded.publisher,
+          edition = excluded.edition,
+          locator = excluded.locator,
+          note = excluded.note,
+          verified_at = excluded.verified_at,
+          updated_at = excluded.updated_at
+      `);
+      for (const source of KNOWLEDGE_SOURCES) {
+        upsertSource.run(
+          source.key,
+          source.kind,
+          source.title,
+          source.publisher,
+          source.edition,
+          source.locator,
+          source.note,
+          source.verifiedAt || null,
+          timestamp,
+          timestamp
+        );
+        const row = this.db
+          .prepare("SELECT * FROM knowledge_sources WHERE source_key = ?")
+          .get(source.key);
+        sourceByKey.set(source.key, row);
+      }
+
+      let changedPoints = 0;
+      let insertedChunks = 0;
+      for (const [position, card] of KNOWLEDGE_CARDS.entries()) {
+        const contentVersion = this.knowledgeContentVersion(card);
+        const existing = this.db
+          .prepare(
+            "SELECT id, content_version FROM knowledge_points WHERE slug = ? OR name = ? ORDER BY id LIMIT 1"
+          )
+          .get(card.slug, card.name);
+        const values = [
+          card.name,
+          card.slug,
+          JSON.stringify(card.aliases || []),
+          card.unit || "",
+          card.textbookVersion || "",
+          JSON.stringify(card.prerequisites || []),
+          JSON.stringify(card.keywords || []),
+          card.summary || "",
+          card.hint || "",
+          JSON.stringify(card.steps || []),
+          JSON.stringify(card.commonErrors || []),
+          contentVersion,
+          card.reviewStatus || "self_reviewed",
+          timestamp,
+          position
+        ];
+
+        let pointId;
+        if (existing) {
+          pointId = existing.id;
+          this.db
+            .prepare(`
+              UPDATE knowledge_points SET
+                name = ?, slug = ?, aliases_json = ?, unit = ?,
+                textbook_version = ?, prerequisites_json = ?, keywords_json = ?,
+                summary = ?, hint = ?, method_steps_json = ?,
+                common_errors_json = ?, content_version = ?, review_status = ?,
+                updated_at = ?, position = ?
+              WHERE id = ?
+            `)
+            .run(...values, pointId);
+        } else {
+          const result = this.db
+            .prepare(`
+              INSERT INTO knowledge_points (
+                name, slug, aliases_json, unit, textbook_version,
+                prerequisites_json, keywords_json, summary, hint,
+                method_steps_json, common_errors_json, content_version,
+                review_status, updated_at, position
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `)
+            .run(...values);
+          pointId = Number(result.lastInsertRowid);
+        }
+
+        const chunkCount = Number(
+          this.db
+            .prepare(
+              "SELECT COUNT(*) AS count FROM knowledge_chunks WHERE knowledge_point_id = ?"
+            )
+            .get(pointId).count
+        );
+        const needsChunkSync =
+          !existing ||
+          existing.content_version !== contentVersion ||
+          chunkCount !== (card.chunks || []).length;
+
+        if (needsChunkSync) {
+          this.db
+            .prepare(
+              "DELETE FROM knowledge_chunks_fts WHERE chunk_id IN (SELECT id FROM knowledge_chunks WHERE knowledge_point_id = ?)"
+            )
+            .run(pointId);
+          this.db
+            .prepare("DELETE FROM knowledge_chunks WHERE knowledge_point_id = ?")
+            .run(pointId);
+          const insertChunk = this.db.prepare(`
+            INSERT INTO knowledge_chunks (
+              knowledge_point_id, chunk_key, kind, title, content, citation,
+              source_id, position, content_version, review_status,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          (card.chunks || []).forEach((chunk, index) => {
+            const source =
+              sourceByKey.get(chunk.sourceKey) ||
+              sourceByKey.get("self-authored-summary-v1");
+            insertChunk.run(
+              pointId,
+              chunk.key,
+              chunk.kind,
+              chunk.title,
+              chunk.content,
+              this.knowledgeCitation(source, card, chunk),
+              source.id,
+              index + 1,
+              contentVersion,
+              card.reviewStatus || "self_reviewed",
+              timestamp,
+              timestamp
+            );
+            insertedChunks += 1;
+          });
+          changedPoints += 1;
+        }
+
+        this.db
+          .prepare(`
+            INSERT INTO knowledge_reviews (
+              knowledge_point_id, content_version, checklist_version, status,
+              reviewer, notes, reviewed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(knowledge_point_id, content_version) DO UPDATE SET
+              checklist_version = excluded.checklist_version,
+              status = excluded.status,
+              reviewer = excluded.reviewer,
+              notes = excluded.notes,
+              reviewed_at = excluded.reviewed_at
+          `)
+          .run(
+            pointId,
+            contentVersion,
+            "knowledge-review-v2",
+            card.reviewStatus || "self_reviewed",
+            "项目自检",
+            card.reviewNote || "内容、例题和来源已完成项目自检。",
+            timestamp
+          );
+      }
+
+      this.rebuildKnowledgeFts();
+      this.db.exec("COMMIT");
+      return {
+        cards: KNOWLEDGE_CARDS.length,
+        changedPoints,
+        insertedChunks,
+        contentVersion: KNOWLEDGE_CONTENT_VERSION
+      };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  getKnowledgeCards() {
+    const points = this.db
+      .prepare(`
+        SELECT id, name, slug, aliases_json, unit, textbook_version,
+               prerequisites_json, keywords_json, summary, hint,
+               method_steps_json, common_errors_json, content_version,
+               review_status, updated_at, position
+        FROM knowledge_points
+        ORDER BY position, id
+      `)
+      .all();
+    const sources = this.db
+      .prepare("SELECT * FROM knowledge_sources ORDER BY id")
+      .all();
+    const sourceById = new Map(sources.map((source) => [source.id, source]));
+    const sourceByKey = new Map(
+      sources.map((source) => [source.source_key, source])
+    );
+    const catalogBySlug = new Map(
+      KNOWLEDGE_CARDS.map((card) => [card.slug, card])
+    );
+    const chunks = this.db
+      .prepare("SELECT * FROM knowledge_chunks ORDER BY position, id")
+      .all();
+    const chunksByPoint = new Map();
+    for (const chunk of chunks) {
+      if (!chunksByPoint.has(chunk.knowledge_point_id)) {
+        chunksByPoint.set(chunk.knowledge_point_id, []);
+      }
+      chunksByPoint.get(chunk.knowledge_point_id).push(chunk);
+    }
+
+    const mapSource = (source) => ({
+      key: source.source_key,
+      kind: source.kind,
+      title: source.title,
+      publisher: source.publisher,
+      edition: source.edition,
+      locator: source.locator,
+      note: source.note,
+      verifiedAt: source.verified_at,
+      citation: `${source.title}（${source.edition}）· ${source.locator} [${source.source_key}]`
+    });
+
+    return points.map((point) => {
+      const pointChunks = (chunksByPoint.get(point.id) || []).map((chunk) => {
+        const source = sourceById.get(chunk.source_id);
+        return {
+          id: chunk.id,
+          chunkKey: chunk.chunk_key,
+          kind: chunk.kind,
+          title: chunk.title,
+          content: chunk.content,
+          citation: chunk.citation,
+          reviewStatus: chunk.review_status,
+          source: source ? mapSource(source) : null
+        };
+      });
+      const sourceMap = new Map();
+      for (const chunk of pointChunks) {
+        if (chunk.source) sourceMap.set(chunk.source.key, chunk.source);
+      }
+      const catalogCard = catalogBySlug.get(point.slug);
+      for (const sourceKey of catalogCard?.sourceKeys || []) {
+        const source = sourceByKey.get(sourceKey);
+        if (source) {
+          const mapped = mapSource(source);
+          sourceMap.set(mapped.key, mapped);
+        }
+      }
+      return {
+        id: point.id,
+        name: point.name,
+        slug: point.slug,
+        aliases: parseJson(point.aliases_json),
+        unit: point.unit,
+        textbookVersion: point.textbook_version,
+        prerequisites: parseJson(point.prerequisites_json),
+        keywords: parseJson(point.keywords_json),
+        summary: point.summary,
+        hint: point.hint,
+        steps: parseJson(point.method_steps_json),
+        commonErrors: parseJson(point.common_errors_json),
+        contentVersion: point.content_version,
+        reviewStatus: point.review_status,
+        updatedAt: point.updated_at,
+        position: point.position,
+        chunks: pointChunks,
+        sources: [...sourceMap.values()]
+      };
+    });
+  }
+
+  getKnowledgeCard(identifier) {
+    const value = String(identifier || "").trim();
+    if (!value) return null;
+    return (
+      this.getKnowledgeCards().find(
+        (card) =>
+          String(card.id) === value ||
+          card.slug === value ||
+          card.name === value
+      ) || null
+    );
+  }
+
+  searchKnowledge({ query, knowledgePoint = null, limit = 3, includeCard = false }) {
+    const cards = this.getKnowledgeCards();
+    const ftsHits = new Map();
+    const ftsQuery = buildKnowledgeFtsQuery(query);
+    if (ftsQuery) {
+      try {
+        const rows = this.db
+          .prepare(
+            "SELECT chunk_id FROM knowledge_chunks_fts WHERE document MATCH ? LIMIT 400"
+          )
+          .all(ftsQuery);
+        const pointByChunk = new Map();
+        for (const card of cards) {
+          for (const chunk of card.chunks) {
+            pointByChunk.set(chunk.id, card.id);
+          }
+        }
+        for (const row of rows) {
+          const pointId = pointByChunk.get(Number(row.chunk_id));
+          if (!pointId) continue;
+          ftsHits.set(pointId, (ftsHits.get(pointId) || 0) + 1);
+        }
+      } catch {
+        ftsHits.clear();
+      }
+    }
+    return searchKnowledgeCards(cards, {
+      query,
+      knowledgePoint,
+      limit,
+      includeCard,
+      ftsHits
+    });
+  }
+
+  getKnowledgeBaseStats() {
+    const cards = this.getKnowledgeCards();
+    const reviewCounts = {};
+    for (const card of cards) {
+      reviewCounts[card.reviewStatus] = (reviewCounts[card.reviewStatus] || 0) + 1;
+    }
+    const sourceKeys = new Set(
+      cards.flatMap((card) => card.sources.map((source) => source.key))
+    );
+    return {
+      knowledgePoints: cards.length,
+      chunks: cards.reduce((total, card) => total + card.chunks.length, 0),
+      sources: sourceKeys.size,
+      reviewCounts,
+      textbookVersion: cards[0]?.textbookVersion || "",
+      contentVersion: KNOWLEDGE_CONTENT_VERSION,
+      cards: cards.map((card) => ({
+        id: card.id,
+        name: card.name,
+        slug: card.slug,
+        unit: card.unit,
+        reviewStatus: card.reviewStatus,
+        contentVersion: card.contentVersion,
+        chunks: card.chunks.length,
+        sources: card.sources.length,
+        aliases: card.aliases,
+        prerequisites: card.prerequisites
+      }))
+    };
   }
 
   createMistakeDraft(input) {

@@ -46,6 +46,27 @@ function normalizeSources(value, defaultSources = []) {
     .slice(0, 8);
 }
 
+function knowledgeCitations(knowledge) {
+  return [
+    ...new Set(
+      (knowledge.items || []).flatMap((item) => item.citations || [])
+    )
+  ];
+}
+
+function defaultKnowledgeSources(knowledge) {
+  if (knowledge.coverage?.status === "not_covered") return [];
+  return knowledgeCitations(knowledge);
+}
+
+function normalizeKnowledgeSources(value, knowledge) {
+  const allowed = knowledgeCitations(knowledge);
+  if (!allowed.length) return [];
+  const normalized = normalizeSources(value, allowed);
+  const auditable = normalized.filter((source) => allowed.includes(source));
+  return auditable.length ? auditable : allowed.slice(0, 2);
+}
+
 function normalized(value) {
   return String(value || "")
     .replace(/\s+/g, "")
@@ -332,7 +353,7 @@ function normalizeHintResponse(raw, requestedLevel, knowledge) {
         : ["先说说你准备从哪一步开始？"],
     sources: normalizeSources(
       raw.sources,
-      knowledge.items.map((item) => item.knowledgePoint)
+      defaultKnowledgeSources(knowledge)
     )
   };
 }
@@ -383,6 +404,7 @@ export class TutoringAgent {
             content:
               "你是六年级数学提示 Agent。题目与答案仅供你判断，不得在回复中输出任何标准答案。" +
               "只提供当前等级需要的信息，用启发式问题引导，不替代学生完成整题。" +
+              "sources 只能逐字引用 retrievedKnowledge[].citations；知识覆盖不足时减少引用并说明需要教师补充。" +
               "返回 JSON：level, title, content, guidingQuestions（字符串数组）, sources。"
           },
           {
@@ -392,6 +414,7 @@ export class TutoringAgent {
               focusPart: part?.partNo || null,
               mistake: buildMistakeContext(mistake),
               retrievedKnowledge: knowledge.items,
+              knowledgeCoverage: knowledge.coverage,
               rule:
                 "1级只提示观察；2级提示数量关系；3级提示下一步；4级只补最关键的步骤，仍不得写最终答案。"
             })
@@ -418,6 +441,7 @@ export class TutoringAgent {
         knowledge
       );
       hint = validateAndNormalize(raw, hintOutputSchema);
+      hint.sources = normalizeKnowledgeSources(raw.sources, knowledge);
       hint.level = level;
       hint.source = "llm";
       if (leaksAnswer(JSON.stringify(hint), mistake)) {
@@ -503,7 +527,9 @@ export class TutoringAgent {
             role: "system",
             content:
               "你是六年级数学辅导 Agent。回答学生的追问，但不得输出当前题目的标准答案或最终结果。" +
-              "回答要短，最后给出一个学生可以立即执行的下一步。返回 JSON：title, content, suggestedNextStep, sources。"
+              "回答要短，最后给出一个学生可以立即执行的下一步。" +
+              "sources 只能逐字引用 retrievedKnowledge[].citations；覆盖不足时返回空数组并说明需要教师补充。" +
+              "返回 JSON：title, content, suggestedNextStep, sources。"
           },
           {
             role: "user",
@@ -512,7 +538,8 @@ export class TutoringAgent {
               currentHintLevel: currentLevel,
               focusPart: part?.partNo || null,
               mistake: buildMistakeContext(mistake),
-              retrievedKnowledge: knowledge.items
+              retrievedKnowledge: knowledge.items,
+              knowledgeCoverage: knowledge.coverage
             })
           }
         ],
@@ -538,10 +565,11 @@ export class TutoringAgent {
         suggestedNextStep: String(raw.suggestedNextStep || "先写出第一步数量关系。"),
         sources: normalizeSources(
           raw.sources,
-          knowledge.items.map((item) => item.knowledgePoint)
+          defaultKnowledgeSources(knowledge)
         )
       };
       answer = validateAndNormalize(answer, followUpOutputSchema);
+      answer.sources = normalizeKnowledgeSources(raw.sources, knowledge);
       answer.source = "llm";
       if (leaksAnswer(JSON.stringify(answer), mistake)) {
         throw new Error("ANSWER_LEAK_BLOCKED");
@@ -639,6 +667,7 @@ export class TutoringAgent {
             role: "system",
             content:
               "你是六年级数学作答评价 Agent。最终答案正误已经由确定性系统判定，你只能分析步骤，不得推翻。" +
+              "sources 只能逐字引用 retrievedKnowledge[].citations；知识覆盖不足时返回空数组并说明需要教师补充。" +
               "返回 JSON：outcome, finalAnswerAssessment, stepAssessment（{partNo,assessment}数组）, firstError, feedback, nextHintLevel, masteryEvidence, sources。"
           },
           {
@@ -648,7 +677,8 @@ export class TutoringAgent {
               submittedAnswers: submitted,
               deterministicOutcome: deterministic.outcome,
               deterministicPartResults: deterministic.results,
-              retrievedKnowledge: knowledge.items
+              retrievedKnowledge: knowledge.items,
+              knowledgeCoverage: knowledge.coverage
             })
           }
         ],
@@ -686,9 +716,9 @@ export class TutoringAgent {
       if (deterministic.allCorrect && !masteryEvidence.length) {
         masteryEvidence.push("全部小问由确定性系统判定正确。");
       }
-      const sources = normalizeSources(
+      const sources = normalizeKnowledgeSources(
         Array.isArray(raw.sources) ? raw.sources : [raw.sources].filter(Boolean),
-        knowledge.items.map((item) => item.knowledgePoint)
+        knowledge
       );
       const modelStepByPartNo = new Map(
         (Array.isArray(raw.stepAssessment) ? raw.stepAssessment : [])

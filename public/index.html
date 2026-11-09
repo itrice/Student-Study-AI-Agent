@@ -401,6 +401,28 @@
           </div>
           <div class="knowledge-summary" id="knowledge-summary"></div>
           <div id="knowledge-grid" class="knowledge-grid"></div>
+
+          <section class="knowledge-library">
+            <div class="knowledge-library-head">
+              <div>
+                <span class="eyebrow">可追溯的教材知识</span>
+                <h2>知识卡片与来源</h2>
+                <p id="knowledge-base-meta">正在加载知识库…</p>
+              </div>
+              <form id="knowledge-search-form" class="knowledge-search">
+                <label class="sr-only" for="knowledge-search-input">检索知识库</label>
+                <input
+                  id="knowledge-search-input"
+                  type="search"
+                  maxlength="500"
+                  placeholder="输入题目或关键词，例如：比例尺、圆面积"
+                />
+                <button class="primary-button" type="submit">检索</button>
+              </form>
+            </div>
+            <div id="knowledge-search-result" class="knowledge-search-result" hidden></div>
+            <div id="knowledge-library-list" class="knowledge-library-list"></div>
+          </section>
         </section>
       </main>
     </div>

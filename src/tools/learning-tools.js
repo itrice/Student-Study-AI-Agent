@@ -1,4 +1,3 @@
-import { getKnowledgeProfile } from "../agent.js";
 import { TOOL_ERROR_CODES, ToolError } from "./errors.js";
 
 const partInputSchema = {
@@ -66,57 +65,12 @@ function findMistake(repository, id) {
   return mistake;
 }
 
-function searchLocalKnowledge(repository, args) {
-  const query = args.query.trim().toLocaleLowerCase("zh-CN");
-  const requestedPoint = args.knowledgePoint?.trim();
-  const limit = args.limit || 3;
-  const results = [];
-
-  for (const point of repository.getKnowledgePoints()) {
-    const profile = getKnowledgeProfile(point.name);
-    if (!profile) continue;
-    const searchable = [
-      point.name,
-      profile.essence,
-      profile.hint,
-      ...profile.steps,
-      ...profile.commonErrors
-    ].join(" ").toLocaleLowerCase("zh-CN");
-    let score = 0;
-    if (requestedPoint === point.name) score += 100;
-    if (point.name.toLocaleLowerCase("zh-CN").includes(query)) score += 30;
-    if (searchable.includes(query)) score += 10;
-
-    if (score > 0) {
-      results.push({
-        score,
-        item: {
-          id: point.id,
-          knowledgePoint: point.name,
-          essence: profile.essence,
-          hint: profile.hint,
-          steps: profile.steps,
-          commonErrors: profile.commonErrors,
-          source: {
-            type: "local_rule_profile",
-            version: 1
-          }
-        }
-      });
-    }
-  }
-
-  return results
-    .sort((a, b) => b.score - a.score || a.item.knowledgePoint.localeCompare(b.item.knowledgePoint))
-    .slice(0, limit)
-    .map(({ item }) => item);
-}
-
 export function createLearningToolDefinitions(repository) {
   return [
     {
       name: "search_knowledge",
-      description: "检索六年级数学知识点、方法、提示和常见错误。",
+      description:
+        "全文检索可追溯的六年级数学知识卡片，返回知识片段、来源引用和覆盖状态。",
       permission: "read",
       allowedCallers: ["agent", "ui", "system"],
       inputSchema: {
@@ -126,20 +80,26 @@ export function createLearningToolDefinitions(repository) {
         properties: {
           query: { type: "string", minLength: 1, maxLength: 500 },
           knowledgePoint: { type: "string", maxLength: 100 },
-          limit: { type: "integer", minimum: 1, maximum: 5, default: 3 }
+          limit: { type: "integer", minimum: 1, maximum: 5, default: 3 },
+          includeCard: { type: "boolean", default: false }
         }
       },
       outputSchema: {
         type: "object",
-        required: ["items"],
+        required: ["items", "coverage"],
         additionalProperties: true,
         properties: {
-          items: { type: "array", maxItems: 5 }
+          items: { type: "array", maxItems: 5 },
+          coverage: objectOutput(["status", "note"])
         }
       },
       async handler(args, context) {
-        const items = searchLocalKnowledge(repository, args);
-        return { items, count: items.length };
+        return repository.searchKnowledge({
+          query: args.query,
+          knowledgePoint: args.knowledgePoint || null,
+          limit: args.limit || 3,
+          includeCard: Boolean(args.includeCard)
+        });
       }
     },
     {

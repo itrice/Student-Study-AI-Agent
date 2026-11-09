@@ -13,12 +13,18 @@
 - 九个受控学习工具，支持权限、Schema、幂等、硬超时和调用审计。
 - 支持修改录错的题目、答案、知识点和订正记录，并保留修订历史。
 - 支持一道题包含多个小问，为每个小问保存独立答案、可接受答案变体和判题结果。
+- 建立 12 个六年级数学知识点卡片、84 个知识片段和可追溯来源，支持别名与全文检索。
+- 诊断、提示和作答评价只引用检索到的知识来源；覆盖不足时明确提示，不编造来源。
 - 数据默认保存在本机 SQLite 文件，不依赖云服务。
 
 M3 已接入 OpenAI-compatible LLM 网关、知识检索工具和结构化诊断，真实 DeepSeek 模型 30/30 题自测已通过并完成验收；
 本地规则继续作为模型未配置或调用失败时的降级方案。
 
 M4 已加入安全复习、分级提示、追问和 LLM 步骤评价，当前等待验收。
+
+M5 已加入可发布知识库与检索：12 个知识点、来源引用、覆盖不足提示和 48 题检索评测
+（含 12 道留出改写题）。Top-3 命中率 100%，Top-1 命中率 97.9%，验收者-ark 已复验通过。
+知识内容为项目自编摘要，任课教师最终签字仍待完成。
 
 LLM 未配置时系统自动使用本地规则；配置方式、诊断链路和安全边界见
 [LLM 接入说明](docs/LLM_SETUP.md)。
@@ -52,6 +58,14 @@ npm test
 
 等价的直接运行方式是 `node --test`。
 
+运行知识库检索评测：
+
+```powershell
+npm run evaluate:knowledge
+```
+
+评测报告会写入 `docs/reports/m5-knowledge-evaluation-2026-11-10.md` 和对应 JSON。
+
 开发时自动重启：
 
 ```powershell
@@ -79,6 +93,7 @@ public/              无构建步骤的网页界面
 src/agent.js         知识点识别、错因诊断与答案等价判断
 src/database.js      错题、复习记录、学习统计和 SQLite 访问
 src/migrations.js    版本化数据库迁移、基线和完整性校验
+src/knowledge/       知识点内容卡片、全文检索、覆盖判断和检索评测
 src/server.js        零依赖 HTTP API 与静态页面服务
 src/tools/           工具注册、Schema 校验、权限、幂等和审计
 test/                规则与学习数据流程测试
@@ -86,6 +101,12 @@ docs/MVP.md          首版产品范围与验收标准
 docs/TOOL_CONTRACTS.md
                      九项受控工具的输入、输出、权限和错误契约
 docs/LLM_SETUP.md    LLM 环境配置、诊断链路和降级策略
+docs/KNOWLEDGE_BASE.md
+                     知识库结构、来源、检索策略和扩展方式
+docs/KNOWLEDGE_REVIEW_CHECKLIST.md
+                     知识内容审核清单与逐知识点审核登记
+docs/reports/m5-knowledge-evaluation-2026-11-10.md
+                     M5 知识点 Top-3 命中率和来源覆盖评测
 docs/reports/m4-ui-validation-2026-11-09.md
                      M4 真实模型教学闭环验证记录
 docs/IMPLEMENTATION_PLAN.md
@@ -99,6 +120,7 @@ docs/IMPLEMENTATION_STATUS.md
 - 目前是单学生、本机应用，没有账号和权限隔离。
 - 错题需要手动录入，暂未接入拍照识别。
 - 规则诊断依赖常见题干关键词，复杂应用题可能归入“综合应用”。
+- 知识库内容为项目自编摘要，不是教材原文；任课教师最终复核尚未完成。
 - 答案判断支持精确文本、简单数值、分数、小数和百分数互换，尚不能检查完整解题过程。
 - 真实模型自测已完成；多供应商兼容性和成本仍需在 M7 评测阶段继续验证。
 

@@ -348,6 +348,41 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, repository.getKnowledgeSummary());
   }
 
+  if (request.method === "GET" && url.pathname === "/api/knowledge-base") {
+    return sendJson(response, 200, {
+      stats: repository.getKnowledgeBaseStats(),
+      cards: repository.getKnowledgeCards()
+    });
+  }
+
+  if (
+    request.method === "GET" &&
+    url.pathname === "/api/knowledge-base/search"
+  ) {
+    const query = optionalText(url.searchParams.get("q"), 500);
+    if (!query) {
+      throw new HttpError(400, "请输入要检索的内容");
+    }
+    const limit = Math.max(
+      1,
+      Math.min(5, Number(url.searchParams.get("limit") || 3))
+    );
+    return sendJson(
+      response,
+      200,
+      repository.searchKnowledge({ query, limit })
+    );
+  }
+
+  const knowledgeCardMatch = url.pathname.match(
+    /^\/api\/knowledge-base\/([A-Za-z0-9-]+|\d+)$/
+  );
+  if (knowledgeCardMatch && request.method === "GET") {
+    const card = repository.getKnowledgeCard(knowledgeCardMatch[1]);
+    if (!card) throw new HttpError(404, "没有找到这张知识卡片");
+    return sendJson(response, 200, card);
+  }
+
   if (request.method === "GET" && url.pathname === "/api/mistakes") {
     return sendJson(
       response,

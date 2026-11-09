@@ -4,6 +4,8 @@ const state = {
   dashboard: null,
   mistakes: [],
   knowledge: [],
+  knowledgeBase: null,
+  knowledgeSearch: null,
   filter: "all",
   review: null,
   reviewSessionId: null,
@@ -401,8 +403,14 @@ function renderMistakes() {
 }
 
 async function loadKnowledge() {
-  state.knowledge = await api("/api/knowledge-points");
+  const [summary, base] = await Promise.all([
+    api("/api/knowledge-points"),
+    api("/api/knowledge-base")
+  ]);
+  state.knowledge = summary;
+  state.knowledgeBase = base;
   renderKnowledge();
+  renderKnowledgeBase();
   renderWeakness();
 }
 
@@ -496,6 +504,177 @@ function renderKnowledge() {
       );
     }
     grid.append(card);
+  }
+}
+
+const reviewLabels = {
+  unreviewed: "未审核",
+  self_reviewed: "项目自检",
+  teacher_reviewed: "教师已审"
+};
+
+const chunkKindLabels = {
+  concept: "核心概念",
+  method: "方法与步骤",
+  condition: "适用条件",
+  common_error: "常见错误",
+  example: "典型例题"
+};
+
+function knowledgeMetaLine(label, values) {
+  const row = createElement("div", "knowledge-meta-row");
+  row.append(createElement("span", "knowledge-meta-label", label));
+  const content = createElement("div", "knowledge-meta-values");
+  for (const value of values) {
+    content.append(createElement("span", "tag", value));
+  }
+  row.append(content);
+  return row;
+}
+
+function renderKnowledgeBase() {
+  const meta = $("#knowledge-base-meta");
+  const list = $("#knowledge-library-list");
+  if (!meta || !list || !state.knowledgeBase) return;
+  const { stats, cards } = state.knowledgeBase;
+  meta.textContent = `${stats.knowledgePoints} 张知识卡片 · ${stats.chunks} 个知识片段 · ${stats.sources} 个来源 · ${stats.textbookVersion}`;
+  list.replaceChildren();
+
+  for (const card of cards) {
+    const details = createElement("details", "knowledge-library-card");
+    const summary = createElement("summary", "knowledge-library-summary");
+    const titleWrap = createElement("div", "knowledge-library-title");
+    titleWrap.append(
+      createElement("strong", "", card.name),
+      createElement("span", "", card.unit)
+    );
+    summary.append(
+      titleWrap,
+      createElement(
+        "span",
+        `review-badge review-${card.reviewStatus}`,
+        reviewLabels[card.reviewStatus] || card.reviewStatus
+      )
+    );
+    details.append(summary);
+
+    const body = createElement("div", "knowledge-library-body");
+    body.append(createElement("p", "knowledge-summary-text", card.summary));
+    if (card.aliases.length) {
+      body.append(knowledgeMetaLine("别名", card.aliases));
+    }
+    if (card.prerequisites.length) {
+      body.append(knowledgeMetaLine("前置知识", card.prerequisites));
+    }
+
+    const method = createElement("div", "knowledge-method");
+    method.append(createElement("h4", "", "方法与步骤"));
+    const ordered = document.createElement("ol");
+    for (const step of card.steps) ordered.append(createElement("li", "", step));
+    method.append(ordered);
+    body.append(method);
+
+    const common = createElement("div", "knowledge-common-errors");
+    common.append(createElement("h4", "", "常见误区"));
+    const commonList = document.createElement("ul");
+    for (const error of card.commonErrors) {
+      commonList.append(createElement("li", "", error));
+    }
+    common.append(commonList);
+    body.append(common);
+
+    const chunkGrid = createElement("div", "knowledge-chunk-grid");
+    for (const chunk of card.chunks) {
+      const article = createElement("article", "knowledge-chunk");
+      article.append(
+        createElement(
+          "span",
+          "knowledge-chunk-kind",
+          chunkKindLabels[chunk.kind] || chunk.kind
+        ),
+        createElement("h4", "", chunk.title),
+        createElement("p", "", chunk.content),
+        createElement("small", "knowledge-citation", chunk.citation)
+      );
+      chunkGrid.append(article);
+    }
+    body.append(chunkGrid);
+
+    const sources = createElement("div", "knowledge-sources");
+    sources.append(createElement("h4", "", "来源与版本"));
+    for (const source of card.sources) {
+      const item = createElement("div", "knowledge-source");
+      item.append(
+        createElement("strong", "", source.title),
+        createElement("span", "", `${source.publisher} · ${source.edition}`),
+        createElement("p", "", source.note),
+        createElement("small", "knowledge-citation", source.citation)
+      );
+      sources.append(item);
+    }
+    body.append(sources);
+    details.append(body);
+    list.append(details);
+  }
+}
+
+function renderKnowledgeSearch(result) {
+  const target = $("#knowledge-search-result");
+  if (!target) return;
+  target.hidden = false;
+  target.replaceChildren();
+
+  const head = createElement("div", "knowledge-search-head");
+  head.append(
+    createElement("strong", "", `检索：${result.query}`),
+    createElement(
+      "span",
+      `coverage-badge coverage-${result.coverage.status}`,
+      result.coverage.status === "covered"
+        ? "已覆盖"
+        : result.coverage.status === "insufficient"
+          ? "覆盖不足"
+          : "未覆盖"
+    )
+  );
+  target.append(head, createElement("p", "knowledge-search-note", result.coverage.note));
+
+  if (result.coverage.status === "not_covered") {
+    const suggestions = createElement("div", "knowledge-suggestions");
+    suggestions.append(createElement("span", "knowledge-meta-label", "可检索的知识点"));
+    for (const name of result.coverage.suggestions || []) {
+      suggestions.append(createElement("span", "tag", name));
+    }
+    target.append(suggestions);
+    return;
+  }
+
+  for (const item of result.items) {
+    const card = createElement("article", "knowledge-search-item");
+    const title = createElement("div", "knowledge-search-item-head");
+    title.append(
+      createElement("h3", "", item.knowledgePoint),
+      createElement("span", "knowledge-score-chip", `匹配分 ${item.score}`)
+    );
+    card.append(title, createElement("p", "", item.summary));
+
+    const chunks = createElement("div", "knowledge-search-chunks");
+    for (const chunk of item.chunks) {
+      const block = createElement("div", "knowledge-search-chunk");
+      block.append(
+        createElement(
+          "span",
+          "knowledge-chunk-kind",
+          chunkKindLabels[chunk.kind] || chunk.kind
+        ),
+        createElement("strong", "", chunk.title),
+        createElement("p", "", chunk.content),
+        createElement("small", "knowledge-citation", chunk.citation)
+      );
+      chunks.append(block);
+    }
+    card.append(chunks);
+    target.append(card);
   }
 }
 
@@ -1378,6 +1557,28 @@ function bindEvents() {
   $("#start-review-button").addEventListener("click", () => navigateTo("review"));
   $("#menu-button").addEventListener("click", () => {
     $(".sidebar").classList.toggle("is-open");
+  });
+
+  $("#knowledge-search-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const input = $("#knowledge-search-input");
+    const query = input.value.trim();
+    if (!query) {
+      showToast("请输入题目或关键词", true);
+      return;
+    }
+    const button = event.currentTarget.querySelector("button");
+    setBusy(button, true, "检索中…");
+    try {
+      state.knowledgeSearch = await api(
+        `/api/knowledge-base/search?q=${encodeURIComponent(query)}&limit=3`
+      );
+      renderKnowledgeSearch(state.knowledgeSearch);
+    } catch (error) {
+      showToast(error.message, true);
+    } finally {
+      setBusy(button, false);
+    }
   });
 
   $$(".filter-chip").forEach((button) => {
