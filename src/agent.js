@@ -112,6 +112,18 @@ const KNOWLEDGE_PROFILES = {
 
 export const KNOWLEDGE_POINT_NAMES = Object.keys(KNOWLEDGE_PROFILES);
 
+export function getKnowledgeProfile(name) {
+  const profile = KNOWLEDGE_PROFILES[name];
+  if (!profile) return null;
+  return {
+    name,
+    essence: profile.essence,
+    hint: profile.hint,
+    steps: [...profile.steps],
+    commonErrors: [...profile.commonErrors]
+  };
+}
+
 export function inferKnowledgePoint({ question = "", analysis = "" }) {
   const text = `${question} ${analysis}`;
   let best = { name: "综合应用", score: 0 };
@@ -160,7 +172,7 @@ export function normalizeAnswer(value = "") {
   return text;
 }
 
-function parseAnswerValue(value = "") {
+export function parseAnswerValue(value = "") {
   const text = normalizeAnswer(value).replace(/[（）()]/g, "");
   const match = text.match(
     /^(-?\d+(?:\.\d+)?)(?:\/(\d+(?:\.\d+)?))?([^\d.]*)$/

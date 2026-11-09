@@ -1,22 +1,33 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { DatabaseSync } from "node:sqlite";
+import { diagnoseMistake } from "./agent.js";
 import {
-  answersMatch,
-  diagnoseMistake
-} from "./agent.js";
+  evaluateAttemptState,
+  toIsoAfterDays
+} from "./domain/learning-policy.js";
+import { evaluatePartResponses } from "./domain/part-evaluation.js";
+import { LearningValidationError } from "./domain/errors.js";
 import {
   getSchemaVersion,
   migrateDatabase
 } from "./migrations.js";
 
 const nowIso = () => new Date().toISOString();
+const toolWriteLeaseStorage = new AsyncLocalStorage();
 
-const toIsoAfterDays = (days) => {
-  const date = new Date();
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString();
-};
+export function runWithToolWriteLease(lease, callback) {
+  return toolWriteLeaseStorage.run(lease, callback);
+}
+
+function assertToolWriteAllowed() {
+  const lease = toolWriteLeaseStorage.getStore();
+  if (lease?.aborted) {
+    throw new Error("工具执行已超时，禁止继续写入数据");
+  }
+}
 
 function parseJson(text) {
   if (!text) return [];
@@ -25,6 +36,186 @@ function parseJson(text) {
     return Array.isArray(value) ? value : [];
   } catch {
     return [];
+  }
+}
+
+function parseJsonObject(text) {
+  if (!text) return {};
+  try {
+    const value = JSON.parse(text);
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function buildMistakeDiagnosis(input) {
+  const base = diagnoseMistake(input);
+  const confirmed = input.confirmedDiagnosis;
+  if (!confirmed || typeof confirmed !== "object") {
+    return {
+      ...base,
+      _meta: {
+        acceptedByUser: false,
+        provider: "rules",
+        model: "",
+        promptVersion: "",
+        rawOutput: {}
+      }
+    };
+  }
+
+  const knowledgePoint =
+    String(input.knowledgePoint || "").trim() ||
+    String(confirmed.knowledgePoint || "").trim() ||
+    base.knowledgePoint;
+  const errorType =
+    String(input.errorType || "").trim() ||
+    String(confirmed.errorType || "").trim() ||
+    base.errorType;
+  const hint =
+    String(confirmed.initialHint || "").trim() || base.hint;
+  const diagnosis = [
+    `初步归因：${errorType}。`,
+    confirmed.errorStep
+      ? `可能出错步骤：${confirmed.errorStep}`
+      : "",
+    confirmed.missingConcept
+      ? `需要补足：${confirmed.missingConcept}`
+      : "",
+    ...(confirmed.evidence || []).map((item) => `依据：${item}`)
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    ...base,
+    knowledgePoint,
+    errorType,
+    hint,
+    diagnosis,
+    confidence: confirmed.confidence ?? base.confidence,
+    knowledgeSources: confirmed.knowledgeSources || [],
+    partAnalyses: confirmed.partAnalyses || [],
+    _meta: {
+      acceptedByUser: true,
+      provider: confirmed.provider || "rules",
+      model: confirmed.model || "",
+      promptVersion: confirmed.promptVersion || "",
+      agentRunId: confirmed.agentRunId || null,
+      rawOutput: confirmed.rawOutput || confirmed
+    }
+  };
+}
+
+function mapDraft(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    studentId: row.student_id,
+    question: row.question,
+    studentAnswer: row.student_answer,
+    correctAnswer: row.correct_answer,
+    analysis: row.analysis,
+    knowledgePoint: row.knowledge_point,
+    errorType: row.error_type,
+    diagnosis: parseJsonObject(row.diagnosis_json),
+    parts: parseJson(row.parts_json),
+    status: row.status,
+    savedMistakeId: row.saved_mistake_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    expiresAt: row.expires_at
+  };
+}
+
+function splitAcceptedAnswers(value) {
+  return String(value || "")
+    .split(/[或;；\n]/)
+    .map((answer) => answer.trim())
+    .filter(Boolean);
+}
+
+function normalizeParts(input) {
+  const sourceParts =
+    Array.isArray(input.parts) && input.parts.length
+      ? input.parts
+      : [
+          {
+            label: "",
+            prompt: "",
+            studentAnswer: input.studentAnswer || "",
+            answerType: "auto",
+            comparisonRule: "auto",
+            knowledgePoint: input.knowledgePoint || "",
+            acceptedAnswers: splitAcceptedAnswers(input.correctAnswer)
+          }
+        ];
+
+  return sourceParts.map((part, index) => {
+    const acceptedAnswers = Array.isArray(part.acceptedAnswers)
+      ? part.acceptedAnswers
+          .map((answer) => String(answer || "").trim())
+          .filter(Boolean)
+      : splitAcceptedAnswers(part.correctAnswer);
+    return {
+      partNo: index + 1,
+      label: String(part.label || "").trim(),
+      prompt: String(part.prompt || "").trim(),
+      studentAnswer: String(part.studentAnswer || "").trim(),
+      answerType: String(part.answerType || "auto"),
+      comparisonRule: String(part.comparisonRule || "auto"),
+      knowledgePoint: String(part.knowledgePoint || "").trim(),
+      hint: String(part.hint || "").trim(),
+      explanation: String(part.explanation || "").trim(),
+      acceptedAnswers
+    };
+  });
+}
+
+function mapPart(row, answers = []) {
+  return {
+    id: row.id,
+    partNo: row.part_no,
+    label: row.label,
+    prompt: row.prompt,
+    studentAnswer: row.student_answer,
+    answerType: row.answer_type,
+    comparisonRule: row.comparison_rule,
+    knowledgePoint: row.knowledge_point,
+    hint: row.hint,
+    explanation: row.explanation,
+    acceptedAnswers: answers
+  };
+}
+
+function validateSubmittedPartAnswers(mistake, answers) {
+  if (!Array.isArray(answers)) return;
+  const partIds = new Set((mistake.parts || []).map((part) => Number(part.id)));
+  const seen = new Set();
+  for (const answer of answers) {
+    const partId = Number(answer?.partId);
+    if (!Number.isInteger(partId) || partId <= 0) {
+      throw new LearningValidationError(
+        "INVALID_ARGUMENTS",
+        "作答中的 partId 无效"
+      );
+    }
+    if (seen.has(partId)) {
+      throw new LearningValidationError(
+        "INVALID_ARGUMENTS",
+        "同一个小问不能重复提交"
+      );
+    }
+    if (!partIds.has(partId)) {
+      throw new LearningValidationError(
+        "INVALID_ARGUMENTS",
+        "作答包含不属于当前错题的小问"
+      );
+    }
+    seen.add(partId);
   }
 }
 
@@ -42,6 +233,7 @@ function mapMistake(row, { includeSolution = false } = {}) {
     methodSteps: includeSolution ? parseJson(row.method_steps) : [],
     commonErrors: includeSolution ? parseJson(row.common_errors) : [],
     diagnosis: includeSolution ? row.diagnosis : "",
+    revision: row.revision,
     status: row.status,
     consecutiveCorrect: row.consecutive_correct,
     attemptCount: row.attempt_count,
@@ -131,37 +323,201 @@ export class LearningRepository {
       .all();
   }
 
-  createMistake(input) {
+  getKnowledgePoint(name) {
+    return (
+      this.db
+        .prepare(
+          "SELECT id, name, position FROM knowledge_points WHERE name = ?"
+        )
+        .get(name) || null
+    );
+  }
+
+  createMistakeDraft(input) {
+    assertToolWriteAllowed();
     const student = this.getStudent();
-    const diagnosis = diagnoseMistake(input);
+    const parts = normalizeParts(input);
+    const diagnosisInput = {
+      ...input,
+      studentAnswer:
+        input.studentAnswer || parts.map((part) => part.studentAnswer).join("；"),
+      correctAnswer:
+        input.correctAnswer || parts[0]?.acceptedAnswers[0] || ""
+    };
+    const diagnosis = buildMistakeDiagnosis(diagnosisInput);
+    const id = randomUUID();
     const timestamp = nowIso();
-    const result = this.db
+    const expiresAt = toIsoAfterDays(1);
+
+    this.db
       .prepare(
-        `INSERT INTO mistakes (
-          student_id, question, student_answer, correct_answer, analysis,
-          knowledge_point, error_type, hint, method_steps, common_errors,
-          diagnosis, status, due_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, ?)`
+        `INSERT INTO mistake_drafts (
+          id, student_id, question, student_answer, correct_answer, analysis,
+          knowledge_point, error_type, diagnosis_json, parts_json, status,
+          created_at, updated_at, expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`
       )
       .run(
+        id,
         student.id,
         input.question,
-        input.studentAnswer || "",
-        input.correctAnswer,
+        diagnosisInput.studentAnswer,
+        diagnosisInput.correctAnswer,
         input.analysis || "",
         diagnosis.knowledgePoint,
         diagnosis.errorType,
-        diagnosis.hint,
-        JSON.stringify(diagnosis.methodSteps),
-        JSON.stringify(diagnosis.commonErrors),
-        diagnosis.diagnosis,
+        JSON.stringify(diagnosis),
+        JSON.stringify(parts),
         timestamp,
-        timestamp
+        timestamp,
+        expiresAt
       );
+    return this.getMistakeDraft(id);
+  }
 
-    return this.getMistake(Number(result.lastInsertRowid), {
-      includeSolution: true
+  getMistakeDraft(id) {
+    return mapDraft(
+      this.db.prepare("SELECT * FROM mistake_drafts WHERE id = ?").get(id)
+    );
+  }
+
+  saveMistakeDraft(id) {
+    assertToolWriteAllowed();
+    const draft = this.getMistakeDraft(id);
+    if (!draft) return null;
+    if (draft.status === "saved" && draft.savedMistakeId) {
+      return {
+        status: "saved",
+        alreadySaved: true,
+        mistake: this.getMistake(draft.savedMistakeId, {
+          includeSolution: true
+        })
+      };
+    }
+    if (draft.status === "expired" || draft.expiresAt <= nowIso()) {
+      this.db
+        .prepare(
+          "UPDATE mistake_drafts SET status = 'expired', updated_at = ? WHERE id = ?"
+        )
+        .run(nowIso(), id);
+      return { status: "expired", alreadySaved: false, mistake: null };
+    }
+
+    const diagnosis = draft.diagnosis;
+    const parts = normalizeParts({
+      parts: draft.parts,
+      studentAnswer: draft.studentAnswer,
+      correctAnswer: draft.correctAnswer,
+      knowledgePoint: draft.knowledgePoint
     });
+    const timestamp = nowIso();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = this.db
+        .prepare(
+          `INSERT INTO mistakes (
+            student_id, question, student_answer, correct_answer, analysis,
+            knowledge_point, error_type, hint, method_steps, common_errors,
+            diagnosis, status, due_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, ?)`
+        )
+        .run(
+          draft.studentId,
+          draft.question,
+          draft.studentAnswer,
+          draft.correctAnswer,
+          draft.analysis,
+          draft.knowledgePoint,
+          draft.errorType,
+          diagnosis.hint || "",
+          JSON.stringify(diagnosis.methodSteps || []),
+          JSON.stringify(diagnosis.commonErrors || []),
+          diagnosis.diagnosis || "",
+          timestamp,
+          timestamp
+        );
+      const mistakeId = Number(result.lastInsertRowid);
+      this.insertMistakeParts(
+        mistakeId,
+        parts,
+        timestamp,
+        diagnosis.knowledgePoint
+      );
+      this.insertDiagnosis(mistakeId, diagnosis, timestamp);
+      this.db
+        .prepare(
+          `UPDATE mistake_drafts
+           SET status = 'saved', saved_mistake_id = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .run(mistakeId, timestamp, id);
+      this.db.exec("COMMIT");
+      return {
+        status: "saved",
+        alreadySaved: false,
+        mistake: this.getMistake(mistakeId, { includeSolution: true })
+      };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  createMistake(input) {
+    assertToolWriteAllowed();
+    const student = this.getStudent();
+    const parts = normalizeParts(input);
+    const combinedStudentAnswer = parts
+      .map((part) => part.studentAnswer)
+      .join("；");
+    const combinedCorrectAnswer = parts
+      .map((part) => part.acceptedAnswers[0] || "")
+      .join("；");
+    const diagnosis = buildMistakeDiagnosis({
+      ...input,
+      studentAnswer: input.studentAnswer || combinedStudentAnswer,
+      correctAnswer: input.correctAnswer || combinedCorrectAnswer
+    });
+    const timestamp = nowIso();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = this.db
+        .prepare(
+          `INSERT INTO mistakes (
+            student_id, question, student_answer, correct_answer, analysis,
+            knowledge_point, error_type, hint, method_steps, common_errors,
+            diagnosis, status, due_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, ?)`
+        )
+        .run(
+          student.id,
+          input.question,
+          combinedStudentAnswer,
+          combinedCorrectAnswer,
+          input.analysis || "",
+          diagnosis.knowledgePoint,
+          diagnosis.errorType,
+          diagnosis.hint,
+          JSON.stringify(diagnosis.methodSteps),
+          JSON.stringify(diagnosis.commonErrors),
+          diagnosis.diagnosis,
+          timestamp,
+          timestamp
+        );
+      const mistakeId = Number(result.lastInsertRowid);
+      this.insertMistakeParts(
+        mistakeId,
+        parts,
+        timestamp,
+        diagnosis.knowledgePoint
+      );
+      this.insertDiagnosis(mistakeId, diagnosis, timestamp);
+      this.db.exec("COMMIT");
+      return this.getMistake(mistakeId, { includeSolution: true });
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   getMistake(id, { includeSolution = false } = {}) {
@@ -173,7 +529,316 @@ export class LearningRepository {
          WHERE m.id = ?`
       )
       .get(id);
-    return mapMistake(row, { includeSolution });
+    const mistake = mapMistake(row, { includeSolution });
+    if (mistake) {
+      mistake.parts = this.getMistakeParts(id, { includeSolution });
+      mistake.partCount = mistake.parts.length;
+    }
+    return mistake;
+  }
+
+  getMistakeParts(id, { includeSolution = false } = {}) {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM mistake_parts
+         WHERE mistake_id = ? AND active = 1
+         ORDER BY part_no, id`
+      )
+      .all(id);
+    const answersStatement = this.db.prepare(
+      `SELECT answer FROM accepted_answers
+       WHERE part_id = ? ORDER BY position, id`
+    );
+
+    return rows.map((row) => {
+      const answers = includeSolution
+        ? answersStatement.all(row.id).map((answer) => answer.answer)
+        : [];
+      const part = mapPart(row, answers);
+      if (!includeSolution) {
+        part.explanation = "";
+        delete part.acceptedAnswers;
+      }
+      return part;
+    });
+  }
+
+  insertMistakeParts(mistakeId, parts, timestamp, fallbackKnowledgePoint) {
+    const insertPart = this.db.prepare(
+      `INSERT INTO mistake_parts (
+        mistake_id, part_no, label, prompt, student_answer, answer_type,
+        comparison_rule, knowledge_point, hint, explanation, active,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+    );
+    const insertAnswer = this.db.prepare(
+      `INSERT INTO accepted_answers (
+        part_id, position, answer, variant_type, created_at
+      ) VALUES (?, ?, ?, 'expected', ?)`
+    );
+    const inserted = [];
+    for (const part of parts) {
+      const result = insertPart.run(
+        mistakeId,
+        part.partNo,
+        part.label,
+        part.prompt,
+        part.studentAnswer,
+        part.answerType,
+        part.comparisonRule,
+        part.knowledgePoint || fallbackKnowledgePoint,
+        part.hint,
+        part.explanation,
+        timestamp,
+        timestamp
+      );
+      const partId = Number(result.lastInsertRowid);
+      part.acceptedAnswers.forEach((answer, index) => {
+        insertAnswer.run(partId, index + 1, answer, timestamp);
+      });
+      inserted.push({ ...part, id: partId });
+    }
+    return inserted;
+  }
+
+  insertDiagnosis(mistakeId, diagnosis, timestamp) {
+    const meta = diagnosis._meta || {};
+    this.db
+      .prepare(
+        `INSERT INTO diagnoses (
+          mistake_id, agent_run_id, knowledge_point, error_type, error_step,
+          missing_concept, initial_hint, confidence, evidence,
+          knowledge_sources, raw_output, provider, model, prompt_version,
+          accepted_by_user, accepted_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        mistakeId,
+        meta.agentRunId || null,
+        diagnosis.knowledgePoint || null,
+        diagnosis.errorType || null,
+        diagnosis.errorStep || "",
+        diagnosis.missingConcept || "",
+        diagnosis.hint || "",
+        Number.isFinite(diagnosis.confidence)
+          ? diagnosis.confidence
+          : null,
+        JSON.stringify(diagnosis.evidence || []),
+        JSON.stringify(diagnosis.knowledgeSources || []),
+        JSON.stringify(meta.rawOutput || diagnosis),
+        meta.provider || "rules",
+        meta.model || "",
+        meta.promptVersion || "",
+        meta.acceptedByUser ? 1 : 0,
+        meta.acceptedByUser ? timestamp : null,
+        timestamp
+      );
+  }
+
+  updateMistake(id, input) {
+    assertToolWriteAllowed();
+    const current = this.getMistake(id, { includeSolution: true });
+    if (!current) return null;
+    const partsProvided = Array.isArray(input.parts);
+    const proposedParts = partsProvided
+      ? normalizeParts(input)
+      : current.parts;
+    const combinedStudentAnswer = proposedParts
+      .map((part) => part.studentAnswer)
+      .join("；");
+    const combinedCorrectAnswer = proposedParts
+      .map((part) => part.acceptedAnswers?.[0] || "")
+      .join("；");
+
+    const proposed = {
+      question: input.question ?? current.question,
+      studentAnswer:
+        input.studentAnswer ??
+        (partsProvided ? combinedStudentAnswer : current.studentAnswer),
+      correctAnswer:
+        input.correctAnswer ??
+        (partsProvided ? combinedCorrectAnswer : current.correctAnswer),
+      analysis: input.analysis ?? current.analysis,
+      knowledgePoint: input.knowledgePoint ?? current.knowledgePoint,
+      errorType: input.errorType ?? current.errorType
+    };
+    const diagnosis = diagnoseMistake(proposed);
+    const finalFields = {
+      ...proposed,
+      knowledgePoint: diagnosis.knowledgePoint,
+      errorType: diagnosis.errorType
+    };
+    const changedFields = Object.keys(finalFields).filter(
+      (field) => finalFields[field] !== current[field]
+    );
+    const partsChanged =
+      partsProvided &&
+      JSON.stringify(proposedParts) !==
+        JSON.stringify(
+          current.parts.map((part) => ({
+            ...part,
+            id: undefined,
+            hint: part.hint || "",
+            explanation: part.explanation || "",
+            acceptedAnswers: part.acceptedAnswers || []
+          }))
+        );
+    if (partsChanged) changedFields.push("parts");
+    if (!changedFields.length) {
+      return {
+        mistake: current,
+        changedFields: [],
+        learningReset: false,
+        revisionBefore: current.revision,
+        revisionAfter: current.revision
+      };
+    }
+
+    const resetLearning = changedFields.some((field) =>
+      ["question", "correctAnswer", "knowledgePoint", "parts"].includes(field)
+    );
+    const revisionAfter = current.revision + 1;
+    const timestamp = nowIso();
+    const nextLearningState = resetLearning
+      ? {
+          status: "new",
+          consecutiveCorrect: 0,
+          attemptCount: 0,
+          dueAt: null,
+          lastReviewedAt: null
+        }
+      : {
+          status: current.status,
+          consecutiveCorrect: current.consecutiveCorrect,
+          attemptCount: current.attemptCount,
+          dueAt: current.dueAt,
+          lastReviewedAt: current.lastReviewedAt
+        };
+    const beforeSnapshot = {
+      ...Object.fromEntries(
+        Object.keys(finalFields).map((field) => [field, current[field]])
+      ),
+      status: current.status,
+      consecutiveCorrect: current.consecutiveCorrect,
+      attemptCount: current.attemptCount,
+      dueAt: current.dueAt,
+      parts: current.parts
+    };
+    const afterSnapshot = {
+      ...finalFields,
+      ...nextLearningState,
+      parts: proposedParts
+    };
+
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db
+        .prepare(
+          `UPDATE mistakes SET
+             question = ?, student_answer = ?, correct_answer = ?, analysis = ?,
+             knowledge_point = ?, error_type = ?, hint = ?, method_steps = ?,
+             common_errors = ?, diagnosis = ?, revision = ?, status = ?,
+             consecutive_correct = ?, attempt_count = ?, due_at = ?,
+             last_reviewed_at = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .run(
+          finalFields.question,
+          finalFields.studentAnswer,
+          finalFields.correctAnswer,
+          finalFields.analysis,
+          finalFields.knowledgePoint,
+          finalFields.errorType,
+          diagnosis.hint,
+          JSON.stringify(diagnosis.methodSteps),
+          JSON.stringify(diagnosis.commonErrors),
+          diagnosis.diagnosis,
+          revisionAfter,
+          nextLearningState.status,
+          nextLearningState.consecutiveCorrect,
+          nextLearningState.attemptCount,
+          nextLearningState.dueAt,
+          nextLearningState.lastReviewedAt,
+          timestamp,
+          id
+        );
+      if (partsProvided) {
+        this.db
+          .prepare(
+            `UPDATE mistake_parts
+             SET active = 0, updated_at = ?
+             WHERE mistake_id = ? AND active = 1`
+          )
+          .run(timestamp, id);
+        this.insertMistakeParts(
+          id,
+          proposedParts,
+          timestamp,
+          finalFields.knowledgePoint
+        );
+      } else if (
+        current.parts.length === 1 &&
+        (Object.hasOwn(input, "correctAnswer") ||
+          Object.hasOwn(input, "studentAnswer") ||
+          Object.hasOwn(input, "knowledgePoint"))
+      ) {
+        const part = current.parts[0];
+        const acceptedAnswers = splitAcceptedAnswers(finalFields.correctAnswer);
+        this.db
+          .prepare(
+            `UPDATE mistake_parts
+             SET student_answer = ?, knowledge_point = ?, updated_at = ?
+             WHERE id = ?`
+          )
+          .run(
+            finalFields.studentAnswer,
+            finalFields.knowledgePoint,
+            timestamp,
+            part.id
+          );
+        this.db
+          .prepare("DELETE FROM accepted_answers WHERE part_id = ?")
+          .run(part.id);
+        const insertAnswer = this.db.prepare(
+          `INSERT INTO accepted_answers (
+            part_id, position, answer, variant_type, created_at
+          ) VALUES (?, ?, ?, 'expected', ?)`
+        );
+        acceptedAnswers.forEach((answer, index) => {
+          insertAnswer.run(part.id, index + 1, answer, timestamp);
+        });
+      }
+      this.db
+        .prepare(
+          `INSERT INTO mistake_edits (
+            mistake_id, revision_before, revision_after,
+            changed_fields_json, before_json, after_json,
+            reset_learning, edited_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          id,
+          current.revision,
+          revisionAfter,
+          JSON.stringify(changedFields),
+          JSON.stringify(beforeSnapshot),
+          JSON.stringify(afterSnapshot),
+          resetLearning ? 1 : 0,
+          timestamp
+        );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+
+    return {
+      mistake: this.getMistake(id, { includeSolution: true }),
+      changedFields,
+      learningReset: resetLearning,
+      revisionBefore: current.revision,
+      revisionAfter
+    };
   }
 
   listMistakes({ status = "all" } = {}) {
@@ -197,6 +862,7 @@ export class LearningRepository {
   }
 
   deleteMistake(id) {
+    assertToolWriteAllowed();
     const result = this.db.prepare("DELETE FROM mistakes WHERE id = ?").run(id);
     return result.changes > 0;
   }
@@ -217,47 +883,123 @@ export class LearningRepository {
          LIMIT 1`
       )
       .get(timestamp);
-    return mapMistake(row, { includeSolution: true });
+    const mistake = mapMistake(row, { includeSolution: true });
+    if (mistake) {
+      mistake.parts = this.getMistakeParts(mistake.id, {
+        includeSolution: true
+      });
+      mistake.partCount = mistake.parts.length;
+    }
+    return mistake;
   }
 
-  recordAttempt(id, answer) {
+  listDueReviews({ limit = 5, at = nowIso() } = {}) {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 5, 20));
+    return this.db
+      .prepare(
+        `SELECT m.*, k.name AS knowledge_point
+         FROM mistakes m
+         JOIN knowledge_points k ON k.name = m.knowledge_point
+         WHERE m.status != 'mastered'
+           AND (m.due_at IS NULL OR m.due_at <= ?)
+         ORDER BY
+           CASE WHEN m.attempt_count = 0 THEN 0 ELSE 1 END,
+           COALESCE(m.due_at, m.created_at) ASC,
+           m.id ASC
+         LIMIT ?`
+      )
+      .all(at, safeLimit)
+      .map((row) =>
+        this.getMistake(row.id, {
+          includeSolution: false
+        })
+      );
+  }
+
+  recordAttempt(
+    id,
+    answer,
+    {
+      independent = null,
+      hintLevel = null,
+      evaluationSource = "rule",
+      agentRunId = null,
+      answers = null
+    } = {}
+  ) {
+    assertToolWriteAllowed();
     const mistake = this.getMistake(id, { includeSolution: true });
     if (!mistake) {
       return null;
     }
+    validateSubmittedPartAnswers(mistake, answers);
 
-    const correct = answersMatch(answer, mistake.correctAnswer);
+    const submittedAnswers =
+      Array.isArray(answers) && answers.length
+        ? answers
+        : [{ partNo: 1, value: answer }];
+    const evaluation = evaluatePartResponses(
+      mistake.parts || [],
+      submittedAnswers
+    );
     const timestamp = nowIso();
-    const nextConsecutiveCorrect = correct
-      ? mistake.consecutiveCorrect + 1
-      : 0;
-    const mastered = correct && nextConsecutiveCorrect >= 2;
-    const nextStatus = mastered ? "mastered" : "practicing";
-    const dueDays = correct ? (mastered ? 7 : 1) : 1;
-    const dueAt = mastered ? toIsoAfterDays(7) : toIsoAfterDays(dueDays);
-    const feedback = correct
-      ? mastered
-        ? "连续两次独立做对，已标记为掌握。7 天后再回顾一次。"
-        : "这次做对了。明天再独立做一次，确认不是临时记住答案。"
-      : "这次还没做对。先对照讲解补全缺失步骤，明天再独立重做。";
+    const policy = evaluateAttemptState({
+      mistake,
+      correct: evaluation.allCorrect,
+      outcome: evaluation.outcome,
+      correctPartCount: evaluation.correctPartCount,
+      totalPartCount: evaluation.totalPartCount,
+      independent,
+      hintLevel,
+      now: timestamp
+    });
 
     this.db.exec("BEGIN");
     try {
-      this.db
+      const attemptResult = this.db
         .prepare(
           `INSERT INTO attempts
-           (mistake_id, answer, is_correct, outcome, evaluation_source,
-            feedback, created_at)
-           VALUES (?, ?, ?, ?, 'rule', ?, ?)`
+           (mistake_id, answer, is_correct, outcome, hint_level, independent,
+            evaluation_source, agent_run_id, feedback, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
-          String(answer || ""),
-          correct ? 1 : 0,
-          correct ? "correct" : "incorrect",
-          feedback,
+          Array.isArray(answers) && answers.length > 0
+            ? JSON.stringify(answers)
+            : String(answer || ""),
+          policy.correct ? 1 : 0,
+          policy.outcome,
+          hintLevel,
+          independent === true ? 1 : independent === false ? 0 : null,
+          evaluationSource,
+          agentRunId,
+          policy.feedback,
           timestamp
         );
+      const attemptId = Number(attemptResult.lastInsertRowid);
+      const insertPartResult = this.db.prepare(
+        `INSERT INTO attempt_part_results (
+          attempt_id, part_id, raw_answer, outcome, feedback, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      const partFeedbackById = new Map(
+        evaluation.results.map((result) => [result.partId, result])
+      );
+      for (const part of mistake.parts || []) {
+        const result = partFeedbackById.get(part.id);
+        if (!result) continue;
+        insertPartResult.run(
+          attemptId,
+          part.id,
+          result.rawAnswer,
+          result.outcome,
+          result.outcome === "correct"
+            ? "这一小问答对了。"
+            : "这一小问还需要订正。",
+          timestamp
+        );
+      }
       this.db
         .prepare(
           `UPDATE mistakes
@@ -266,9 +1008,9 @@ export class LearningRepository {
            WHERE id = ?`
         )
         .run(
-          nextStatus,
-          nextConsecutiveCorrect,
-          dueAt,
+          policy.nextStatus,
+          policy.nextConsecutiveCorrect,
+          policy.dueAt,
           timestamp,
           timestamp,
           id
@@ -280,18 +1022,197 @@ export class LearningRepository {
     }
 
     return {
-      correct,
-      mastered,
-      feedback,
+      correct: policy.correct,
+      mastered: policy.mastered,
+      feedback: policy.feedback,
       answer: mistake.correctAnswer,
       analysis: mistake.analysis,
       hint: mistake.hint,
       methodSteps: mistake.methodSteps,
       commonErrors: mistake.commonErrors,
       diagnosis: mistake.diagnosis,
-      nextReviewAt: dueAt,
+      nextReviewAt: policy.dueAt,
+      policyVersion: policy.policyVersion,
+      independentEvidence: policy.independentEvidence,
+      usedHint: policy.usedHint,
+      partResults: evaluation.results,
+      correctPartCount: evaluation.correctPartCount,
+      totalPartCount: evaluation.totalPartCount,
+      outcome: evaluation.outcome,
       mistake: this.getMistake(id)
     };
+  }
+
+  recordHint(
+    { mistakeId, hintLevel, content, source = "", partId = null },
+    { agentRunId = null } = {}
+  ) {
+    assertToolWriteAllowed();
+    const mistake = this.getMistake(mistakeId);
+    if (!mistake) return null;
+    if (partId !== null && partId !== undefined) {
+      const part = (mistake.parts || []).find(
+        (candidate) => Number(candidate.id) === Number(partId)
+      );
+      if (!part) {
+        throw new LearningValidationError(
+          "INVALID_ARGUMENTS",
+          "提示关联的小问不属于当前错题"
+        );
+      }
+    }
+    const timestamp = nowIso();
+    const result = this.db
+      .prepare(
+        `INSERT INTO hint_events (
+          mistake_id, attempt_id, agent_run_id, hint_level, content, source,
+          part_id, created_at
+        ) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        mistakeId,
+        agentRunId,
+        hintLevel,
+        content,
+        source,
+        partId,
+        timestamp
+      );
+    return {
+      hintEventId: Number(result.lastInsertRowid),
+      mistakeId,
+      hintLevel,
+      partId,
+      createdAt: timestamp
+    };
+  }
+
+  createAgentRun({
+    taskType,
+    goal = "",
+    status = "in_progress",
+    startedAt = nowIso()
+  }) {
+    const result = this.db
+      .prepare(
+        `INSERT INTO agent_runs (task_type, goal, status, started_at)
+         VALUES (?, ?, ?, ?)`
+      )
+      .run(taskType, goal, status, startedAt);
+    return Number(result.lastInsertRowid);
+  }
+
+  getAgentRun(id) {
+    return (
+      this.db.prepare("SELECT * FROM agent_runs WHERE id = ?").get(id) || null
+    );
+  }
+
+  finishAgentRun(id, { status, errorMessage = null }) {
+    this.db
+      .prepare(
+        `UPDATE agent_runs
+         SET status = ?, finished_at = ?, error_message = ?
+         WHERE id = ?`
+      )
+      .run(status, nowIso(), errorMessage, id);
+  }
+
+  recordLlmCall({
+    runId,
+    provider,
+    model,
+    promptVersion,
+    inputSummary = "",
+    outputSummary = "",
+    inputTokens = 0,
+    outputTokens = 0,
+    latencyMs = null,
+    status,
+    errorMessage = null,
+    createdAt = nowIso()
+  }) {
+    const result = this.db
+      .prepare(
+        `INSERT INTO llm_calls (
+          run_id, provider, model, prompt_version, input_summary,
+          output_summary, input_tokens, output_tokens, latency_ms, status,
+          error_message, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        runId,
+        provider,
+        model,
+        promptVersion,
+        inputSummary,
+        outputSummary,
+        inputTokens,
+        outputTokens,
+        latencyMs,
+        status,
+        errorMessage,
+        createdAt
+      );
+    return Number(result.lastInsertRowid);
+  }
+
+  beginToolCall({
+    runId,
+    toolName,
+    argumentsJson,
+    idempotencyKey = null
+  }) {
+    const timestamp = nowIso();
+    const result = this.db
+      .prepare(
+        `INSERT INTO tool_calls (
+          run_id, tool_name, arguments_json, result_json, status,
+          idempotency_key, created_at, updated_at
+        ) VALUES (?, ?, ?, '{}', 'running', ?, ?, ?)`
+      )
+      .run(
+        runId,
+        toolName,
+        argumentsJson,
+        idempotencyKey,
+        timestamp,
+        timestamp
+      );
+    return Number(result.lastInsertRowid);
+  }
+
+  finishToolCall(
+    id,
+    { status, resultJson = "{}", latencyMs = null, errorMessage = null }
+  ) {
+    this.db
+      .prepare(
+        `UPDATE tool_calls
+         SET status = ?, result_json = ?, latency_ms = ?, error_message = ?,
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        status,
+        resultJson,
+        latencyMs,
+        errorMessage,
+        nowIso(),
+        id
+      );
+  }
+
+  findToolCallByIdempotency(toolName, idempotencyKey) {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM tool_calls
+           WHERE tool_name = ? AND idempotency_key = ?
+           ORDER BY id DESC LIMIT 1`
+        )
+        .get(toolName, idempotencyKey) || null
+    );
   }
 
   getDashboard() {
@@ -380,7 +1301,124 @@ export class LearningRepository {
     });
   }
 
+  buildLearningSummary({ from, to, knowledgePoint = null }) {
+    const mistakeClauses = ["m.created_at >= ?", "m.created_at <= ?"];
+    const mistakeParameters = [from, to];
+    if (knowledgePoint) {
+      mistakeClauses.push("m.knowledge_point = ?");
+      mistakeParameters.push(knowledgePoint);
+    }
+
+    const mistakes = this.db
+      .prepare(
+        `SELECT m.knowledge_point, m.status, m.attempt_count
+         FROM mistakes m
+         WHERE ${mistakeClauses.join(" AND ")}`
+      )
+      .all(...mistakeParameters);
+
+    const attemptClauses = ["a.created_at >= ?", "a.created_at <= ?"];
+    const attemptParameters = [from, to];
+    if (knowledgePoint) {
+      attemptClauses.push("m.knowledge_point = ?");
+      attemptParameters.push(knowledgePoint);
+    }
+    const attempts = this.db
+      .prepare(
+        `SELECT a.outcome, a.independent, m.knowledge_point
+         FROM attempts a
+         JOIN mistakes m ON m.id = a.mistake_id
+         WHERE ${attemptClauses.join(" AND ")}`
+      )
+      .all(...attemptParameters);
+
+    const hintClauses = ["h.created_at >= ?", "h.created_at <= ?"];
+    const hintParameters = [from, to];
+    if (knowledgePoint) {
+      hintClauses.push("m.knowledge_point = ?");
+      hintParameters.push(knowledgePoint);
+    }
+    const hints = this.db
+      .prepare(
+        `SELECT h.id, m.knowledge_point
+         FROM hint_events h
+         JOIN mistakes m ON m.id = h.mistake_id
+         WHERE ${hintClauses.join(" AND ")}`
+      )
+      .all(...hintParameters);
+
+    const pointStatistics = new Map();
+    const ensurePoint = (name) => {
+      if (!pointStatistics.has(name)) {
+        pointStatistics.set(name, {
+          knowledgePoint: name,
+          mistakes: 0,
+          activeMistakes: 0,
+          masteredMistakes: 0,
+          attempts: 0,
+          correctAttempts: 0,
+          hints: 0
+        });
+      }
+      return pointStatistics.get(name);
+    };
+
+    for (const mistake of mistakes) {
+      const point = ensurePoint(mistake.knowledge_point);
+      point.mistakes += 1;
+      if (mistake.status === "mastered") {
+        point.masteredMistakes += 1;
+      } else {
+        point.activeMistakes += 1;
+      }
+    }
+    for (const attempt of attempts) {
+      const point = ensurePoint(attempt.knowledge_point);
+      point.attempts += 1;
+      if (attempt.outcome === "correct") point.correctAttempts += 1;
+    }
+    for (const hint of hints) {
+      ensurePoint(hint.knowledge_point).hints += 1;
+    }
+
+    const knowledgePoints = [...pointStatistics.values()]
+      .map((point) => ({
+        ...point,
+        mastery: point.mistakes
+          ? Math.round((point.masteredMistakes / point.mistakes) * 100)
+          : null
+      }))
+      .sort(
+        (a, b) =>
+          (a.mastery ?? 101) - (b.mastery ?? 101) ||
+          b.activeMistakes - a.activeMistakes
+      );
+
+    const mastered = mistakes.filter(
+      (mistake) => mistake.status === "mastered"
+    ).length;
+    return {
+      period: { from, to },
+      totals: {
+        mistakes: mistakes.length,
+        activeMistakes: mistakes.length - mastered,
+        masteredMistakes: mastered,
+        attempts: attempts.length,
+        correctAttempts: attempts.filter(
+          (attempt) => attempt.outcome === "correct"
+        ).length,
+        independentCorrectAttempts: attempts.filter(
+          (attempt) =>
+            attempt.outcome === "correct" && attempt.independent === 1
+        ).length,
+        hints: hints.length
+      },
+      knowledgePoints
+    };
+  }
+
   addDemoData() {
+    assertToolWriteAllowed();
     const existing = this.getDashboard().stats.total;
     if (existing > 0) {
       return { added: 0 };

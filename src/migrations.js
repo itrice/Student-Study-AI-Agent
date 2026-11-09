@@ -343,6 +343,232 @@ const AGENT_SCHEMA_REQUIRED_COLUMNS = {
   ]
 };
 
+export const TOOLING_SCHEMA_SQL = `
+  ALTER TABLE tool_calls ADD COLUMN idempotency_key TEXT;
+  ALTER TABLE tool_calls ADD COLUMN updated_at TEXT;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_calls_idempotency
+  ON tool_calls(tool_name, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+
+  CREATE TABLE IF NOT EXISTS mistake_drafts (
+    id TEXT PRIMARY KEY,
+    student_id INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    student_answer TEXT NOT NULL DEFAULT '',
+    correct_answer TEXT NOT NULL,
+    analysis TEXT NOT NULL DEFAULT '',
+    knowledge_point TEXT NOT NULL,
+    error_type TEXT NOT NULL,
+    diagnosis_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'draft'
+      CHECK (status IN ('draft', 'saved', 'expired')),
+    saved_mistake_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY(student_id) REFERENCES students(id),
+    FOREIGN KEY(saved_mistake_id) REFERENCES mistakes(id) ON DELETE SET NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_mistake_drafts_status
+  ON mistake_drafts(status, expires_at);
+`;
+
+const TOOLING_SCHEMA_REQUIRED_COLUMNS = {
+  tool_calls: ["idempotency_key", "updated_at"],
+  mistake_drafts: [
+    "id",
+    "student_id",
+    "question",
+    "student_answer",
+    "correct_answer",
+    "analysis",
+    "knowledge_point",
+    "error_type",
+    "diagnosis_json",
+    "status",
+    "saved_mistake_id",
+    "created_at",
+    "updated_at",
+    "expires_at"
+  ]
+};
+
+export const MISTAKE_EDITING_SCHEMA_SQL = `
+  ALTER TABLE mistakes ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
+
+  CREATE TABLE IF NOT EXISTS mistake_edits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mistake_id INTEGER NOT NULL,
+    revision_before INTEGER NOT NULL,
+    revision_after INTEGER NOT NULL,
+    changed_fields_json TEXT NOT NULL DEFAULT '[]',
+    before_json TEXT NOT NULL DEFAULT '{}',
+    after_json TEXT NOT NULL DEFAULT '{}',
+    reset_learning INTEGER NOT NULL DEFAULT 0
+      CHECK (reset_learning IN (0, 1)),
+    edited_at TEXT NOT NULL,
+    FOREIGN KEY(mistake_id) REFERENCES mistakes(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_mistake_edits_mistake
+  ON mistake_edits(mistake_id, edited_at);
+`;
+
+const MISTAKE_EDITING_SCHEMA_REQUIRED_COLUMNS = {
+  mistakes: ["revision"],
+  mistake_edits: [
+    "id",
+    "mistake_id",
+    "revision_before",
+    "revision_after",
+    "changed_fields_json",
+    "before_json",
+    "after_json",
+    "reset_learning",
+    "edited_at"
+  ]
+};
+
+export const MULTI_PART_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS mistake_parts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mistake_id INTEGER NOT NULL,
+    part_no INTEGER NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    prompt TEXT NOT NULL DEFAULT '',
+    student_answer TEXT NOT NULL DEFAULT '',
+    answer_type TEXT NOT NULL DEFAULT 'auto',
+    comparison_rule TEXT NOT NULL DEFAULT 'auto',
+    knowledge_point TEXT NOT NULL,
+    hint TEXT NOT NULL DEFAULT '',
+    explanation TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(mistake_id) REFERENCES mistakes(id) ON DELETE CASCADE
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_mistake_parts_active_no
+  ON mistake_parts(mistake_id, part_no)
+  WHERE active = 1;
+
+  CREATE TABLE IF NOT EXISTS accepted_answers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    part_id INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    answer TEXT NOT NULL,
+    variant_type TEXT NOT NULL DEFAULT 'expected',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(part_id) REFERENCES mistake_parts(id) ON DELETE CASCADE,
+    UNIQUE(part_id, position)
+  );
+
+  CREATE TABLE IF NOT EXISTS attempt_part_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    attempt_id INTEGER NOT NULL,
+    part_id INTEGER NOT NULL,
+    raw_answer TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL
+      CHECK (outcome IN ('correct', 'partial', 'incorrect', 'ungraded')),
+    feedback TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(attempt_id) REFERENCES attempts(id) ON DELETE CASCADE,
+    FOREIGN KEY(part_id) REFERENCES mistake_parts(id) ON DELETE CASCADE,
+    UNIQUE(attempt_id, part_id)
+  );
+
+  ALTER TABLE mistake_drafts
+  ADD COLUMN parts_json TEXT NOT NULL DEFAULT '[]';
+
+  ALTER TABLE hint_events
+  ADD COLUMN part_id INTEGER REFERENCES mistake_parts(id) ON DELETE SET NULL;
+
+  INSERT INTO mistake_parts (
+    mistake_id, part_no, label, prompt, student_answer, answer_type,
+    comparison_rule, knowledge_point, hint, explanation, active,
+    created_at, updated_at
+  )
+  SELECT
+    m.id, 1, '', '', m.student_answer, 'auto', 'auto',
+    m.knowledge_point, m.hint, m.diagnosis, 1, m.created_at, m.updated_at
+  FROM mistakes m
+  WHERE NOT EXISTS (
+    SELECT 1 FROM mistake_parts p WHERE p.mistake_id = m.id
+  );
+
+  INSERT INTO accepted_answers (
+    part_id, position, answer, variant_type, created_at
+  )
+  SELECT
+    p.id, 1, m.correct_answer, 'legacy', m.created_at
+  FROM mistake_parts p
+  JOIN mistakes m ON m.id = p.mistake_id
+  WHERE p.part_no = 1
+    AND NOT EXISTS (
+      SELECT 1 FROM accepted_answers a WHERE a.part_id = p.id
+    );
+
+  INSERT INTO attempt_part_results (
+    attempt_id, part_id, raw_answer, outcome, feedback, created_at
+  )
+  SELECT
+    a.id, p.id, a.answer,
+    CASE WHEN a.is_correct = 1 THEN 'correct' ELSE 'incorrect' END,
+    a.feedback, a.created_at
+  FROM attempts a
+  JOIN mistake_parts p ON p.mistake_id = a.mistake_id AND p.part_no = 1
+  WHERE NOT EXISTS (
+    SELECT 1 FROM attempt_part_results r
+    WHERE r.attempt_id = a.id AND r.part_id = p.id
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_accepted_answers_part
+  ON accepted_answers(part_id, position);
+
+  CREATE INDEX IF NOT EXISTS idx_attempt_part_results_attempt
+  ON attempt_part_results(attempt_id);
+`;
+
+const MULTI_PART_SCHEMA_REQUIRED_COLUMNS = {
+  mistake_parts: [
+    "id",
+    "mistake_id",
+    "part_no",
+    "label",
+    "prompt",
+    "student_answer",
+    "answer_type",
+    "comparison_rule",
+    "knowledge_point",
+    "hint",
+    "explanation",
+    "active",
+    "created_at",
+    "updated_at"
+  ],
+  accepted_answers: [
+    "id",
+    "part_id",
+    "position",
+    "answer",
+    "variant_type",
+    "created_at"
+  ],
+  attempt_part_results: [
+    "id",
+    "attempt_id",
+    "part_id",
+    "raw_answer",
+    "outcome",
+    "feedback",
+    "created_at"
+  ],
+  mistake_drafts: ["parts_json"],
+  hint_events: ["part_id"]
+};
+
 function assertRequiredColumns(db, table, requiredColumns) {
   const rows = db.prepare(`PRAGMA table_info("${table}")`).all();
   if (!rows.length) {
@@ -392,6 +618,18 @@ const AGENT_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: AGENT_SCHEMA_SQL
 });
 
+const TOOLING_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: TOOLING_SCHEMA_SQL
+});
+
+const MISTAKE_EDITING_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: MISTAKE_EDITING_SCHEMA_SQL
+});
+
+const MULTI_PART_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: MULTI_PART_SCHEMA_SQL
+});
+
 export const SCHEMA_MIGRATIONS = [
   {
     version: 1,
@@ -416,6 +654,45 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(AGENT_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         AGENT_SCHEMA_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 3,
+    name: "tooling_contract",
+    checksumSource: TOOLING_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(TOOLING_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        TOOLING_SCHEMA_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 4,
+    name: "mistake_editing",
+    checksumSource: MISTAKE_EDITING_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(MISTAKE_EDITING_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        MISTAKE_EDITING_SCHEMA_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 5,
+    name: "multi_part_questions",
+    checksumSource: MULTI_PART_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(MULTI_PART_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        MULTI_PART_SCHEMA_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

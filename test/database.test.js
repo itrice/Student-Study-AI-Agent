@@ -61,7 +61,9 @@ test("答错后延后复习，连续两次答对后标记掌握", () => {
   assert.equal(storedWrongAttempt.independent, null);
   assert.equal(storedWrongAttempt.evaluation_source, "rule");
 
-  const firstCorrect = repository.recordAttempt(mistake.id, "288元");
+  const firstCorrect = repository.recordAttempt(mistake.id, "288元", {
+    independent: true
+  });
   assert.equal(firstCorrect.correct, true);
   assert.equal(firstCorrect.mastered, false);
   assert.equal(firstCorrect.mistake.status, "practicing");
@@ -75,7 +77,9 @@ test("答错后延后复习，连续两次答对后标记掌握", () => {
     "correct"
   );
 
-  const secondCorrect = repository.recordAttempt(mistake.id, "288");
+  const secondCorrect = repository.recordAttempt(mistake.id, "288", {
+    independent: true
+  });
   assert.equal(secondCorrect.correct, true);
   assert.equal(secondCorrect.mastered, true);
   assert.equal(secondCorrect.mistake.status, "mastered");

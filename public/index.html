@@ -256,7 +256,12 @@
 
           <article id="review-card" class="review-card" hidden>
             <div class="review-meta">
-              <span class="knowledge-badge" id="review-point"></span>
+              <div class="review-meta-left">
+                <span class="knowledge-badge" id="review-point"></span>
+                <button class="review-edit-button" id="review-edit-button">
+                  修改题目
+                </button>
+              </div>
               <span class="attempt-label" id="review-attempt"></span>
             </div>
             <div class="question-block">
@@ -291,13 +296,8 @@
                 </button>
               </div>
               <form id="answer-form" class="answer-form" hidden>
-                <label for="review-answer">写出你的答案或关键步骤</label>
-                <textarea
-                  id="review-answer"
-                  rows="3"
-                  placeholder="例如：先求……再求……"
-                  autocomplete="off"
-                ></textarea>
+                <span class="answer-form-label">按小问分别写出答案</span>
+                <div id="review-parts" class="review-parts"></div>
                 <button class="primary-button" type="submit">提交这次作答</button>
               </form>
             </div>
@@ -369,8 +369,8 @@
       <form id="add-form" method="dialog">
         <div class="dialog-header">
           <div>
-            <span class="eyebrow">建立学习证据</span>
-            <h2>录入一道错题</h2>
+            <span class="eyebrow" id="dialog-eyebrow">建立学习证据</span>
+            <h2 id="dialog-title">录入一道错题</h2>
           </div>
           <button
             class="icon-button"
@@ -397,25 +397,22 @@
             ></textarea>
           </label>
 
-          <div class="form-row">
-            <label class="field">
-              <span>你当时的答案</span>
-              <input
-                name="studentAnswer"
-                maxlength="500"
-                placeholder="不会做可以留空"
-              />
-            </label>
-            <label class="field">
-              <span>正确答案 <b>*</b></span>
-              <input
-                name="correctAnswer"
-                required
-                maxlength="500"
-                placeholder="例如：12 或 3/4"
-              />
-            </label>
-          </div>
+          <section class="parts-editor">
+            <div class="parts-editor-heading">
+              <div>
+                <span>小问与答案 <b>*</b></span>
+                <small>每个空位或小问独立填写；同一小问的等价答案用分号分隔。</small>
+              </div>
+              <button
+                class="secondary-button compact"
+                type="button"
+                id="add-part-button"
+              >
+                添加小问
+              </button>
+            </div>
+            <div id="parts-list" class="parts-list"></div>
+          </section>
 
           <div class="form-row">
             <label class="field">
@@ -460,11 +457,12 @@
               <strong>初步诊断</strong>
               <span id="diagnosis-copy">输入题目后会判断知识点。</span>
             </p>
+            <div id="diagnosis-details" class="diagnosis-details"></div>
           </div>
         </div>
 
         <div class="dialog-footer">
-          <p>保存后会优先进入今日复习。</p>
+          <p id="dialog-footnote">保存后会优先进入今日复习。</p>
           <div>
             <button
               class="secondary-button"
@@ -482,6 +480,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261104-3"></script>
+    <script type="module" src="/app.js?v=20261109-4"></script>
   </body>
 </html>

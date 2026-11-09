@@ -7,6 +7,11 @@ const state = {
   filter: "all",
   review: null,
   reviewAttemptsThisSession: 0,
+  reviewHintLevel: 0,
+  dialogMode: "create",
+  editingMistakeId: null,
+  editSubmissionKey: null,
+  lastDiagnosis: null,
   busy: false,
   diagnosisRequest: 0
 };
@@ -372,13 +377,20 @@ function renderMistakes() {
     reviewButton.type = "button";
     reviewButton.dataset.reviewId = mistake.id;
 
+    const editButton = createElement("button", "small-action", "修改");
+    editButton.type = "button";
+    editButton.title = "修改这道错题";
+    editButton.dataset.editId = mistake.id;
+    editButton.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.2-1 10.6-10.6-3.2-3.2L5 15.8 4 20ZM13.8 7l3.2 3.2" /></svg><span>修改</span>';
+
     const deleteButton = createElement("button", "small-action danger");
     deleteButton.type = "button";
     deleteButton.title = "删除这道错题";
     deleteButton.dataset.deleteId = mistake.id;
     deleteButton.innerHTML =
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V4.5h6V7M7 7l1 12h8l1-12M10 10.5v5M14 10.5v5" /></svg>';
-    actions.append(reviewButton, deleteButton);
+    actions.append(reviewButton, editButton, deleteButton);
     card.append(number, main, actions);
     target.append(card);
   });
@@ -524,6 +536,183 @@ function showReviewEmpty(
   $("#review-session-label").textContent = "本轮复习已完成";
 }
 
+function splitAnswerVariants(value) {
+  return String(value || "")
+    .split(/[或;；\n]/)
+    .map((answer) => answer.trim())
+    .filter(Boolean);
+}
+
+function appendField(container, labelText, control) {
+  const label = createElement("label", "field");
+  label.append(createElement("span", "", labelText), control);
+  container.append(label);
+  return control;
+}
+
+function createPartEditor(part = {}, index = 0) {
+  const editor = createElement("article", "part-editor");
+  const heading = createElement("div", "part-editor-heading");
+  heading.append(
+    createElement("strong", "part-editor-title", `小问 ${index + 1}`)
+  );
+  const headingActions = createElement("div", "part-editor-actions");
+  const moveUp = createElement("button", "part-move-button", "↑");
+  moveUp.type = "button";
+  moveUp.dataset.movePart = "-1";
+  moveUp.title = "上移这个小问";
+  const moveDown = createElement("button", "part-move-button", "↓");
+  moveDown.type = "button";
+  moveDown.dataset.movePart = "1";
+  moveDown.title = "下移这个小问";
+  const removeButton = createElement("button", "part-remove-button");
+  removeButton.type = "button";
+  removeButton.dataset.removePart = "true";
+  removeButton.title = "删除这个小问";
+  removeButton.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V4.5h6V7M7 7l1 12h8l1-12M10 10.5v5M14 10.5v5" /></svg>';
+  headingActions.append(moveUp, moveDown, removeButton);
+  heading.append(headingActions);
+  editor.append(heading);
+
+  const grid = createElement("div", "part-editor-grid");
+  const labelInput = document.createElement("input");
+  labelInput.dataset.partField = "label";
+  labelInput.maxLength = 200;
+  labelInput.placeholder = "例如：工作效率比";
+  labelInput.value = part.label || "";
+  appendField(grid, "小问名称", labelInput);
+
+  const typeSelect = document.createElement("select");
+  typeSelect.dataset.partField = "answerType";
+  for (const [value, label] of [
+    ["auto", "自动判断"],
+    ["number", "数值"],
+    ["fraction", "分数"],
+    ["percent", "百分数"],
+    ["ratio", "比"],
+    ["text", "文本"]
+  ]) {
+    const option = createElement("option", "", label);
+    option.value = value;
+    typeSelect.append(option);
+  }
+  typeSelect.value = part.answerType || "auto";
+  appendField(grid, "答案类型", typeSelect);
+
+  const promptInput = document.createElement("input");
+  promptInput.dataset.partField = "prompt";
+  promptInput.maxLength = 2000;
+  promptInput.placeholder = "可选：这个小问的具体问题";
+  promptInput.value = part.prompt || "";
+  appendField(grid, "小问题干", promptInput);
+
+  const studentAnswerInput = document.createElement("input");
+  studentAnswerInput.dataset.partField = "studentAnswer";
+  studentAnswerInput.maxLength = 1000;
+  studentAnswerInput.placeholder = "不会做可以留空";
+  studentAnswerInput.value = part.studentAnswer || "";
+  appendField(grid, "你当时的答案", studentAnswerInput);
+
+  const answerInput = document.createElement("input");
+  answerInput.dataset.partField = "acceptedAnswers";
+  answerInput.maxLength = 2000;
+  answerInput.required = true;
+  answerInput.placeholder = "例如：1:6；2:12";
+  answerInput.value = (part.acceptedAnswers || []).join("；");
+  appendField(grid, "可接受答案", answerInput);
+
+  const pointSelect = document.createElement("select");
+  pointSelect.dataset.partField = "knowledgePoint";
+  const autoPoint = createElement("option", "", "跟随整题知识点");
+  autoPoint.value = "";
+  pointSelect.append(autoPoint);
+  for (const point of state.knowledgePoints) {
+    const option = createElement("option", "", point.name);
+    option.value = point.name;
+    pointSelect.append(option);
+  }
+  pointSelect.value = part.knowledgePoint || "";
+  appendField(grid, "小问知识点", pointSelect);
+
+  editor.append(grid);
+  return editor;
+}
+
+function renumberPartEditors() {
+  const editors = $$(".part-editor", $("#parts-list"));
+  editors.forEach((editor, index) => {
+    $(".part-editor-title", editor).textContent = `小问 ${index + 1}`;
+    $('[data-move-part="-1"]', editor).disabled = index === 0;
+    $('[data-move-part="1"]', editor).disabled = index === editors.length - 1;
+  });
+}
+
+function renderPartsEditor(parts = []) {
+  const list = $("#parts-list");
+  list.replaceChildren();
+  const source = parts.length
+    ? parts
+    : [{ label: "", acceptedAnswers: [] }];
+  source.forEach((part, index) => {
+    list.append(createPartEditor(part, index));
+  });
+  renumberPartEditors();
+}
+
+function collectMistakeParts({ requireAnswers = true } = {}) {
+  const parts = $$(".part-editor", $("#parts-list")).map((editor, index) => {
+    const acceptedAnswers = splitAnswerVariants(
+      $('[data-part-field="acceptedAnswers"]', editor).value
+    );
+    if (requireAnswers && !acceptedAnswers.length) {
+      throw new Error(`请填写小问 ${index + 1} 的答案`);
+    }
+    const answerType = $('[data-part-field="answerType"]', editor).value;
+    return {
+      label: $('[data-part-field="label"]', editor).value.trim(),
+      prompt: $('[data-part-field="prompt"]', editor).value.trim(),
+      studentAnswer: $(
+        '[data-part-field="studentAnswer"]',
+        editor
+      ).value.trim(),
+      answerType,
+      comparisonRule: answerType === "ratio" ? "ratio" : "auto",
+      knowledgePoint: $(
+        '[data-part-field="knowledgePoint"]',
+        editor
+      ).value,
+      acceptedAnswers
+    };
+  });
+  if (!parts.length) throw new Error("请至少添加一个小问");
+  return parts;
+}
+
+function renderReviewPartInputs(review) {
+  const container = $("#review-parts");
+  container.replaceChildren();
+  for (const part of review.parts || []) {
+    const wrapper = createElement("div", "review-part");
+    const label = createElement(
+      "label",
+      "",
+      part.label || (review.partCount > 1 ? `小问 ${part.partNo}` : "你的答案")
+    );
+    if (part.prompt) {
+      label.append(createElement("small", "", part.prompt));
+    }
+    const input = document.createElement("input");
+    input.dataset.reviewPartId = String(part.id);
+    input.placeholder = part.answerType === "ratio" ? "例如：1:6" : "写出答案";
+    input.autocomplete = "off";
+    input.maxLength = 3000;
+    label.append(input);
+    wrapper.append(label);
+    container.append(wrapper);
+  }
+}
+
 function renderReview() {
   const review = state.review;
   $("#review-loading").hidden = true;
@@ -547,8 +736,10 @@ function renderReview() {
   $("#hint-panel").hidden = true;
   $("#answer-form").hidden = true;
   $("#answer-form").reset();
+  renderReviewPartInputs(review);
   $("#review-result").hidden = true;
   $("#review-result").replaceChildren();
+  state.reviewHintLevel = 0;
   $("#review-progress").style.width = `${Math.min(
     90,
     20 + state.reviewAttemptsThisSession * 18
@@ -572,6 +763,7 @@ async function openReview(id, { updateHash = true } = {}) {
 }
 
 function showHint() {
+  state.reviewHintLevel = Math.max(1, state.reviewHintLevel);
   $("#review-pre-actions").hidden = true;
   $("#hint-panel").hidden = false;
 }
@@ -580,20 +772,30 @@ function showAnswerForm() {
   $("#review-pre-actions").hidden = true;
   $("#hint-panel").hidden = true;
   $("#answer-form").hidden = false;
-  $("#review-answer").focus();
+  $("#review-parts input")?.focus();
 }
 
 async function submitAttempt(event) {
   event.preventDefault();
   if (!state.review || state.busy) return;
-  const answer = $("#review-answer").value.trim();
+  const answers = $$("[data-review-part-id]", $("#review-parts")).map(
+    (input) => ({
+      partId: Number(input.dataset.reviewPartId),
+      value: input.value.trim()
+    })
+  );
   const button = $("#answer-form button[type='submit']");
   state.busy = true;
   setBusy(button, true, "正在判断…");
   try {
     const result = await api(`/api/mistakes/${state.review.id}/attempts`, {
       method: "POST",
-      body: JSON.stringify({ answer })
+      body: JSON.stringify({
+        answer: answers.length === 1 ? answers[0].value : "",
+        answers,
+        independent: state.reviewHintLevel === 0,
+        hintLevel: state.reviewHintLevel
+      })
     });
     state.reviewAttemptsThisSession += 1;
     renderReviewResult(result);
@@ -611,17 +813,33 @@ function renderReviewResult(result) {
   const target = $("#review-result");
   area.hidden = true;
   target.hidden = false;
-  target.className = `review-result ${result.correct ? "is-correct" : "is-wrong"}`;
+  target.className = `review-result ${
+    result.outcome === "correct"
+      ? "is-correct"
+      : result.outcome === "partial"
+        ? "is-partial"
+        : "is-wrong"
+  }`;
   target.replaceChildren();
 
   const heading = createElement("div", "result-heading");
   const mark = createElement("span", "result-mark");
   mark.innerHTML = result.correct
     ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 7" /></svg>'
-    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>';
+    : result.outcome === "partial"
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>';
   const headingText = createElement("span");
   headingText.append(
-    createElement("strong", "", result.correct ? "这次做对了" : "先把这个缺口补上"),
+    createElement(
+      "strong",
+      "",
+      result.correct
+        ? "这次做对了"
+        : result.outcome === "partial"
+          ? "部分小问答对了"
+          : "先把这个缺口补上"
+    ),
     createElement(
       "small",
       "",
@@ -636,7 +854,43 @@ function renderReviewResult(result) {
   target.append(heading);
 
   target.append(createElement("p", "result-copy", result.feedback));
-  if (!result.correct) {
+  if (result.partResults?.length) {
+    const partList = createElement("div", "result-parts");
+    for (const part of result.partResults) {
+      const item = createElement(
+        "div",
+        `result-part ${part.outcome === "correct" ? "is-correct" : "is-wrong"}`
+      );
+      const itemHeading = createElement("div", "result-part-heading");
+      itemHeading.append(
+        createElement(
+          "strong",
+          "",
+          part.label || `小问 ${part.partNo}`
+        ),
+        createElement(
+          "span",
+          "",
+          part.outcome === "correct" ? "正确" : "需订正"
+        )
+      );
+      item.append(
+        itemHeading,
+        createElement("p", "", `你的答案：${part.rawAnswer || "未填写"}`)
+      );
+      if (part.outcome !== "correct") {
+        item.append(
+          createElement(
+            "p",
+            "",
+            `参考答案：${(part.acceptedAnswers || []).join(" 或 ")}`
+          )
+        );
+      }
+      partList.append(item);
+    }
+    target.append(partList);
+  } else if (!result.correct) {
     const answer = createElement("div", "result-answer");
     answer.append(
       document.createTextNode("正确答案"),
@@ -649,7 +903,8 @@ function renderReviewResult(result) {
     if (result.diagnosis) {
       target.append(createElement("p", "result-copy", result.diagnosis));
     }
-  } else if (result.mastered) {
+  }
+  if (result.correct && result.mastered) {
     target.append(
       createElement(
         "p",
@@ -674,42 +929,161 @@ function renderReviewResult(result) {
 function openAddDialog() {
   const dialog = $("#add-dialog");
   $("#add-form").reset();
+  renderPartsEditor();
   $("#diagnosis-preview").hidden = true;
+  state.dialogMode = "create";
+  state.editingMistakeId = null;
+  state.editSubmissionKey = null;
+  state.lastDiagnosis = null;
+  $("#dialog-eyebrow").textContent = "建立学习证据";
+  $("#dialog-title").textContent = "录入一道错题";
+  $("#dialog-footnote").textContent = "保存后会优先进入今日复习。";
+  $("#save-mistake-button").textContent = "保存并开始复习";
   if (!dialog.open) dialog.showModal();
   window.setTimeout(() => $("#question-input").focus(), 80);
+}
+
+async function openEditDialog(id) {
+  try {
+    const mistake = await api(`/api/mistakes/${id}`);
+    const form = $("#add-form");
+    form.reset();
+    form.elements.question.value = mistake.question;
+    form.elements.knowledgePoint.value = mistake.knowledgePoint;
+    form.elements.errorType.value = mistake.errorType;
+    form.elements.analysis.value = mistake.analysis || "";
+    renderPartsEditor(mistake.parts || []);
+    state.dialogMode = "edit";
+    state.editingMistakeId = id;
+    state.editSubmissionKey = null;
+    state.lastDiagnosis = null;
+    $("#dialog-eyebrow").textContent = "修正录入信息";
+    $("#dialog-title").textContent = "修改错题";
+    $("#dialog-footnote").textContent =
+      "修改题目、正确答案或知识点会重置掌握进度，历史作答仍会保留。";
+    $("#save-mistake-button").textContent = "保存修改";
+    $("#diagnosis-preview").hidden = true;
+    const dialog = $("#add-dialog");
+    if (!dialog.open) dialog.showModal();
+    window.setTimeout(() => $("#question-input").focus(), 80);
+  } catch (error) {
+    showToast(error.message, true);
+  }
 }
 
 function closeAddDialog() {
   const dialog = $("#add-dialog");
   if (dialog.open) dialog.close();
+  state.dialogMode = "create";
+  state.editingMistakeId = null;
+  state.editSubmissionKey = null;
+  state.lastDiagnosis = null;
 }
 
 let diagnosisTimer;
+function invalidateDiagnosis() {
+  state.lastDiagnosis = null;
+  $("#diagnosis-preview").hidden = true;
+  $("#diagnosis-details").replaceChildren();
+}
+
+function renderDiagnosisPreview(result) {
+  const details = $("#diagnosis-details");
+  details.replaceChildren();
+  const facts = createElement("div", "diagnosis-facts");
+  facts.append(
+    createElement(
+      "span",
+      "diagnosis-fact",
+      result.source === "llm" ? "AI 诊断" : "规则诊断"
+    ),
+    createElement(
+      "span",
+      "diagnosis-fact",
+      `置信度 ${Math.round(Number(result.confidence || 0) * 100)}%`
+    )
+  );
+  details.append(facts);
+
+  if (result.evidence?.length) {
+    const list = createElement("ul", "diagnosis-list");
+    list.append(createElement("li", "", "诊断依据"));
+    for (const evidence of result.evidence) {
+      list.append(createElement("li", "", `• ${evidence}`));
+    }
+    details.append(list);
+  }
+  if (result.knowledgeSources?.length) {
+    details.append(
+      createElement(
+        "p",
+        "diagnosis-source",
+        `知识来源：${result.knowledgeSources.join("；")}`
+      )
+    );
+  }
+  if (result.partAnalyses?.length) {
+    const heading = createElement(
+      "p",
+      "diagnosis-source",
+      "请核对分问诊断（保存即确认）："
+    );
+    const list = createElement("ul", "diagnosis-part-list");
+    for (const part of result.partAnalyses) {
+      const item = document.createElement("li");
+      const title = createElement(
+        "strong",
+        "",
+        `${part.partNo}. ${part.label}`
+      );
+      item.append(
+        title,
+        document.createTextNode(
+          ` · ${part.errorType}${part.missingConcept ? ` · ${part.missingConcept}` : ""}${
+            part.initialHint ? ` · 提示：${part.initialHint}` : ""
+          }`
+        )
+      );
+      list.append(item);
+    }
+    details.append(heading, list);
+  }
+}
+
 async function updateDiagnosis() {
   const question = $("#question-input").value.trim();
   const preview = $("#diagnosis-preview");
   const copy = $("#diagnosis-copy");
   if (question.length < 4) {
-    preview.hidden = true;
+    invalidateDiagnosis();
     return;
   }
 
   const requestNumber = ++state.diagnosisRequest;
   const form = new FormData($("#add-form"));
+  const parts = collectMistakeParts({ requireAnswers: false });
+  const firstAnswer = splitAnswerVariants(
+    $('[data-part-field="acceptedAnswers"]', $("#parts-list"))?.value || ""
+  )[0];
   try {
     const result = await api("/api/diagnose", {
       method: "POST",
       body: JSON.stringify({
         question,
-        studentAnswer: form.get("studentAnswer") || "",
-        correctAnswer: form.get("correctAnswer") || "",
+        studentAnswer:
+          $('[data-part-field="studentAnswer"]', $("#parts-list"))?.value || "",
+        correctAnswer: firstAnswer || "",
         analysis: form.get("analysis") || "",
         knowledgePoint: form.get("knowledgePoint") || "",
-        errorType: form.get("errorType") || ""
+        errorType: form.get("errorType") || "",
+        parts
       })
     });
     if (requestNumber !== state.diagnosisRequest) return;
-    copy.textContent = `${result.knowledgePoint} · ${result.errorType}。${result.hint}`;
+    state.lastDiagnosis = result;
+    const sourceLabel = result.source === "llm" ? "AI 诊断" : "规则诊断";
+    copy.textContent = `${sourceLabel}：${result.knowledgePoint} · ${result.errorType}。${result.hint}`;
+    renderDiagnosisPreview(result);
     preview.hidden = false;
   } catch {
     if (requestNumber === state.diagnosisRequest) preview.hidden = true;
@@ -726,25 +1100,59 @@ async function saveMistake(event) {
   if (state.busy) return;
   const form = $("#add-form");
   const data = Object.fromEntries(new FormData(form).entries());
-  if (!data.question.trim() || !data.correctAnswer.trim()) {
-    showToast("请填写题目和正确答案", true);
+  if (!data.question.trim()) {
+    showToast("请填写题目", true);
     return;
   }
-  const button = $("#save-mistake-button");
-  state.busy = true;
-  setBusy(button, true, "正在诊断并保存…");
+  let parts;
   try {
-    const created = await api("/api/mistakes", {
-      method: "POST",
-      body: JSON.stringify(data)
-    });
+    parts = collectMistakeParts();
+  } catch (error) {
+    showToast(error.message, true);
+    return;
+  }
+  data.parts = parts;
+  data.studentAnswer = parts.map((part) => part.studentAnswer).join("；");
+  data.correctAnswer = parts
+    .map((part) => part.acceptedAnswers[0])
+    .join("；");
+  if (state.lastDiagnosis) data.diagnosis = state.lastDiagnosis;
+  const button = $("#save-mistake-button");
+  const isEdit = state.dialogMode === "edit" && state.editingMistakeId;
+  if (isEdit && !state.editSubmissionKey) {
+    state.editSubmissionKey = crypto.randomUUID();
+  }
+  state.busy = true;
+  setBusy(button, true, isEdit ? "正在保存修改…" : "正在诊断并保存…");
+  try {
+    const result = isEdit
+      ? await api(`/api/mistakes/${state.editingMistakeId}`, {
+          method: "PATCH",
+          headers: {
+            "Idempotency-Key": state.editSubmissionKey
+          },
+          body: JSON.stringify(data)
+        })
+      : await api("/api/mistakes", {
+          method: "POST",
+          body: JSON.stringify(data)
+        });
     closeAddDialog();
-    state.reviewAttemptsThisSession = 0;
     await refreshAll();
-    state.review = created;
-    showView("review");
-    renderReview();
-    showToast(`已归入“${created.knowledgePoint}”，开始独立重做`);
+    if (isEdit) {
+      showView("mistakes");
+      showToast(
+        result.learningReset
+          ? "错题已修改，掌握进度已重置，历史作答仍保留"
+          : "错题信息已更新"
+      );
+    } else {
+      state.reviewAttemptsThisSession = 0;
+      state.review = result;
+      showView("review");
+      renderReview();
+      showToast(`已归入“${result.knowledgePoint}”，开始独立重做`);
+    }
   } catch (error) {
     showToast(error.message, true);
   } finally {
@@ -806,6 +1214,11 @@ function bindEvents() {
       openReview(Number(reviewButton.dataset.reviewId));
       return;
     }
+    const editButton = event.target.closest("[data-edit-id]");
+    if (editButton) {
+      openEditDialog(Number(editButton.dataset.editId));
+      return;
+    }
     const deleteButton = event.target.closest("[data-delete-id]");
     if (deleteButton) {
       deleteMistake(Number(deleteButton.dataset.deleteId));
@@ -837,6 +1250,9 @@ function bindEvents() {
   $("#show-hint-button").addEventListener("click", showHint);
   $("#retry-button").addEventListener("click", showAnswerForm);
   $("#retry-after-hint-button").addEventListener("click", showAnswerForm);
+  $("#review-edit-button").addEventListener("click", () => {
+    if (state.review) openEditDialog(state.review.id);
+  });
   $("#answer-form").addEventListener("submit", submitAttempt);
   $("#review-result").addEventListener("click", (event) => {
     if (event.target.closest("#next-review-button")) {
@@ -845,13 +1261,54 @@ function bindEvents() {
   });
 
   $("#add-form").addEventListener("submit", saveMistake);
+  $("#add-part-button").addEventListener("click", () => {
+    const list = $("#parts-list");
+    list.append(createPartEditor({}, list.children.length));
+    renumberPartEditors();
+    $('[data-part-field="label"]', list.lastElementChild)?.focus();
+  });
+  $("#parts-list").addEventListener("click", (event) => {
+    const move = event.target.closest("[data-move-part]");
+    if (move) {
+      const editor = move.closest(".part-editor");
+      const direction = Number(move.dataset.movePart);
+      const sibling =
+        direction < 0 ? editor.previousElementSibling : editor.nextElementSibling;
+      if (sibling) {
+        if (direction < 0) {
+          $("#parts-list").insertBefore(editor, sibling);
+        } else {
+          $("#parts-list").insertBefore(sibling, editor);
+        }
+        renumberPartEditors();
+        move.focus();
+      }
+      return;
+    }
+    const remove = event.target.closest("[data-remove-part]");
+    if (!remove) return;
+    if ($("#parts-list").children.length === 1) {
+      showToast("至少保留一个小问", true);
+      return;
+    }
+    remove.closest(".part-editor").remove();
+    renumberPartEditors();
+  });
   $("#close-dialog-button").addEventListener("click", closeAddDialog);
   $("#cancel-dialog-button").addEventListener("click", closeAddDialog);
   $("#question-input").addEventListener("input", queueDiagnosis);
   $("#add-form").addEventListener("change", (event) => {
-    if (["knowledgePoint", "errorType", "studentAnswer", "correctAnswer"].includes(event.target.name)) {
-      queueDiagnosis();
+    state.editSubmissionKey = null;
+    if (["knowledgePoint", "errorType"].includes(event.target.name)) {
+      return;
     }
+    invalidateDiagnosis();
+    queueDiagnosis();
+  });
+  $("#add-form").addEventListener("input", () => {
+    invalidateDiagnosis();
+    state.editSubmissionKey = null;
+    queueDiagnosis();
   });
   $("#add-dialog").addEventListener("click", (event) => {
     if (event.target === $("#add-dialog")) closeAddDialog();
