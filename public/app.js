@@ -47,6 +47,39 @@ function createElement(tag, className, text) {
   return node;
 }
 
+function readableText(value) {
+  if (typeof value === "string") {
+    const text = value.trim();
+    return /^\[object [A-Za-z]+\][。.]?$/.test(text) ? "" : text;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(readableText).filter(Boolean).join("；");
+  }
+  if (value && typeof value === "object") {
+    const partNo = Number(value.partNo ?? value.part ?? value.partNumber);
+    const hasPartNo = Number.isInteger(partNo) && partNo > 0;
+    for (const key of [
+      "message",
+      "text",
+      "description",
+      "detail",
+      "reason",
+      "summary",
+      "content",
+      "assessment",
+      "value"
+    ]) {
+      const text = readableText(value[key]);
+      if (text) return hasPartNo ? `第 ${partNo} 小问：${text}` : text;
+    }
+    return hasPartNo ? `第 ${partNo} 小问` : "";
+  }
+  return "";
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: {
@@ -1170,8 +1203,22 @@ function renderReviewResult(result) {
   heading.append(mark, headingText);
   target.append(heading);
 
-  target.append(createElement("p", "result-copy", result.feedback));
-  if (result.stepAssessment?.length || result.firstError) {
+  const firstError = readableText(result.firstError);
+  const finalAnswerAssessment = readableText(result.finalAnswerAssessment);
+  const stepAssessment = (Array.isArray(result.stepAssessment)
+    ? result.stepAssessment
+    : []
+  )
+    .map((step) => ({
+      partNo: step.partNo,
+      assessment: readableText(step.assessment)
+    }))
+    .filter((step) => step.assessment);
+
+  target.append(
+    createElement("p", "result-copy", readableText(result.feedback))
+  );
+  if (stepAssessment.length || finalAnswerAssessment || firstError) {
     const stepFeedback = createElement("div", "result-step-feedback");
     stepFeedback.append(
       createElement(
@@ -1180,19 +1227,19 @@ function renderReviewResult(result) {
         "步骤分析（最终结果以系统判定为准）"
       )
     );
-    if (result.finalAnswerAssessment) {
+    if (finalAnswerAssessment) {
       stepFeedback.append(
-        createElement("p", "", result.finalAnswerAssessment)
+        createElement("p", "", finalAnswerAssessment)
       );
     }
-    for (const step of result.stepAssessment || []) {
+    for (const step of stepAssessment) {
       stepFeedback.append(
         createElement("p", "", `第 ${step.partNo} 个小问：${step.assessment}`)
       );
     }
-    if (result.firstError) {
+    if (firstError) {
       stepFeedback.append(
-        createElement("p", "", `最早出现的错误：${result.firstError}`)
+        createElement("p", "", `最早出现的错误：${firstError}`)
       );
     }
     target.append(stepFeedback);

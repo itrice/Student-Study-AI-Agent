@@ -491,6 +491,86 @@ test("模型步骤评价不能覆盖确定性最终答案结果", async () => {
   repository.close();
 });
 
+test("模型返回对象型评价文本时转换为可读文本", async () => {
+  const repository = new LearningRepository();
+  const tools = createLearningTools(repository);
+  const mistake = createMultiMistake(repository);
+  const agent = createTutoringAgent({
+    repository,
+    tools,
+    gateway: fakeGateway({
+      outcome: "incorrect",
+      finalAnswerAssessment: "最终答案错误",
+      stepAssessment: [
+        { partNo: 1, assessment: { description: "效率比前后项写反了" } },
+        {
+          partNo: 2,
+          assessment: ["时间比需要先确定顺序", { message: "再化简" }]
+        }
+      ],
+      firstError: { partNo: 1, description: "把效率比写成了时间比" },
+      feedback: { message: "先分别写出效率和时间的对应关系。" },
+      nextHintLevel: 2,
+      masteryEvidence: [{ text: "无" }],
+      sources: ["比和比例"]
+    })
+  });
+  const result = await agent.submitAttempt({
+    mistakeId: mistake.id,
+    answers: [
+      { partId: mistake.parts[0].id, value: "3:2" },
+      { partId: mistake.parts[1].id, value: "2:3" }
+    ],
+    independent: true,
+    hintLevel: 0
+  });
+  assert.equal(result.firstError, "第 1 小问：把效率比写成了时间比。");
+  assert.deepEqual(
+    result.stepAssessment.map((step) => step.assessment),
+    ["效率比前后项写反了。", "时间比需要先确定顺序。再化简。"]
+  );
+  assert.match(result.feedback, /先分别写出效率和时间的对应关系/);
+  assert.doesNotMatch(JSON.stringify(result), /\[object Object\]/);
+  repository.close();
+});
+
+test("无法识别的对象型评价文本回退到确定性提示", async () => {
+  const repository = new LearningRepository();
+  const tools = createLearningTools(repository);
+  const mistake = createMultiMistake(repository);
+  const agent = createTutoringAgent({
+    repository,
+    tools,
+    gateway: fakeGateway({
+      outcome: "incorrect",
+      finalAnswerAssessment: "最终答案错误",
+      stepAssessment: [{ partNo: 1, assessment: { unknown: "无法识别" } }],
+      firstError: { unknownField: "无法识别" },
+      feedback: { unknownField: "同样无法识别" },
+      nextHintLevel: 2,
+      masteryEvidence: [],
+      sources: ["比和比例"]
+    })
+  });
+  const result = await agent.submitAttempt({
+    mistakeId: mistake.id,
+    answers: [
+      { partId: mistake.parts[0].id, value: "3:2" },
+      { partId: mistake.parts[1].id, value: "2:3" }
+    ],
+    independent: true,
+    hintLevel: 0
+  });
+  assert.equal(result.firstError, "小问 1（工作效率比）需要订正。");
+  assert.deepEqual(
+    result.stepAssessment.map((step) => step.assessment),
+    ["这一步由系统判定需要订正。", "这一步由系统判定需要订正。"]
+  );
+  assert.match(result.feedback, /这次还没做对/);
+  assert.doesNotMatch(JSON.stringify(result), /\[object Object\]/);
+  repository.close();
+});
+
 test("提示证据会关联首次作答且客户端不能伪造独立掌握", async () => {
   const repository = new LearningRepository();
   const tools = createLearningTools(repository);
