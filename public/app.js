@@ -1037,6 +1037,8 @@ function appendField(container, labelText, control) {
 
 function createPartEditor(part = {}, index = 0) {
   const editor = createElement("article", "part-editor");
+  editor.dataset.hint = part.hint || "";
+  editor.dataset.explanation = part.explanation || "";
   const heading = createElement("div", "part-editor-heading");
   heading.append(
     createElement("strong", "part-editor-title", `小问 ${index + 1}`)
@@ -1167,6 +1169,8 @@ function collectMistakeParts({ requireAnswers = true } = {}) {
         '[data-part-field="knowledgePoint"]',
         editor
       ).value,
+      hint: editor.dataset.hint || "",
+      explanation: editor.dataset.explanation || "",
       acceptedAnswers
     };
   });

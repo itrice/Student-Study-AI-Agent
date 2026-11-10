@@ -890,6 +890,42 @@ const M6_LEARNING_EVIDENCE_REQUIRED_COLUMNS = {
   ]
 };
 
+const LEGACY_MASTERY_EVIDENCE_BACKFILL_SCHEMA_SQL = `
+  INSERT INTO mastery_evidence (
+    mistake_id, attempt_id, evidence_type, rule_version, independent,
+    previous_status, next_status, outcome,
+    consecutive_independent_correct, review_schedule_id, reason, detail_json,
+    created_at
+  )
+  SELECT
+    m.id,
+    NULL,
+    'legacy_seed',
+    'legacy',
+    NULL,
+    '',
+    m.status,
+    '',
+    m.consecutive_correct,
+    (
+      SELECT rs.id FROM review_schedule rs
+      WHERE rs.mistake_id = m.id AND rs.active = 1
+      LIMIT 1
+    ),
+    'legacy_seed_no_attempts',
+    '{"source":"migration_v9"}',
+    COALESCE(m.created_at, datetime('now'))
+  FROM mistakes m
+  WHERE NOT EXISTS (
+    SELECT 1 FROM mastery_evidence e WHERE e.mistake_id = m.id
+  );
+`;
+
+const LEGACY_MASTERY_EVIDENCE_BACKFILL_REQUIRED_COLUMNS = {
+  mastery_evidence: M6_LEARNING_EVIDENCE_REQUIRED_COLUMNS.mastery_evidence,
+  review_schedule: M6_LEARNING_EVIDENCE_REQUIRED_COLUMNS.review_schedule
+};
+
 function assertRequiredColumns(db, table, requiredColumns) {
   const rows = db.prepare(`PRAGMA table_info("${table}")`).all();
   if (!rows.length) {
@@ -961,6 +997,10 @@ const KNOWLEDGE_BASE_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
 
 const M6_LEARNING_EVIDENCE_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: M6_LEARNING_EVIDENCE_SCHEMA_SQL
+});
+
+const LEGACY_MASTERY_EVIDENCE_BACKFILL_CHECKSUM_SOURCE = JSON.stringify({
+  schema: LEGACY_MASTERY_EVIDENCE_BACKFILL_SCHEMA_SQL
 });
 
 export const SCHEMA_MIGRATIONS = [
@@ -1065,6 +1105,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(M6_LEARNING_EVIDENCE_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         M6_LEARNING_EVIDENCE_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 9,
+    name: "legacy_mastery_evidence_backfill",
+    checksumSource: LEGACY_MASTERY_EVIDENCE_BACKFILL_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(LEGACY_MASTERY_EVIDENCE_BACKFILL_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        LEGACY_MASTERY_EVIDENCE_BACKFILL_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

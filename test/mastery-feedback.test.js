@@ -264,3 +264,120 @@ test("学习统计与底层作答事实一致，并明确数据不足", () => {
   emptyRepository.close();
   repository.close();
 });
+
+test("历史回填证据不计入掌握变化，并明确历史导入边界", () => {
+  const repository = new LearningRepository();
+  const mistake = createMistake(repository);
+  repository.insertMasteryEvidence({
+    mistakeId: mistake.id,
+    evidenceType: "legacy_backfill",
+    ruleVersion: "legacy",
+    previousStatus: "",
+    nextStatus: "mastered",
+    outcome: "correct",
+    consecutiveIndependentCorrect: 2,
+    reason: "legacy_attempt",
+    createdAt: "2026-11-10T02:00:00.000Z"
+  });
+
+  const summary = repository.buildLearningSummary({
+    from: "2026-11-03T00:00:00.000Z",
+    to: "2026-11-10T23:59:59.999Z"
+  });
+  assert.equal(summary.masteryChanges.toMastered, 0);
+  assert.equal(summary.masteryChanges.toRelearning, 0);
+  assert.deepEqual(summary.masteryChanges.items, []);
+  assert.equal(summary.dataStatus.hasLegacyEvidence, true);
+
+  const weekly = repository.buildWeeklyReport({
+    from: "2026-11-03T00:00:00.000Z",
+    to: "2026-11-10T23:59:59.999Z",
+    at: "2026-11-10T23:59:59.999Z"
+  });
+  assert.equal(weekly.masteryChanges.toMastered, 0);
+  assert.ok(
+    weekly.parentReport.limitations.includes(
+      "历史导入的掌握证据不计入本周掌握变化统计。"
+    )
+  );
+  assert.ok(
+    weekly.parentReport.statements.every(
+      (statement) => !statement.text.includes("进入已掌握状态")
+    )
+  );
+  repository.close();
+});
+
+test("只改整题解析不会重置掌握，并保留小问提示与解析", () => {
+  const repository = new LearningRepository();
+  const mistake = createMistake(repository, {
+    question: "甲队工作效率是1/5，乙队工作效率是1/6，求工作效率比和时间比。",
+    knowledgePoint: "比和比例",
+    correctAnswer: "6:5；5:6",
+    parts: [
+      {
+        label: "工作效率比",
+        prompt: "甲队和乙队的工作效率比",
+        answerType: "ratio",
+        knowledgePoint: "比和比例",
+        acceptedAnswers: ["6:5"],
+        hint: "先分别写出两队效率，再化成最简整数比。",
+        explanation: "1/5:1/6=6:5。"
+      },
+      {
+        label: "工作时间比",
+        prompt: "甲队和乙队的工作时间比",
+        answerType: "ratio",
+        knowledgePoint: "比和比例",
+        acceptedAnswers: ["5:6"],
+        hint: "工作量相同时，时间比与效率比相反。",
+        explanation: "时间比=1÷1/5:1÷1/6=5:6。"
+      }
+    ]
+  });
+  const beforeParts = repository.getMistake(mistake.id, {
+    includeSolution: true
+  }).parts;
+  const answers = beforeParts.map((part) => ({
+    partId: part.id,
+    value: part.acceptedAnswers[0]
+  }));
+  repository.recordAttempt(mistake.id, "", {
+    independent: true,
+    answers
+  });
+  const mastered = repository.recordAttempt(mistake.id, "", {
+    independent: true,
+    answers
+  });
+  assert.equal(mastered.mastered, true);
+
+  const updated = repository.updateMistake(mistake.id, {
+    analysis: "修改后的整题解析，只补充说明，不改变题目内容。",
+    parts: beforeParts.map((part) => ({
+      label: part.label,
+      prompt: part.prompt,
+      studentAnswer: part.studentAnswer,
+      answerType: part.answerType,
+      comparisonRule: part.comparisonRule,
+      knowledgePoint: part.knowledgePoint,
+      acceptedAnswers: part.acceptedAnswers
+    }))
+  });
+  assert.equal(updated.learningReset, false);
+  assert.deepEqual(updated.changedFields, ["analysis"]);
+
+  const after = repository.getMistake(mistake.id, { includeSolution: true });
+  assert.equal(after.status, "mastered");
+  assert.equal(after.attemptCount, 2);
+  assert.equal(after.parts.length, 2);
+  for (let index = 0; index < after.parts.length; index += 1) {
+    assert.equal(after.parts[index].id, beforeParts[index].id);
+    assert.equal(after.parts[index].hint, beforeParts[index].hint);
+    assert.equal(
+      after.parts[index].explanation,
+      beforeParts[index].explanation
+    );
+  }
+  repository.close();
+});

@@ -1241,7 +1241,17 @@ export class LearningRepository {
     if (!current) return null;
     const partsProvided = Array.isArray(input.parts);
     const proposedParts = partsProvided
-      ? normalizeParts(input)
+      ? normalizeParts({
+          ...input,
+          parts: input.parts.map((part, index) => {
+            const existing = current.parts[index];
+            return {
+              ...part,
+              hint: part.hint ?? existing?.hint ?? "",
+              explanation: part.explanation ?? existing?.explanation ?? ""
+            };
+          })
+        })
       : current.parts;
     const combinedStudentAnswer = proposedParts
       .map((part) => part.studentAnswer)
@@ -1271,18 +1281,35 @@ export class LearningRepository {
     const changedFields = Object.keys(finalFields).filter(
       (field) => finalFields[field] !== current[field]
     );
-    const partsChanged =
+    const comparablePart = (part) => ({
+      partNo: part.partNo,
+      label: part.label || "",
+      prompt: part.prompt || "",
+      studentAnswer: part.studentAnswer || "",
+      answerType: part.answerType || "auto",
+      comparisonRule: part.comparisonRule || "auto",
+      knowledgePoint: part.knowledgePoint || "",
+      acceptedAnswers: part.acceptedAnswers || []
+    });
+    const partsContentChanged =
       partsProvided &&
-      JSON.stringify(proposedParts) !==
+      JSON.stringify(proposedParts.map(comparablePart)) !==
+        JSON.stringify(current.parts.map(comparablePart));
+    const partsMetadataChanged =
+      partsProvided &&
+      JSON.stringify(
+        proposedParts.map((part) => ({
+          hint: part.hint || "",
+          explanation: part.explanation || ""
+        }))
+      ) !==
         JSON.stringify(
           current.parts.map((part) => ({
-            ...part,
-            id: undefined,
             hint: part.hint || "",
-            explanation: part.explanation || "",
-            acceptedAnswers: part.acceptedAnswers || []
+            explanation: part.explanation || ""
           }))
         );
+    const partsChanged = partsContentChanged || partsMetadataChanged;
     if (partsChanged) changedFields.push("parts");
     if (!changedFields.length) {
       return {
@@ -1294,9 +1321,11 @@ export class LearningRepository {
       };
     }
 
-    const resetLearning = changedFields.some((field) =>
-      ["question", "correctAnswer", "knowledgePoint", "parts"].includes(field)
-    );
+    const resetLearning =
+      partsContentChanged ||
+      changedFields.some((field) =>
+        ["question", "correctAnswer", "knowledgePoint"].includes(field)
+      );
     const revisionAfter = current.revision + 1;
     const timestamp = nowIso();
     const nextLearningState = resetLearning
@@ -1387,7 +1416,7 @@ export class LearningRepository {
           createdAt: timestamp
         });
       }
-      if (partsProvided) {
+      if (partsProvided && partsChanged) {
         this.db
           .prepare(
             `UPDATE mistake_parts
@@ -2161,7 +2190,9 @@ export class LearningRepository {
       "e.created_at >= ?",
       "e.created_at <= ?",
       "e.attempt_id IS NOT NULL",
-      "e.next_status != e.previous_status"
+      "e.next_status != e.previous_status",
+      "e.evidence_type NOT IN ('legacy_backfill', 'legacy_seed')",
+      "e.rule_version != 'legacy'"
     ];
     const evidenceParameters = [from, to];
     if (knowledgePoint) {
@@ -2193,6 +2224,17 @@ export class LearningRepository {
           row.independent === 1 ? true : row.independent === 0 ? false : null,
         createdAt: row.created_at
       }));
+
+    const legacyEvidence = Number(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM mastery_evidence
+           WHERE evidence_type IN ('legacy_backfill', 'legacy_seed')
+              OR rule_version = 'legacy'`
+        )
+        .get().count || 0
+    );
 
     const pointStatistics = new Map();
     const ensurePoint = (name) => {
@@ -2345,6 +2387,7 @@ export class LearningRepository {
         hasAttempts: attempts.length > 0,
         hasHints: hints.length > 0,
         hasMasteryChanges: masteryChanges.length > 0,
+        hasLegacyEvidence: legacyEvidence > 0,
         dependencyRateAvailable: knownDependencyAttempts > 0
       }
     };
@@ -2425,6 +2468,9 @@ export class LearningRepository {
           : []),
         ...(!summary.dataStatus.dependencyRateAvailable
           ? ["没有可用于判断独立作答与提示依赖的作答记录。"]
+          : []),
+        ...(summary.dataStatus.hasLegacyEvidence
+          ? ["历史导入的掌握证据不计入今天的掌握变化统计。"]
           : [])
       ]
     };
@@ -2491,6 +2537,9 @@ export class LearningRepository {
             : []),
           ...(summary.dependency.knownAttempts === 0
             ? ["本周没有可用于判断提示依赖的作答记录。"]
+            : []),
+          ...(summary.dataStatus.hasLegacyEvidence
+            ? ["历史导入的掌握证据不计入本周掌握变化统计。"]
             : [])
         ],
         knowledgePoints: summary.knowledgePoints,
