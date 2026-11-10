@@ -285,9 +285,8 @@ export class LearningRepository {
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const backupName = `${path.basename(filePath)}.before-v${targetVersion}-${timestamp}-${process.pid}.bak`;
     const backupPath = path.join(backupDirectory, backupName);
-    fs.writeFileSync(backupPath, Buffer.from(this.db.serialize()), {
-      flag: "wx"
-    });
+    const escapedBackupPath = backupPath.replaceAll("'", "''");
+    this.db.exec(`VACUUM INTO '${escapedBackupPath}'`);
 
     const verification = new DatabaseSync(backupPath, { readOnly: true });
     try {
