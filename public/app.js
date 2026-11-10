@@ -1691,6 +1691,7 @@ function bindEvents() {
       state.knowledgeSearch = result;
       renderKnowledgeSearch(result);
     } catch (error) {
+      if (requestId !== state.knowledgeSearchRequest) return;
       showToast(error.message, true);
     } finally {
       setBusy(button, false);
