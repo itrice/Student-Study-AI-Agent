@@ -17,6 +17,9 @@
   --purple-pale: #f2eef8;
   --shadow: 0 18px 45px rgba(24, 50, 77, 0.08);
   --radius: 22px;
+  --text-meta: 12px;
+  --text-label: 14px;
+  --text-body: 16px;
   font-family:
     "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
   color: var(--ink);
@@ -40,6 +43,8 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  font-size: var(--text-body);
+  line-height: 1.6;
   background:
     radial-gradient(circle at 80% 5%, rgba(216, 235, 225, 0.55), transparent 25rem),
     var(--paper);
@@ -83,6 +88,7 @@ svg {
   display: flex;
   width: 246px;
   flex-direction: column;
+  overflow-y: auto;
   padding: 30px 22px 24px;
   color: #fff;
   background:
@@ -127,7 +133,7 @@ svg {
   display: block;
   margin-top: 4px;
   color: rgba(255, 255, 255, 0.58);
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 
 .main-nav {
@@ -184,7 +190,7 @@ svg {
   border-radius: 20px;
   color: #fff;
   background: var(--coral);
-  font-size: 11px;
+  font-size: var(--text-meta);
   font-style: normal;
   text-align: center;
 }
@@ -215,7 +221,7 @@ svg {
 .sidebar-tip p {
   margin: 0;
   color: rgba(255, 255, 255, 0.58);
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1.75;
 }
 
@@ -361,7 +367,7 @@ svg {
 .eyebrow {
   display: inline-block;
   color: var(--green);
-  font-size: 11px;
+  font-size: var(--text-meta);
   font-weight: 700;
   letter-spacing: 0.14em;
 }
@@ -392,7 +398,7 @@ svg {
   max-width: 480px;
   margin: 0;
   color: rgba(255, 255, 255, 0.62);
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 1.85;
 }
 
@@ -449,7 +455,7 @@ svg {
 
 .formula-card span {
   color: rgba(255, 255, 255, 0.5);
-  font-size: 10px;
+  font-size: var(--text-meta);
   letter-spacing: 0.12em;
 }
 
@@ -498,7 +504,7 @@ svg {
 }
 
 .step-note span {
-  font-size: 10px;
+  font-size: var(--text-meta);
   font-weight: 600;
   line-height: 1.45;
 }
@@ -542,7 +548,7 @@ svg {
   gap: 8px;
   padding: 0 20px;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   transition:
     transform 160ms ease,
@@ -611,7 +617,7 @@ svg {
   padding: 8px 0;
   color: var(--green);
   background: transparent;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 600;
 }
 
@@ -625,7 +631,7 @@ svg {
   padding: 5px;
   color: var(--green);
   background: transparent;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 600;
 }
 
@@ -707,7 +713,7 @@ svg {
   display: block;
   margin-bottom: 4px;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .stat-card strong {
@@ -719,7 +725,7 @@ svg {
 .stat-card em {
   margin-left: 3px;
   color: #97a5ae;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-style: normal;
 }
 
@@ -752,7 +758,7 @@ svg {
 
 .section-kicker {
   color: #90a097;
-  font-size: 9px;
+  font-size: var(--text-meta);
   font-weight: 700;
   letter-spacing: 0.14em;
 }
@@ -762,7 +768,7 @@ svg {
   border-radius: 20px;
   color: var(--ink-soft);
   background: #f3f6f3;
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .priority-content {
@@ -791,7 +797,7 @@ svg {
   border-radius: 20px;
   color: var(--ink-soft);
   background: #eff3f0;
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .tag.is-coral {
@@ -804,7 +810,7 @@ svg {
   overflow: hidden;
   margin: 13px 0 18px;
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 600;
   line-height: 1.8;
   -webkit-box-orient: vertical;
@@ -813,6 +819,7 @@ svg {
 
 .priority-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -820,7 +827,7 @@ svg {
 
 .priority-footer span {
   color: #8a9a92;
-  font-size: 9px;
+  font-size: 13px;
 }
 
 .priority-empty,
@@ -832,7 +839,7 @@ svg {
   border: 1px dashed #d8e2db;
   border-radius: 15px;
   color: #8b9a91;
-  font-size: 11px;
+  font-size: var(--text-label);
   text-align: center;
 }
 
@@ -850,14 +857,14 @@ svg {
 }
 
 .weakness-item strong {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 600;
 }
 
 .weakness-item b {
   color: var(--coral);
   font-family: Georgia, serif;
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 500;
 }
 
@@ -914,15 +921,15 @@ svg {
 
 .recent-item-top time {
   color: #9ba7a0;
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .recent-item p {
   display: -webkit-box;
   overflow: hidden;
-  height: 42px;
+  height: 3.6em;
   margin: 12px 0 9px;
-  font-size: 11px;
+  font-size: var(--text-body);
   line-height: 1.8;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -930,7 +937,7 @@ svg {
 
 .recent-item small {
   color: #91a097;
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .recent-empty {
@@ -943,7 +950,7 @@ svg {
   border: 1px dashed #d8e2db;
   border-radius: 15px;
   color: #7d8e84;
-  font-size: 11px;
+  font-size: var(--text-label);
 }
 
 .page-heading {
@@ -962,7 +969,7 @@ svg {
 .page-heading p {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--text-body);
   line-height: 1.75;
 }
 
@@ -975,7 +982,7 @@ svg {
   display: block;
   margin-bottom: 9px;
   color: #7f9086;
-  font-size: 10px;
+  font-size: 13px;
   text-align: right;
 }
 
@@ -1022,6 +1029,7 @@ svg {
 
 .review-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -1029,6 +1037,7 @@ svg {
 
 .review-meta-left {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
 }
@@ -1040,7 +1049,7 @@ svg {
   color: #6d7f74;
   background: transparent;
   cursor: pointer;
-  font-size: 9px;
+  font-size: var(--text-label);
 }
 
 .review-edit-button:hover {
@@ -1056,13 +1065,13 @@ svg {
   border-radius: 20px;
   color: var(--green-dark);
   background: var(--green-pale);
-  font-size: 10px;
+  font-size: var(--text-meta);
   font-weight: 600;
 }
 
 .attempt-label {
   color: #95a299;
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .question-block {
@@ -1071,7 +1080,7 @@ svg {
 
 .question-label {
   color: #94a097;
-  font-size: 9px;
+  font-size: var(--text-meta);
   font-weight: 700;
   letter-spacing: 0.14em;
 }
@@ -1093,7 +1102,8 @@ svg {
   border-radius: 0 10px 10px 0;
   color: #7e765f;
   background: #fdf9ee;
-  font-size: 11px;
+  font-size: 15px;
+  line-height: 1.75;
 }
 
 .answer-actions {
@@ -1124,6 +1134,7 @@ svg {
 
 .hint-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
@@ -1133,18 +1144,18 @@ svg {
   border-radius: 6px;
   color: var(--green-dark);
   background: #dfeee6;
-  font-size: 9px;
+  font-size: var(--text-meta);
   font-weight: 700;
 }
 
 .hint-heading strong {
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 .hint-panel p {
   margin: 15px 0 12px;
   color: #4f675b;
-  font-size: 12px;
+  font-size: var(--text-body);
   line-height: 1.8;
 }
 
@@ -1152,7 +1163,7 @@ svg {
   margin: 0 0 18px;
   padding-left: 20px;
   color: #607168;
-  font-size: 11px;
+  font-size: 15px;
   line-height: 2;
 }
 
@@ -1172,7 +1183,7 @@ svg {
 
 .follow-up-box > label {
   color: #53695c;
-  font-size: 10px;
+  font-size: var(--text-label);
   font-weight: 600;
 }
 
@@ -1192,7 +1203,7 @@ svg {
   outline: none;
   color: var(--ink);
   background: #fff;
-  font-size: 11px;
+  font-size: var(--text-body);
   line-height: 1.65;
 }
 
@@ -1210,7 +1221,7 @@ svg {
   border-radius: 10px;
   color: #50665a;
   background: #fff;
-  font-size: 11px;
+  font-size: 15px;
   line-height: 1.8;
 }
 
@@ -1226,7 +1237,7 @@ svg {
 }
 
 .answer-form-label {
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 600;
 }
 
@@ -1261,7 +1272,7 @@ svg {
 
 .review-part label {
   color: #50675a;
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 600;
 }
 
@@ -1269,7 +1280,7 @@ svg {
   display: block;
   margin-top: 3px;
   color: #8a998f;
-  font-size: 9px;
+  font-size: var(--text-meta);
   font-weight: 400;
 }
 
@@ -1281,7 +1292,7 @@ svg {
   border-radius: 9px;
   outline: none;
   background: #fff;
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 .review-part input:focus,
@@ -1304,6 +1315,7 @@ svg {
 
 .parts-editor-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 15px;
@@ -1316,7 +1328,7 @@ svg {
 
 .parts-editor-heading span {
   color: #53685b;
-  font-size: 10px;
+  font-size: var(--text-label);
   font-weight: 700;
 }
 
@@ -1326,7 +1338,7 @@ svg {
 
 .parts-editor-heading small {
   color: #8a998f;
-  font-size: 9px;
+  font-size: var(--text-meta);
   line-height: 1.6;
 }
 
@@ -1334,7 +1346,7 @@ svg {
   min-height: 34px;
   flex: 0 0 auto;
   padding: 0 12px;
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .parts-list {
@@ -1359,7 +1371,7 @@ svg {
 
 .part-editor-heading strong {
   color: var(--green-dark);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .part-editor-actions {
@@ -1382,7 +1394,7 @@ svg {
 .part-move-button {
   color: #5d7468;
   background: #f1f6f2;
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 .part-move-button:disabled {
@@ -1462,18 +1474,18 @@ svg {
 
 .result-heading strong {
   display: block;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .result-heading small {
   color: #7e8f85;
-  font-size: 10px;
+  font-size: var(--text-meta);
 }
 
 .result-copy {
   margin: 16px 0;
   color: #55695e;
-  font-size: 12px;
+  font-size: var(--text-body);
   line-height: 1.85;
   white-space: pre-wrap;
 }
@@ -1482,7 +1494,7 @@ svg {
   padding: 12px 14px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.75);
-  font-size: 12px;
+  font-size: var(--text-body);
 }
 
 .result-answer b {
@@ -1518,7 +1530,7 @@ svg {
 .result-step-feedback p {
   margin: 0;
   color: #5d7165;
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 1.7;
 }
 
@@ -1546,12 +1558,12 @@ svg {
 }
 
 .result-part-heading strong {
-  font-size: 11px;
+  font-size: var(--text-label);
 }
 
 .result-part-heading span {
   color: var(--green-dark);
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .result-part.is-wrong .result-part-heading span {
@@ -1561,7 +1573,7 @@ svg {
 .result-part p {
   margin: 7px 0 0;
   color: #627369;
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 1.7;
 }
 
@@ -1604,7 +1616,7 @@ svg {
   max-width: 380px;
   margin: 0 0 22px;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--text-body);
   line-height: 1.8;
 }
 
@@ -1633,7 +1645,7 @@ svg {
   color: #687a6f;
   background: transparent;
   cursor: pointer;
-  font-size: 10px;
+  font-size: var(--text-label);
   font-weight: 600;
 }
 
@@ -1655,7 +1667,7 @@ svg {
 .data-hint {
   padding-right: 8px;
   color: #9aa69f;
-  font-size: 9px;
+  font-size: var(--text-meta);
   white-space: nowrap;
 }
 
@@ -1722,18 +1734,19 @@ svg {
 }
 
 .mistake-question {
+  display: -webkit-box;
   overflow: hidden;
   margin: 10px 0 7px;
-  font-size: 12px;
+  font-size: var(--text-body);
   font-weight: 600;
   line-height: 1.7;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .mistake-detail {
   color: #89988f;
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .mistake-detail span + span::before {
@@ -1744,6 +1757,7 @@ svg {
 
 .mistake-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
 }
@@ -1760,7 +1774,7 @@ svg {
   color: var(--ink);
   background: #fff;
   cursor: pointer;
-  font-size: 9px;
+  font-size: var(--text-label);
   font-weight: 600;
 }
 
@@ -1790,7 +1804,7 @@ svg {
   border-radius: 18px;
   color: #85948b;
   background: rgba(255, 255, 255, 0.55);
-  font-size: 11px;
+  font-size: var(--text-label);
   text-align: center;
 }
 
@@ -1822,7 +1836,7 @@ svg {
 .knowledge-hero-stat small {
   display: block;
   color: #84958b;
-  font-size: 10px;
+  font-size: var(--text-meta);
 }
 
 .knowledge-hero-stat strong {
@@ -1835,7 +1849,7 @@ svg {
 
 .knowledge-hero-stat span {
   color: #91a097;
-  font-size: 10px;
+  font-size: var(--text-meta);
 }
 
 .knowledge-grid {
@@ -1869,7 +1883,7 @@ svg {
 
 .knowledge-card h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-body);
   font-weight: 700;
 }
 
@@ -1881,7 +1895,7 @@ svg {
 .knowledge-score small {
   color: #9ba79f;
   font-family: inherit;
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .knowledge-card .mastery-track {
@@ -1894,9 +1908,11 @@ svg {
 
 .knowledge-meta {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
+  gap: 5px 12px;
   color: #8c9a92;
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .knowledge-card-note {
@@ -1904,7 +1920,7 @@ svg {
   padding-top: 13px;
   border-top: 1px solid #edf1ed;
   color: #916158;
-  font-size: 9px;
+  font-size: var(--text-label);
   line-height: 1.65;
 }
 
@@ -2004,7 +2020,7 @@ svg {
 
 .field > span {
   color: #53685b;
-  font-size: 10px;
+  font-size: var(--text-label);
   font-weight: 600;
 }
 
@@ -2014,6 +2030,7 @@ svg {
 
 .field > span small {
   color: #9da8a1;
+  font-size: var(--text-meta);
   font-weight: 400;
 }
 
@@ -2021,14 +2038,14 @@ svg {
 .field select {
   height: 43px;
   padding: 0 12px;
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 
 .field textarea {
   min-height: 90px;
   padding: 12px;
   resize: vertical;
-  font-size: 12px;
+  font-size: var(--text-body);
   line-height: 1.7;
 }
 
@@ -2060,7 +2077,7 @@ svg {
 
 .diagnosis-preview p {
   margin: 0;
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 1.7;
 }
 
@@ -2093,7 +2110,7 @@ svg {
   border-radius: 6px;
   color: #65796d;
   background: #edf5ef;
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .diagnosis-list,
@@ -2108,7 +2125,7 @@ svg {
 .diagnosis-list li,
 .diagnosis-part-list li {
   color: #66786d;
-  font-size: 9px;
+  font-size: var(--text-label);
   line-height: 1.65;
 }
 
@@ -2136,7 +2153,7 @@ svg {
 .dialog-footer p {
   margin: 0;
   color: #8c9a92;
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .dialog-footer > div {
@@ -2161,7 +2178,7 @@ svg {
   color: #fff;
   background: #173b4a;
   box-shadow: 0 14px 35px rgba(16, 39, 58, 0.25);
-  font-size: 11px;
+  font-size: var(--text-label);
   line-height: 1.5;
   animation: toast-in 200ms ease both;
 }
@@ -2209,6 +2226,10 @@ svg {
 
   .dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .recent-list,
@@ -2480,7 +2501,7 @@ svg {
 .knowledge-library-head p {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: var(--text-body);
 }
 
 .knowledge-search {
@@ -2498,7 +2519,7 @@ svg {
   color: var(--ink);
   background: #fff;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 
 .knowledge-search input:focus {
@@ -2517,19 +2538,20 @@ svg {
 .knowledge-search-head,
 .knowledge-search-item-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
 .knowledge-search-head strong {
-  font-size: 12px;
+  font-size: var(--text-label);
 }
 
 .knowledge-search-note {
   margin: 9px 0 14px;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 1.7;
 }
 
@@ -2541,7 +2563,7 @@ svg {
   flex: 0 0 auto;
   padding: 4px 9px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: var(--text-meta);
   white-space: nowrap;
 }
 
@@ -2592,13 +2614,13 @@ svg {
 
 .knowledge-search-item h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .knowledge-search-item > p {
   margin: 7px 0 13px;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: var(--text-body);
   line-height: 1.7;
 }
 
@@ -2617,14 +2639,14 @@ svg {
 .knowledge-search-chunk strong {
   display: block;
   margin: 4px 0;
-  font-size: 11px;
+  font-size: var(--text-label);
 }
 
 .knowledge-search-chunk p,
 .knowledge-chunk p {
   margin: 0;
   color: #4e6256;
-  font-size: 10px;
+  font-size: var(--text-body);
   line-height: 1.8;
   white-space: pre-line;
 }
@@ -2676,12 +2698,12 @@ svg {
 }
 
 .knowledge-library-title strong {
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 
 .knowledge-library-title span {
   color: var(--ink-soft);
-  font-size: 9px;
+  font-size: var(--text-meta);
   line-height: 1.5;
 }
 
@@ -2693,7 +2715,7 @@ svg {
 .knowledge-summary-text {
   margin: 16px 0;
   color: #465a4d;
-  font-size: 10px;
+  font-size: var(--text-body);
   line-height: 1.8;
 }
 
@@ -2707,7 +2729,7 @@ svg {
 
 .knowledge-meta-label {
   color: #91a097;
-  font-size: 9px;
+  font-size: var(--text-meta);
   line-height: 20px;
 }
 
@@ -2728,7 +2750,7 @@ svg {
 .knowledge-sources h4,
 .knowledge-chunk h4 {
   margin: 0 0 7px;
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .knowledge-method ol,
@@ -2736,7 +2758,7 @@ svg {
   margin: 0;
   padding-left: 19px;
   color: #4e6256;
-  font-size: 10px;
+  font-size: var(--text-body);
   line-height: 1.8;
 }
 
@@ -2757,7 +2779,7 @@ svg {
   display: inline-block;
   margin-bottom: 3px;
   color: var(--green);
-  font-size: 8px;
+  font-size: var(--text-meta);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2766,7 +2788,7 @@ svg {
   display: block;
   margin-top: 8px;
   color: #9aa79f;
-  font-size: 8px;
+  font-size: var(--text-meta);
   line-height: 1.6;
   word-break: break-word;
 }
@@ -2778,20 +2800,20 @@ svg {
 
 .knowledge-source strong {
   display: block;
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .knowledge-source span {
   display: block;
   margin-top: 2px;
   color: var(--ink-soft);
-  font-size: 9px;
+  font-size: var(--text-meta);
 }
 
 .knowledge-source p {
   margin: 6px 0 0;
   color: #728277;
-  font-size: 9px;
+  font-size: var(--text-label);
   line-height: 1.7;
 }
 

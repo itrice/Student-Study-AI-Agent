@@ -28,6 +28,44 @@ function compact(value, length = 1000) {
   return text.length > length ? `${text.slice(0, length)}…` : text;
 }
 
+const MODEL_TEXT_KEYS = [
+  "message",
+  "text",
+  "description",
+  "detail",
+  "reason",
+  "summary",
+  "content",
+  "assessment",
+  "value"
+];
+
+function modelText(value, depth = 0) {
+  if (depth > 4 || value === null || value === undefined) return "";
+  if (typeof value === "string") {
+    const text = value.trim();
+    return /^\[object [A-Za-z]+\][。.]?$/.test(text) ? "" : text;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => modelText(item, depth + 1))
+      .filter(Boolean)
+      .join("；");
+  }
+  if (typeof value !== "object") return "";
+
+  const partNo = Number(value.partNo ?? value.part ?? value.partNumber);
+  const hasPartNo = Number.isInteger(partNo) && partNo > 0;
+  for (const key of MODEL_TEXT_KEYS) {
+    const text = modelText(value[key], depth + 1);
+    if (text) return hasPartNo ? `第 ${partNo} 小问：${text}` : text;
+  }
+  return hasPartNo ? `第 ${partNo} 小问` : "";
+}
+
 function normalizeSources(value, defaultSources = []) {
   if (!Array.isArray(value)) return [...defaultSources];
   return value
@@ -99,7 +137,7 @@ function deterministicStepAssessment(part) {
 }
 
 function conflictsWithDeterministicResult(text, correct) {
-  const value = String(text || "");
+  const value = modelText(text);
   const correctClaim =
     /(最终答案|整题|全部(?:小问|答案)?|答案|结果|这一步|这一小问|都|均|全对)[^，,。！？；;\n]{0,12}(?:正确|答对|无误)/;
   const incorrectClaim =
@@ -110,7 +148,7 @@ function conflictsWithDeterministicResult(text, correct) {
 }
 
 function discardConflictingClauses(text, { correct, fallback }) {
-  const clauses = String(text || "")
+  const clauses = modelText(text)
     .split(/[。！？；;\n]+/)
     .map((clause) => clause.trim())
     .filter(Boolean)
@@ -703,9 +741,12 @@ export class TutoringAgent {
         10
       );
       const rawMasteryEvidence = Array.isArray(raw.masteryEvidence)
-        ? raw.masteryEvidence.map(String).filter(Boolean).slice(0, 10)
+        ? raw.masteryEvidence
+            .map((evidence) => modelText(evidence))
+            .filter(Boolean)
+            .slice(0, 10)
         : raw.masteryEvidence
-          ? [String(raw.masteryEvidence)]
+          ? [modelText(raw.masteryEvidence)].filter(Boolean)
           : [];
       const masteryEvidence = deterministic.allCorrect
         ? rawMasteryEvidence.filter(
@@ -722,7 +763,14 @@ export class TutoringAgent {
       );
       const modelStepByPartNo = new Map(
         (Array.isArray(raw.stepAssessment) ? raw.stepAssessment : [])
-          .map((step) => [Number(step?.partNo), String(step?.assessment || "")])
+          .map((step) => [
+            Number(step?.partNo),
+            modelText(step?.assessment)
+          ])
+          .filter(
+            ([partNo, assessment]) =>
+              Number.isInteger(partNo) && assessment
+          )
       );
       const stepAssessment = deterministic.results.map((part) => ({
         partNo: part.partNo,
