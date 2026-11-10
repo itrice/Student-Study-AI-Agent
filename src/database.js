@@ -29,6 +29,11 @@ import {
   searchKnowledgeCards,
   segmentKnowledgeText
 } from "./knowledge/search.js";
+import {
+  defaultAttachmentsDirectory,
+  MAX_ATTACHMENTS_PER_MISTAKE,
+  MAX_ATTACHMENTS_TOTAL_BYTES
+} from "./attachments.js";
 
 const nowIso = () => new Date().toISOString();
 const toolWriteLeaseStorage = new AsyncLocalStorage();
@@ -213,6 +218,48 @@ function mapPart(row, answers = [], { includeSolution = false } = {}) {
   return part;
 }
 
+function mapAttachment(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    kind: row.kind,
+    mimeType: row.mime_type,
+    byteSize: row.byte_size,
+    width: row.width,
+    height: row.height,
+    url: `/api/attachments/${row.id}`,
+    createdAt: row.created_at
+  };
+}
+
+function normalizeAttachmentIds(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new LearningValidationError(
+      "INVALID_ATTACHMENTS",
+      "图片附件列表格式无效"
+    );
+  }
+  const ids = [];
+  for (const valueId of value) {
+    const id = Number(valueId);
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new LearningValidationError(
+        "INVALID_ATTACHMENTS",
+        "图片附件编号无效"
+      );
+    }
+    if (!ids.includes(id)) ids.push(id);
+  }
+  if (ids.length > MAX_ATTACHMENTS_PER_MISTAKE) {
+    throw new LearningValidationError(
+      "TOO_MANY_ATTACHMENTS",
+      `每道错题最多添加 ${MAX_ATTACHMENTS_PER_MISTAKE} 张图片`
+    );
+  }
+  return ids;
+}
+
 function mapMistake(row, { includeSolution = false } = {}) {
   if (!row) return null;
   const mistake = {
@@ -244,7 +291,7 @@ function mapMistake(row, { includeSolution = false } = {}) {
 }
 
 export class LearningRepository {
-  constructor(filePath = ":memory:") {
+  constructor(filePath = ":memory:", { attachmentDirectory } = {}) {
     let existingDatabase = false;
     if (filePath !== ":memory:") {
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -260,6 +307,9 @@ export class LearningRepository {
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.lastBackupPath = null;
+    this.attachmentDirectory = attachmentDirectory
+      ? path.resolve(attachmentDirectory)
+      : defaultAttachmentsDirectory(filePath);
 
     try {
       migrateDatabase(this.db, {
@@ -330,6 +380,217 @@ export class LearningRepository {
         )
         .get(name) || null
     );
+  }
+
+  insertAttachment(input) {
+    const timestamp = input.createdAt || nowIso();
+    const result = this.db
+      .prepare(
+        `INSERT INTO attachments (
+          mistake_id, kind, storage_key, mime_type, byte_size, width, height,
+          sha256, original_name, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.mistakeId ?? null,
+        input.kind || "question",
+        input.storageKey,
+        input.mimeType,
+        input.byteSize,
+        input.width,
+        input.height,
+        input.sha256,
+        input.originalName || "",
+        timestamp
+      );
+    return this.getAttachment(Number(result.lastInsertRowid));
+  }
+
+  getAttachment(id, { includeStorageKey = false } = {}) {
+    const row = this.db
+      .prepare("SELECT * FROM attachments WHERE id = ?")
+      .get(id);
+    if (!row) return null;
+    if (!includeStorageKey) return mapAttachment(row);
+    return {
+      ...mapAttachment(row),
+      mistakeId: row.mistake_id,
+      storageKey: row.storage_key,
+      sha256: row.sha256
+    };
+  }
+
+  listMistakeAttachments(mistakeId) {
+    return this.db
+      .prepare(
+        `SELECT * FROM attachments
+         WHERE mistake_id = ?
+         ORDER BY created_at, id`
+      )
+      .all(mistakeId)
+      .map(mapAttachment);
+  }
+
+  getReferencedAttachmentKeys() {
+    return this.db
+      .prepare("SELECT storage_key FROM attachments ORDER BY id")
+      .all()
+      .map((row) => row.storage_key);
+  }
+
+  deleteStaleUnboundAttachments(cutoffIso) {
+    const rows = this.db
+      .prepare(
+        `SELECT id, storage_key FROM attachments
+         WHERE mistake_id IS NULL AND created_at < ?`
+      )
+      .all(cutoffIso);
+    const remove = this.db.prepare(
+      "DELETE FROM attachments WHERE id = ? AND mistake_id IS NULL"
+    );
+    for (const row of rows) remove.run(row.id);
+    return rows.map((row) => row.storage_key);
+  }
+
+  saveAttachmentExtraction(input) {
+    const result = this.db
+      .prepare(
+        `INSERT INTO attachment_extractions (
+          attachment_id, raw_output, normalized_text, confidence, provider,
+          model, prompt_version, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.attachmentId,
+        input.rawOutput || "",
+        input.normalizedText || "",
+        input.confidence ?? null,
+        input.provider || "",
+        input.model || "",
+        input.promptVersion || "",
+        input.createdAt || nowIso()
+      );
+    return Number(result.lastInsertRowid);
+  }
+
+  getLatestAttachmentExtraction(attachmentId) {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM attachment_extractions
+           WHERE attachment_id = ?
+           ORDER BY id DESC LIMIT 1`
+        )
+        .get(attachmentId) || null
+    );
+  }
+
+  deleteUnboundAttachment(id) {
+    const row = this.db
+      .prepare("SELECT id, mistake_id, storage_key FROM attachments WHERE id = ?")
+      .get(id);
+    if (!row) return { deleted: false, missing: true, bound: false };
+    if (row.mistake_id !== null) {
+      return { deleted: false, missing: false, bound: true };
+    }
+    this.db.prepare("DELETE FROM attachments WHERE id = ?").run(id);
+    return {
+      deleted: true,
+      missing: false,
+      bound: false,
+      storageKey: row.storage_key
+    };
+  }
+
+  validateAttachmentSelection(attachmentIds, { mistakeId = null } = {}) {
+    const ids = normalizeAttachmentIds(attachmentIds);
+    const find = this.db.prepare(
+      "SELECT id, mistake_id, byte_size, storage_key FROM attachments WHERE id = ?"
+    );
+    const rows = [];
+    let totalBytes = 0;
+    for (const id of ids) {
+      const row = find.get(id);
+      if (!row) {
+        throw new LearningValidationError(
+          "ATTACHMENT_NOT_FOUND",
+          "题目图片不存在或已失效，请重新上传"
+        );
+      }
+      if (row.mistake_id !== null && row.mistake_id !== mistakeId) {
+        throw new LearningValidationError(
+          "ATTACHMENT_ALREADY_BOUND",
+          "这张图片已关联到其他错题"
+        );
+      }
+      totalBytes += Number(row.byte_size || 0);
+      rows.push(row);
+    }
+    if (totalBytes > MAX_ATTACHMENTS_TOTAL_BYTES) {
+      throw new LearningValidationError(
+        "ATTACHMENTS_TOO_LARGE",
+        "这道题的图片总大小不能超过 30 MB"
+      );
+    }
+    return rows;
+  }
+
+  bindNewAttachments(mistakeId, attachmentIds, timestamp) {
+    const rows = this.validateAttachmentSelection(attachmentIds);
+    const update = this.db.prepare(
+      `UPDATE attachments
+       SET mistake_id = ?
+       WHERE id = ? AND mistake_id IS NULL`
+    );
+    for (const row of rows) {
+      const result = update.run(mistakeId, row.id);
+      if (result.changes !== 1) {
+        throw new LearningValidationError(
+          "ATTACHMENT_ALREADY_BOUND",
+          "图片已被其他错题使用，请重新上传"
+        );
+      }
+    }
+    return rows.length;
+  }
+
+  replaceMistakeAttachments(mistakeId, attachmentIds) {
+    const proposedIds = normalizeAttachmentIds(attachmentIds);
+    const currentRows = this.db
+      .prepare(
+        "SELECT id, storage_key FROM attachments WHERE mistake_id = ? ORDER BY id"
+      )
+      .all(mistakeId);
+    const currentIds = currentRows.map((row) => row.id);
+    const proposedRows = this.validateAttachmentSelection(proposedIds, {
+      mistakeId
+    });
+    const removed = currentRows.filter((row) => !proposedIds.includes(row.id));
+    const added = proposedRows.filter((row) => !currentIds.includes(row.id));
+    const remove = this.db.prepare("DELETE FROM attachments WHERE id = ?");
+    for (const row of removed) remove.run(row.id);
+    this.bindNewAttachments(mistakeId, added.map((row) => row.id), nowIso());
+    return {
+      changed:
+        removed.length > 0 ||
+        added.length > 0 ||
+        proposedIds.length !== currentIds.length,
+      removedStorageKeys: removed.map((row) => row.storage_key)
+    };
+  }
+
+  removeAttachmentFiles(storageKeys) {
+    if (!this.attachmentDirectory) return;
+    for (const storageKey of storageKeys || []) {
+      if (!/^[a-f0-9-]{36}\.(?:jpg|png|webp)$/.test(storageKey)) continue;
+      try {
+        fs.unlinkSync(path.join(this.attachmentDirectory, storageKey));
+      } catch (error) {
+        if (error.code !== "ENOENT") {
+          // Files are best-effort; startup GC handles persistent failures.
+        }
+      }
+    }
   }
 
   knowledgeContentVersion(card) {
@@ -883,6 +1144,14 @@ export class LearningRepository {
   createMistake(input) {
     assertToolWriteAllowed();
     const student = this.getStudent();
+    const attachmentIds = normalizeAttachmentIds(input.attachmentIds);
+    const question = String(input.question || "").trim();
+    if (!question && !attachmentIds.length) {
+      throw new LearningValidationError(
+        "EMPTY_MISTAKE",
+        "请填写题目或添加题目图片"
+      );
+    }
     const parts = normalizeParts(input);
     const combinedStudentAnswer = parts
       .map((part) => part.studentAnswer)
@@ -908,7 +1177,7 @@ export class LearningRepository {
         )
         .run(
           student.id,
-          input.question,
+          question,
           combinedStudentAnswer,
           combinedCorrectAnswer,
           input.analysis || "",
@@ -929,6 +1198,7 @@ export class LearningRepository {
         timestamp,
         diagnosis.knowledgePoint
       );
+      this.bindNewAttachments(mistakeId, attachmentIds, timestamp);
       this.insertDiagnosis(mistakeId, diagnosis, timestamp);
       const reviewScheduleId = this.insertReviewSchedule({
         mistakeId,
@@ -970,6 +1240,7 @@ export class LearningRepository {
     if (mistake) {
       mistake.parts = this.getMistakeParts(id, { includeSolution });
       mistake.partCount = mistake.parts.length;
+      mistake.attachments = this.listMistakeAttachments(id);
     }
     return mistake;
   }
@@ -1238,6 +1509,10 @@ export class LearningRepository {
     assertToolWriteAllowed();
     const current = this.getMistake(id, { includeSolution: true });
     if (!current) return null;
+    const attachmentsProvided = Object.hasOwn(input, "attachmentIds");
+    const proposedAttachmentIds = attachmentsProvided
+      ? normalizeAttachmentIds(input.attachmentIds)
+      : (current.attachments || []).map((attachment) => attachment.id);
     const partsProvided = Array.isArray(input.parts);
     const proposedParts = partsProvided
       ? normalizeParts({
@@ -1271,6 +1546,12 @@ export class LearningRepository {
       knowledgePoint: input.knowledgePoint ?? current.knowledgePoint,
       errorType: input.errorType ?? current.errorType
     };
+    if (!String(proposed.question || "").trim() && !proposedAttachmentIds.length) {
+      throw new LearningValidationError(
+        "EMPTY_MISTAKE",
+        "请填写题目或保留至少一张题目图片"
+      );
+    }
     const diagnosis = diagnoseMistake(proposed);
     const finalFields = {
       ...proposed,
@@ -1310,6 +1591,14 @@ export class LearningRepository {
         );
     const partsChanged = partsContentChanged || partsMetadataChanged;
     if (partsChanged) changedFields.push("parts");
+    const currentAttachmentIds = (current.attachments || []).map(
+      (attachment) => attachment.id
+    );
+    const attachmentIdsChanged =
+      attachmentsProvided &&
+      JSON.stringify([...proposedAttachmentIds].sort()) !==
+        JSON.stringify([...currentAttachmentIds].sort());
+    if (attachmentIdsChanged) changedFields.push("attachments");
     if (!changedFields.length) {
       return {
         mistake: current,
@@ -1323,7 +1612,9 @@ export class LearningRepository {
     const resetLearning =
       partsContentChanged ||
       changedFields.some((field) =>
-        ["question", "correctAnswer", "knowledgePoint"].includes(field)
+        ["question", "correctAnswer", "knowledgePoint", "attachments"].includes(
+          field
+        )
       );
     const revisionAfter = current.revision + 1;
     const timestamp = nowIso();
@@ -1350,14 +1641,21 @@ export class LearningRepository {
       consecutiveCorrect: current.consecutiveCorrect,
       attemptCount: current.attemptCount,
       dueAt: current.dueAt,
-      parts: current.parts
+      parts: current.parts,
+      attachments: current.attachments
     };
     const afterSnapshot = {
       ...finalFields,
       ...nextLearningState,
-      parts: proposedParts
+      parts: proposedParts,
+      attachments: attachmentIdsChanged
+        ? proposedAttachmentIds.map((attachmentId) =>
+            this.getAttachment(attachmentId)
+          )
+        : current.attachments
     };
 
+    let removedAttachmentKeys = [];
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.db
@@ -1461,6 +1759,13 @@ export class LearningRepository {
           insertAnswer.run(part.id, index + 1, answer, timestamp);
         });
       }
+      if (attachmentIdsChanged) {
+        const attachmentResult = this.replaceMistakeAttachments(
+          id,
+          proposedAttachmentIds
+        );
+        removedAttachmentKeys = attachmentResult.removedStorageKeys;
+      }
       this.db
         .prepare(
           `INSERT INTO mistake_edits (
@@ -1484,6 +1789,7 @@ export class LearningRepository {
       this.db.exec("ROLLBACK");
       throw error;
     }
+    this.removeAttachmentFiles(removedAttachmentKeys);
 
     return {
       mistake: this.getMistake(id, { includeSolution: true }),
@@ -1516,13 +1822,31 @@ export class LearningRepository {
     );
     const rows =
       validStatus === "all" ? statement.all() : statement.all(validStatus);
-    return rows.map((row) => mapMistake(row));
+    return rows.map((row) => {
+      const mistake = mapMistake(row);
+      mistake.attachments = this.listMistakeAttachments(mistake.id);
+      return mistake;
+    });
   }
 
   deleteMistake(id) {
     assertToolWriteAllowed();
-    const result = this.db.prepare("DELETE FROM mistakes WHERE id = ?").run(id);
-    return result.changes > 0;
+    const storageKeys = this.db
+      .prepare("SELECT storage_key FROM attachments WHERE mistake_id = ?")
+      .all(id)
+      .map((row) => row.storage_key);
+    this.db.exec("BEGIN IMMEDIATE");
+    let deleted = false;
+    try {
+      const result = this.db.prepare("DELETE FROM mistakes WHERE id = ?").run(id);
+      deleted = result.changes > 0;
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    if (deleted) this.removeAttachmentFiles(storageKeys);
+    return deleted;
   }
 
   getNextReview() {
@@ -1556,6 +1880,7 @@ export class LearningRepository {
         includeSolution: true
       });
       mistake.partCount = mistake.parts.length;
+      mistake.attachments = this.listMistakeAttachments(mistake.id);
     }
     return mistake;
   }
@@ -2192,6 +2517,8 @@ export class LearningRepository {
 
   deleteAllLearningData() {
     const tables = [
+      "attachment_extractions",
+      "attachments",
       "attempt_part_results",
       "attempt_evaluations",
       "mastery_evidence",
@@ -2207,6 +2534,10 @@ export class LearningRepository {
       "llm_calls",
       "agent_runs"
     ];
+    const storageKeys = this.db
+      .prepare("SELECT storage_key FROM attachments")
+      .all()
+      .map((row) => row.storage_key);
     const deleted = {};
     this.db.exec("BEGIN");
     try {
@@ -2222,6 +2553,7 @@ export class LearningRepository {
       this.db.exec("ROLLBACK");
       throw error;
     }
+    this.removeAttachmentFiles(storageKeys);
     return {
       deleted,
       total: Object.values(deleted).reduce((sum, value) => sum + value, 0)
@@ -2263,7 +2595,8 @@ export class LearningRepository {
             question: nextReview.question,
             knowledgePoint: nextReview.knowledgePoint,
             errorType: nextReview.errorType,
-            attemptCount: nextReview.attemptCount
+            attemptCount: nextReview.attemptCount,
+            attachments: nextReview.attachments || []
           }
         : null,
       recent
@@ -2801,6 +3134,6 @@ export class LearningRepository {
   }
 }
 
-export function createRepository(filePath) {
-  return new LearningRepository(filePath);
+export function createRepository(filePath, options) {
+  return new LearningRepository(filePath, options);
 }

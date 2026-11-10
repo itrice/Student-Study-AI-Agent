@@ -21,6 +21,10 @@ const state = {
   dialogMode: "create",
   editingMistakeId: null,
   editSubmissionKey: null,
+  dialogAttachments: [],
+  newAttachmentIds: new Set(),
+  ocrAttachmentId: null,
+  imageUploads: 0,
   lastDiagnosis: null,
   busy: false,
   diagnosisRequest: 0
@@ -86,6 +90,22 @@ function readableText(value) {
   return "";
 }
 
+function displayQuestion(mistake) {
+  const text = String(mistake?.question || "").trim();
+  if (text) return text;
+  return mistake?.attachments?.length ? "请查看题目图片" : "";
+}
+
+function createAttachmentImage(attachment, className = "") {
+  const image = document.createElement("img");
+  image.src = attachment.url;
+  image.alt = "题目图片";
+  image.loading = "lazy";
+  image.decoding = "async";
+  if (className) image.className = className;
+  return image;
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: {
@@ -99,6 +119,199 @@ async function api(path, options = {}) {
     throw new Error(data.error || "请求失败，请稍后再试");
   }
   return data;
+}
+
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_DIALOG_IMAGES = 6;
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function setImageUploadStatus(message, isError = false) {
+  const status = $("#image-upload-status");
+  status.textContent = message;
+  status.classList.toggle("is-error", isError);
+}
+
+async function uploadAttachment(file) {
+  const response = await fetch("/api/attachments?kind=question", {
+    method: "POST",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+      "X-Original-Name": encodeURIComponent(file.name || "")
+    },
+    body: file
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || "图片上传失败");
+  }
+  return data;
+}
+
+async function uploadImageFiles(fileList) {
+  const files = [...(fileList || [])];
+  const images = files.filter(
+    (file) => !file.type || String(file.type).startsWith("image/")
+  );
+  if (!images.length) {
+    showToast("没有找到可用的图片", true);
+    return;
+  }
+  for (const file of images) {
+    if (state.dialogAttachments.length >= MAX_DIALOG_IMAGES) {
+      showToast(`每道题最多添加 ${MAX_DIALOG_IMAGES} 张图片`, true);
+      break;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      showToast("单张图片不能超过 8 MB", true);
+      continue;
+    }
+    if (file.type && !ALLOWED_IMAGE_TYPES.has(file.type)) {
+      showToast("仅支持 JPG、PNG 或 WebP 图片", true);
+      continue;
+    }
+    state.imageUploads += 1;
+    setImageUploadStatus("正在上传图片…");
+    try {
+      const attachment = await uploadAttachment(file);
+      state.dialogAttachments.push(attachment);
+      state.newAttachmentIds.add(attachment.id);
+      renderDialogAttachments();
+      setImageUploadStatus(
+        `已添加 ${state.dialogAttachments.length} 张图片，保存错题后完成关联。`
+      );
+    } catch (error) {
+      setImageUploadStatus(error.message, true);
+      showToast(error.message, true);
+    } finally {
+      state.imageUploads -= 1;
+    }
+  }
+  if (state.imageUploads === 0 && state.dialogAttachments.length) {
+    setImageUploadStatus(
+      `已添加 ${state.dialogAttachments.length} 张图片，保存错题后完成关联。`
+    );
+  }
+}
+
+async function removeDialogAttachment(id) {
+  state.dialogAttachments = state.dialogAttachments.filter(
+    (attachment) => attachment.id !== id
+  );
+  if (state.ocrAttachmentId === id) {
+    state.ocrAttachmentId = null;
+    $("#ocr-panel").hidden = true;
+    $("#ocr-candidate").hidden = true;
+  }
+  if (state.newAttachmentIds.delete(id)) {
+    try {
+      await api(`/api/attachments/${id}`, { method: "DELETE" });
+    } catch {
+      // The startup GC will remove an unreferenced file if this request fails.
+    }
+  }
+  renderDialogAttachments();
+}
+
+function renderDialogAttachments() {
+  const list = $("#attachment-list");
+  list.replaceChildren();
+  for (const attachment of state.dialogAttachments) {
+    const card = createElement("article", "attachment-card");
+    const thumb = createElement("div", "attachment-thumb");
+    thumb.append(createAttachmentImage(attachment));
+    const body = createElement("div", "attachment-card-body");
+    body.append(
+      createElement("strong", "", "题目图片"),
+      createElement("small", "", `${Math.max(1, Math.round(attachment.byteSize / 1024))} KB`)
+    );
+    const actions = createElement("div", "attachment-card-actions");
+    const extract = createElement("button", "text-button", "识别文字");
+    extract.type = "button";
+    extract.dataset.extractAttachment = String(attachment.id);
+    const remove = createElement("button", "text-button danger", "移除");
+    remove.type = "button";
+    remove.dataset.removeAttachment = String(attachment.id);
+    actions.append(extract, remove);
+    body.append(actions);
+    card.append(thumb, body);
+    list.append(card);
+  }
+  if (!state.dialogAttachments.length) {
+    setImageUploadStatus(
+      "支持 JPG、PNG、WebP；单张不超过 8 MB，每道题最多 6 张。"
+    );
+  }
+}
+
+function startOcrForAttachment(id) {
+  const index = state.dialogAttachments.findIndex(
+    (attachment) => attachment.id === id
+  );
+  if (index < 0) return;
+  state.ocrAttachmentId = id;
+  $("#ocr-panel").hidden = false;
+  $("#ocr-attachment-label").textContent = `识别第 ${index + 1} 张图片中的文字（可选）`;
+  $("#ocr-consent").checked = false;
+  $("#ocr-message").textContent = "";
+  $("#ocr-candidate").hidden = true;
+  $("#ocr-text").value = "";
+  $("#ocr-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function runOcr() {
+  const id = state.ocrAttachmentId;
+  if (!id) return;
+  if (!$("#ocr-consent").checked) {
+    $("#ocr-message").textContent = "请先勾选同意，图片才会发送到外部视觉模型。";
+    return;
+  }
+  const button = $("#run-ocr-button");
+  setBusy(button, true, "识别中…");
+  $("#ocr-message").textContent = "";
+  $("#ocr-candidate").hidden = true;
+  try {
+    const result = await api(`/api/attachments/${id}/extract`, {
+      method: "POST",
+      body: JSON.stringify({ consent: true })
+    });
+    if (!result.available) {
+      $("#ocr-message").textContent = result.message;
+      return;
+    }
+    $("#ocr-text").value = result.text;
+    $("#ocr-candidate").hidden = false;
+    $("#ocr-message").textContent =
+      "识别完成。请核对文字，确认无误后再使用；图片仍会作为原题保留。";
+    $("#ocr-text").focus();
+  } catch (error) {
+    $("#ocr-message").textContent =
+      error.message || "识别失败，可直接填写题目文字并使用图片保存。";
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+function useOcrText() {
+  const text = $("#ocr-text").value.trim();
+  if (!text) {
+    $("#ocr-message").textContent = "识别结果为空，可以直接手动填写题目。";
+    return;
+  }
+  const input = $("#question-input");
+  const current = input.value.trim();
+  input.value = current ? `${current}\n${text}` : text;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  $("#ocr-panel").hidden = true;
+  state.ocrAttachmentId = null;
+  showToast("已填入识别文字，请核对后保存");
+}
+
+function discardNewAttachments() {
+  const ids = [...state.newAttachmentIds];
+  state.newAttachmentIds.clear();
+  for (const id of ids) {
+    api(`/api/attachments/${id}`, { method: "DELETE" }).catch(() => {});
+  }
 }
 
 function formatDate(value, options = {}) {
@@ -232,7 +445,14 @@ function renderDashboard() {
     tags.append(knowledgeTag(nextReview.knowledgePoint));
     tags.append(createElement("span", "tag is-coral", nextReview.errorType));
     box.append(tags);
-    box.append(createElement("p", "", nextReview.question));
+    box.append(createElement("p", "", displayQuestion(nextReview)));
+    if (nextReview.attachments?.length) {
+      const preview = createElement("div", "priority-attachments");
+      for (const attachment of nextReview.attachments.slice(0, 2)) {
+        preview.append(createAttachmentImage(attachment));
+      }
+      box.append(preview);
+    }
 
     const footer = createElement("div", "priority-footer");
     const meta = createElement(
@@ -321,7 +541,16 @@ function renderRecent(recent) {
     );
     item.append(
       top,
-      createElement("p", "", mistake.question),
+      createElement("p", "", displayQuestion(mistake))
+    );
+    if (mistake.attachments?.length) {
+      const preview = createElement("div", "recent-attachments");
+      for (const attachment of mistake.attachments.slice(0, 2)) {
+        preview.append(createAttachmentImage(attachment));
+      }
+      item.append(preview);
+    }
+    item.append(
       createElement("small", "", `${statusLabels[mistake.status]} · ${mistake.errorType}`)
     );
     target.append(item);
@@ -397,7 +626,7 @@ function renderMistakes() {
       knowledgeTag(mistake.knowledgePoint),
       createElement("span", "tag", mistake.errorType)
     );
-    const question = createElement("p", "mistake-question", mistake.question);
+    const question = createElement("p", "mistake-question", displayQuestion(mistake));
     const detail = createElement("div", "mistake-detail");
     detail.append(
       createElement(
@@ -414,7 +643,15 @@ function renderMistakes() {
       ),
       createElement("span", "", formatRelativeDate(mistake.dueAt))
     );
-    main.append(line, question, detail);
+    main.append(line, question);
+    if (mistake.attachments?.length) {
+      const images = createElement("div", "mistake-attachments");
+      for (const attachment of mistake.attachments) {
+        images.append(createAttachmentImage(attachment));
+      }
+      main.append(images);
+    }
+    main.append(detail);
 
     const actions = createElement("div", "mistake-actions");
     const reviewButton = createElement(
@@ -1228,7 +1465,13 @@ function renderReview() {
   $("#review-attempt").textContent = review.attemptCount
     ? `第 ${review.attemptCount + 1} 次独立练习`
     : "第一次独立重做";
-  $("#review-question").textContent = review.question;
+  $("#review-question").textContent = displayQuestion(review);
+  const reviewAttachments = $("#review-attachments");
+  reviewAttachments.replaceChildren();
+  reviewAttachments.hidden = !(review.attachments || []).length;
+  for (const attachment of review.attachments || []) {
+    reviewAttachments.append(createAttachmentImage(attachment));
+  }
   $("#review-hint").textContent = review.hint;
 
   const steps = $("#review-steps");
@@ -1575,6 +1818,13 @@ function openAddDialog() {
   const dialog = $("#add-dialog");
   $("#add-form").reset();
   renderPartsEditor();
+  state.dialogAttachments = [];
+  state.newAttachmentIds = new Set();
+  state.ocrAttachmentId = null;
+  state.imageUploads = 0;
+  $("#ocr-panel").hidden = true;
+  $("#ocr-candidate").hidden = true;
+  renderDialogAttachments();
   $("#diagnosis-preview").hidden = true;
   state.dialogMode = "create";
   state.editingMistakeId = null;
@@ -1615,6 +1865,13 @@ async function openEditDialog(
     form.elements.errorType.value = mistake.errorType;
     form.elements.analysis.value = mistake.analysis || "";
     renderPartsEditor(mistake.parts || []);
+    state.dialogAttachments = [...(mistake.attachments || [])];
+    state.newAttachmentIds = new Set();
+    state.ocrAttachmentId = null;
+    state.imageUploads = 0;
+    $("#ocr-panel").hidden = true;
+    $("#ocr-candidate").hidden = true;
+    renderDialogAttachments();
     state.dialogMode = "edit";
     state.editingMistakeId = id;
     state.editSubmissionKey = null;
@@ -1633,9 +1890,16 @@ async function openEditDialog(
   }
 }
 
-function closeAddDialog() {
+function closeAddDialog({ discardAttachments = true } = {}) {
+  if (discardAttachments) discardNewAttachments();
   const dialog = $("#add-dialog");
   if (dialog.open) dialog.close();
+  state.dialogAttachments = [];
+  state.newAttachmentIds = new Set();
+  state.ocrAttachmentId = null;
+  state.imageUploads = 0;
+  $("#ocr-panel").hidden = true;
+  $("#ocr-candidate").hidden = true;
   state.dialogMode = "create";
   state.editingMistakeId = null;
   state.editSubmissionKey = null;
@@ -1762,8 +2026,12 @@ async function saveMistake(event) {
   if (state.busy) return;
   const form = $("#add-form");
   const data = Object.fromEntries(new FormData(form).entries());
-  if (!data.question.trim()) {
-    showToast("请填写题目", true);
+  if (!String(data.question || "").trim() && !state.dialogAttachments.length) {
+    showToast("请填写题目或添加题目图片", true);
+    return;
+  }
+  if (state.imageUploads > 0) {
+    showToast("图片还在上传，请稍等再保存", true);
     return;
   }
   let parts;
@@ -1778,6 +2046,8 @@ async function saveMistake(event) {
   data.correctAnswer = parts
     .map((part) => part.acceptedAnswers[0])
     .join("；");
+  data.question = String(data.question || "").trim();
+  data.attachmentIds = state.dialogAttachments.map((attachment) => attachment.id);
   if (state.lastDiagnosis) data.diagnosis = state.lastDiagnosis;
   const button = $("#save-mistake-button");
   const isEdit = state.dialogMode === "edit" && state.editingMistakeId;
@@ -1799,7 +2069,7 @@ async function saveMistake(event) {
           method: "POST",
           body: JSON.stringify(data)
         });
-    closeAddDialog();
+    closeAddDialog({ discardAttachments: false });
     if (isEdit) {
       showView("mistakes");
       showToast(
@@ -1829,9 +2099,10 @@ async function saveMistake(event) {
 async function deleteMistake(id) {
   const item = state.mistakes.find((mistake) => mistake.id === id);
   if (!item) return;
+  const label = displayQuestion(item) || "图片题";
   const confirmed = window.confirm(
-    `确定删除这道错题吗？\n\n${item.question.slice(0, 80)}${
-      item.question.length > 80 ? "…" : ""
+    `确定删除这道错题吗？\n\n${label.slice(0, 80)}${
+      label.length > 80 ? "…" : ""
     }\n\n删除后无法恢复。`
   );
   if (!confirmed) return;
@@ -1903,6 +2174,47 @@ function bindEvents() {
 
   $("#top-add-button").addEventListener("click", openAddDialog);
   $("#quick-add-button").addEventListener("click", openAddDialog);
+  $("#take-photo-button").addEventListener("click", () => {
+    $("#take-photo-input").click();
+  });
+  $("#choose-image-button").addEventListener("click", () => {
+    $("#choose-image-input").click();
+  });
+  for (const input of [$("#take-photo-input"), $("#choose-image-input")]) {
+    input.addEventListener("change", (event) => {
+      uploadImageFiles(event.target.files);
+      event.target.value = "";
+    });
+  }
+  $("#add-dialog").addEventListener("paste", (event) => {
+    if (!$("#add-dialog").open) return;
+    const files = [...(event.clipboardData?.files || [])];
+    if (!files.length) return;
+    event.preventDefault();
+    uploadImageFiles(files);
+  });
+  $("#attachment-list").addEventListener("click", (event) => {
+    const extract = event.target.closest("[data-extract-attachment]");
+    if (extract) {
+      startOcrForAttachment(Number(extract.dataset.extractAttachment));
+      return;
+    }
+    const remove = event.target.closest("[data-remove-attachment]");
+    if (remove) {
+      removeDialogAttachment(Number(remove.dataset.removeAttachment));
+    }
+  });
+  $("#run-ocr-button").addEventListener("click", runOcr);
+  $("#cancel-ocr-button").addEventListener("click", () => {
+    $("#ocr-panel").hidden = true;
+    $("#ocr-candidate").hidden = true;
+    state.ocrAttachmentId = null;
+  });
+  $("#use-ocr-text-button").addEventListener("click", useOcrText);
+  $("#discard-ocr-button").addEventListener("click", () => {
+    $("#ocr-candidate").hidden = true;
+    $("#ocr-text").value = "";
+  });
   $("#start-review-button").addEventListener("click", () => navigateTo("review"));
   $("#menu-button").addEventListener("click", () => {
     $(".sidebar").classList.toggle("is-open");
@@ -2015,8 +2327,8 @@ function bindEvents() {
     remove.closest(".part-editor").remove();
     renumberPartEditors();
   });
-  $("#close-dialog-button").addEventListener("click", closeAddDialog);
-  $("#cancel-dialog-button").addEventListener("click", closeAddDialog);
+  $("#close-dialog-button").addEventListener("click", () => closeAddDialog());
+  $("#cancel-dialog-button").addEventListener("click", () => closeAddDialog());
   $("#question-input").addEventListener("input", queueDiagnosis);
   $("#add-form").addEventListener("change", (event) => {
     state.editSubmissionKey = null;

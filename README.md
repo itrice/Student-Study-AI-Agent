@@ -14,6 +14,8 @@
 - 九个受控学习工具，支持权限、Schema、幂等、硬超时和调用审计。
 - 支持修改录错的题目、答案、知识点和订正记录，并保留修订历史。
 - 支持一道题包含多个小问，为每个小问保存独立答案、可接受答案变体和判题结果。
+- 支持拍照、相册和桌面粘贴录入图片题；原图保存在本机，SQLite 只保存元数据。
+- 提供可选图片文字识别，识别结果必须由学生核对确认，失败时仍可保存图片 + 文字。
 - 建立 12 个六年级数学知识点卡片、84 个知识片段和可追溯来源，支持别名与全文检索。
 - 诊断、提示和作答评价只引用检索到的知识来源；覆盖不足时明确提示，不编造来源。
 - 建立 90 条 M7 评测与安全样本，覆盖知识点识别、错因诊断、提示有效性、步骤评价和提示注入。
@@ -33,6 +35,9 @@ M6 已通过验收：四状态掌握度与学习反馈、可追溯掌握证据�
 
 M7 已加入评测、安全与稳定性能力：90 条已标注评测样本、提示注入识别、答案泄露扫描、
 上下文超限保护、本地限流、模型异常降级、运营指标接口和全量学习数据删除接口。
+
+M9.1 + M9.2 最小切片已实现：图片附件、可选文字识别、人工确认、附件清理和包含原图的
+备份恢复已完成，等待验收。本轮不包含图形推理、复杂手写公式识别和多图批注。
 
 LLM 未配置时系统自动使用本地规则；配置方式、诊断链路和安全边界见
 [LLM 接入说明](docs/LLM_SETUP.md)。
@@ -82,6 +87,18 @@ M7 报告会写入 `docs/reports/m7-evaluation-2026-11-10.md` 和对应 JSON；
 稳定性与安全清单见 `docs/reports/m7-stability-2026-11-10.md` 和 `docs/M7_SECURITY_CHECKLIST.md`。
 
 评测报告会写入 `docs/reports/m5-knowledge-evaluation-2026-11-10.md` 和对应 JSON。
+
+## 图片录题
+
+在“录入错题”弹窗中可以直接拍照、从相册选择，或在桌面端把剪贴板里的图片粘贴到弹窗。
+每道题最多 6 张，单张不超过 8 MB，支持 JPG、PNG 和 WebP；题目文字与图片至少填写一项。
+
+图片默认只保存在本机。需要自动识别文字时，先勾选同意，再点击“识别文字”；图片才会发送到
+已配置的 OpenAI-compatible 视觉模型。识别结果只是候选文字，必须由学生核对并点击
+“使用这段文字”后才回填，保存错题时才会正式写入。
+
+未配置视觉模型、识别失败或图片读取失败时，可以直接手动填写文字并保存图片，不阻断录题。
+视觉模型配置、API 契约、文件限制和隐私边界见 [M9 图片录题说明](docs/M9_IMAGE_INTAKE.md)。
 
 开发时自动重启：
 
@@ -193,15 +210,24 @@ docker-compose up -d --force-recreate
 迁移前会自动把一致性备份写入 `DATA_DIR/backups/`。不要使用
 `docker-compose down -v`，也不要删除数据目录。
 
-升级前也可以手动备份：
+升级前建议做包含原图的完整备份：
 
 ```bash
-docker-compose exec app node scripts/backup-database.mjs
+docker-compose exec app node scripts/backup-learning-data.mjs
 ```
 
-本地运行时等价命令是 `npm run backup`，或在任意目录设置 `DB_PATH` 后执行
-`node scripts/backup-database.mjs`。脚本使用 SQLite `VACUUM INTO` 生成一致性快照，
-并执行 `quick_check` 校验。
+本地运行时等价命令是 `npm run backup`。完整备份包含 SQLite `VACUUM INTO` 一致性快照、
+附件目录和带 SHA-256 的 `manifest.json`。只需要数据库、不需要原图时，可使用
+`npm run backup:db` 或 `node scripts/backup-database.mjs`。
+
+恢复前必须停止服务。完整恢复命令为：
+
+```powershell
+npm run restore -- <备份目录>
+npm run restore -- <备份目录> --force
+```
+
+`--force` 会覆盖现有数据库和附件目录。恢复脚本会先校验数据库和每个附件，再执行替换。
 
 ### Windows 一键更新
 
@@ -252,6 +278,10 @@ $env:DB_PATH = "D:\learning-data\math.sqlite"
 npm start
 ```
 
+原图默认保存在数据库同级的 `data/attachments/`，只保存随机文件名，不把磁盘路径写入数据库或
+普通日志。可以用 `ATTACHMENTS_DIR` 指定附件目录，用 `BACKUP_DIR` 指定完整备份根目录；
+三个目录都应在本地文件系统上，并随数据库一起保护和备份。
+
 当已有数据库需要升级时，程序会在执行迁移前将一致性备份写入
 `data/backups/`，并对备份执行 SQLite 完整性检查。迁移按版本执行，重复启动不会重复变更数据库。
 Docker 部署时数据库位置由 `docker-compose.yml` 中的 `DB_PATH` 和
@@ -264,17 +294,23 @@ Docker 部署时数据库位置由 `docker-compose.yml` 中的 `DB_PATH` 和
 ```text
 public/              无构建步骤的网页界面
 src/agent.js         知识点识别、错因诊断与答案等价判断
+src/attachments.js   图片魔数校验、限制、文件存储和孤儿文件清理
+src/attachment-service.js
+                     可选视觉识别、同意校验和失败降级
 src/database.js      错题、复习记录、学习统计和 SQLite 访问
 src/migrations.js    版本化数据库迁移、基线和完整性校验
 src/knowledge/       知识点内容卡片、全文检索、覆盖判断和检索评测
 src/evaluation/      M7 评测集、离线评测运行器和质量门槛
 src/security/        不可信输入识别与提示注入检测
+src/llm/vision.js    OpenAI-compatible 视觉文字转录适配器
 src/server.js        零依赖 HTTP API 与静态页面服务
 src/tools/           工具注册、Schema 校验、权限、幂等和审计
 test/                规则与学习数据流程测试
 docs/MVP.md          首版产品范围与验收标准
 docs/TOOL_CONTRACTS.md
                      九项受控工具的输入、输出、权限和错误契约
+docs/M9_IMAGE_INTAKE.md
+                     图片附件、识别确认、附件生命周期和备份恢复契约
 docs/LLM_SETUP.md    LLM 环境配置、诊断链路和降级策略
 docs/KNOWLEDGE_BASE.md
                      知识库结构、来源、检索策略和扩展方式
@@ -298,12 +334,14 @@ docs/IMPLEMENTATION_PLAN.md
                      项目实施基线、阶段计划与验收门禁
 docs/IMPLEMENTATION_STATUS.md
                      表格化实施进度、完成日期和验证证据
+scripts/learning-backup.mjs
+                     数据库 + 附件一致性备份与恢复实现
 ```
 
 ## 重要限制
 
 - 目前是单学生、本机应用，没有账号和权限隔离。
-- 错题需要手动录入，暂未接入拍照识别。
+- 图片题支持原图保存和可选文字转录，尚不做图形推理、复杂手写公式识别或多图批注。
 - 规则诊断依赖常见题干关键词，复杂应用题可能归入“综合应用”。
 - 知识库内容为项目自编摘要，不是教材原文；任课教师最终复核尚未完成。
 - 答案判断支持精确文本、简单数值、分数、小数和百分数互换，尚不能检查完整解题过程。

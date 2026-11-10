@@ -13,6 +13,13 @@ import {
 } from "./llm/index.js";
 import { validateAndNormalize } from "./tools/schema.js";
 import { loadEnvFile } from "./environment.js";
+import {
+  AttachmentStore,
+  MAX_ATTACHMENT_BYTES
+} from "./attachments.js";
+import { scheduleAttachmentCleanup } from "./attachment-cleanup.js";
+import { extractAttachmentText } from "./attachment-service.js";
+import { createVisionExtractorFromEnvironment } from "./llm/vision.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, "..");
@@ -22,9 +29,18 @@ const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "127.0.0.1";
 const databasePath =
   process.env.DB_PATH || path.join(projectRoot, "data", "learning.sqlite");
-const repository = createRepository(databasePath);
+const attachmentsDirectory = process.env.ATTACHMENTS_DIR
+  ? path.resolve(process.env.ATTACHMENTS_DIR)
+  : undefined;
+const repository = createRepository(databasePath, {
+  attachmentDirectory: attachmentsDirectory
+});
 const learningTools = createLearningTools(repository);
 const llmGateway = createGatewayFromEnvironment(process.env);
+const attachmentStore = new AttachmentStore({
+  directory: repository.attachmentDirectory
+});
+const visionExtractor = createVisionExtractorFromEnvironment(process.env);
 const diagnosisAgent = createDiagnosisAgent({
   repository,
   tools: learningTools,
@@ -81,6 +97,28 @@ async function readJson(request) {
   } catch {
     throw new HttpError(400, "请求内容不是有效的 JSON");
   }
+}
+
+async function readBinary(request, maxBytes = MAX_ATTACHMENT_BYTES) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maxBytes) {
+      throw new HttpError(413, "图片不能超过 8 MB");
+    }
+    chunks.push(chunk);
+  }
+  if (!size) throw new HttpError(400, "请选择一张图片");
+  return Buffer.concat(chunks);
+}
+
+function parseAttachmentIds(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, "图片附件列表格式无效");
+  }
+  return value.map((id) => parseId(id));
 }
 
 function requireText(value, field, maxLength = 3000) {
@@ -398,6 +436,85 @@ async function handleApi(request, response, url) {
     });
   }
 
+  if (request.method === "POST" && url.pathname === "/api/attachments") {
+    const kind = url.searchParams.get("kind") || "question";
+    if (!["question", "part", "draft", "answer"].includes(kind)) {
+      throw new HttpError(400, "图片用途无效");
+    }
+    const buffer = await readBinary(request);
+    const encodedName = request.headers["x-original-name"];
+    let originalName = "";
+    if (typeof encodedName === "string") {
+      try {
+        originalName = decodeURIComponent(encodedName);
+      } catch {
+        originalName = "";
+      }
+    }
+    const saved = attachmentStore.save(buffer, {
+      declaredMime: request.headers["content-type"],
+      originalName,
+      kind
+    });
+    try {
+      return sendJson(response, 201, repository.insertAttachment(saved));
+    } catch (error) {
+      attachmentStore.delete(saved.storageKey);
+      throw error;
+    }
+  }
+
+  const attachmentExtractMatch = url.pathname.match(
+    /^\/api\/attachments\/(\d+)\/extract$/
+  );
+  if (attachmentExtractMatch && request.method === "POST") {
+    const body = await readJson(request);
+    return sendJson(
+      response,
+      200,
+      await extractAttachmentText({
+        repository,
+        attachmentStore,
+        extractor: visionExtractor,
+        attachmentId: parseId(attachmentExtractMatch[1]),
+        consent: body.consent === true
+      })
+    );
+  }
+
+  const attachmentMatch = url.pathname.match(/^\/api\/attachments\/(\d+)$/);
+  if (attachmentMatch && request.method === "GET") {
+    const attachment = repository.getAttachment(parseId(attachmentMatch[1]), {
+      includeStorageKey: true
+    });
+    if (!attachment) throw new HttpError(404, "没有找到这张题目图片");
+    let content;
+    try {
+      content = attachmentStore.read(attachment.storageKey);
+    } catch {
+      throw new HttpError(404, "题目图片文件不存在");
+    }
+    response.writeHead(200, {
+      "Content-Type": attachment.mimeType,
+      "Content-Length": content.length,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff"
+    });
+    return response.end(content);
+  }
+
+  if (attachmentMatch && request.method === "DELETE") {
+    const result = repository.deleteUnboundAttachment(
+      parseId(attachmentMatch[1])
+    );
+    if (result.missing) throw new HttpError(404, "没有找到这张题目图片");
+    if (result.bound) {
+      throw new HttpError(409, "图片已关联到错题，请通过修改错题移除");
+    }
+    attachmentStore.delete(result.storageKey);
+    return sendJson(response, 200, { deleted: true });
+  }
+
   if (request.method === "GET" && url.pathname === "/api/dashboard") {
     return sendJson(response, 200, repository.getDashboard());
   }
@@ -521,6 +638,11 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/mistakes") {
     const body = await readJson(request);
     const parts = parseMistakeParts(body.parts);
+    const attachmentIds = parseAttachmentIds(body.attachmentIds);
+    const question = optionalText(body.question, 3000);
+    if (!question && !attachmentIds.length) {
+      throw new HttpError(400, "请填写题目或添加题目图片");
+    }
     const correctAnswer = Object.hasOwn(body, "correctAnswer")
       ? requireText(body.correctAnswer, "正确答案", 1000)
       : parts?.[0]?.acceptedAnswers?.[0];
@@ -528,12 +650,13 @@ async function handleApi(request, response, url) {
       throw new HttpError(400, "请填写正确答案或小问答案");
     }
     const input = {
-      question: requireText(body.question, "题目"),
+      question,
       studentAnswer: optionalText(body.studentAnswer),
       correctAnswer,
       analysis: optionalText(body.analysis),
       knowledgePoint: optionalText(body.knowledgePoint, 100),
       errorType: optionalText(body.errorType, 100),
+      attachmentIds,
       ...(parts ? { parts } : {})
     };
     input.confirmedDiagnosis = parseConfirmedDiagnosis(body.diagnosis);
@@ -689,7 +812,7 @@ async function handleApi(request, response, url) {
     const body = await readJson(request);
     const input = {};
     if (Object.hasOwn(body, "question")) {
-      input.question = requireText(body.question, "题目");
+      input.question = optionalText(body.question, 3000);
     }
     if (Object.hasOwn(body, "studentAnswer")) {
       input.studentAnswer = optionalText(body.studentAnswer, 1000);
@@ -707,6 +830,9 @@ async function handleApi(request, response, url) {
     }
     if (Object.hasOwn(body, "errorType")) {
       input.errorType = requireText(body.errorType, "错因", 100);
+    }
+    if (Object.hasOwn(body, "attachmentIds")) {
+      input.attachmentIds = parseAttachmentIds(body.attachmentIds);
     }
 
     const result = await learningTools.invoke(
@@ -864,7 +990,7 @@ const server = http.createServer(async (request, response) => {
           ? error.status
           : 500;
     if (status === 500) {
-      console.error(error);
+      console.error(error.stack || error.message || String(error));
     }
     if (!response.headersSent) {
       sendJson(response, status, {
@@ -877,6 +1003,15 @@ const server = http.createServer(async (request, response) => {
     }
   }
 });
+
+scheduleAttachmentCleanup(
+  { repository, attachmentStore },
+  {
+    onError: () => {
+      console.warn("未引用题目图片清理失败，将在下次执行时重试。");
+    }
+  }
+);
 
 server.listen(port, host, () => {
   console.log(`数学错题教练已启动：http://${host}:${port}`);

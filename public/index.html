@@ -11,7 +11,7 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261110-10" />
+    <link rel="stylesheet" href="/styles.css?v=20261111-2" />
   </head>
   <body>
     <div class="app-shell">
@@ -282,6 +282,7 @@
             <div class="question-block">
               <span class="question-label">题目</span>
               <p id="review-question"></p>
+              <div id="review-attachments" class="review-attachments" hidden></div>
             </div>
             <div class="review-instruction">
               <span>先自己想一想：这道题在问什么？需要先求什么？</span>
@@ -520,16 +521,81 @@
 
         <div class="dialog-body">
           <label class="field full-field">
-            <span>题目 <b>*</b></span>
+            <span>题目文字 <small>文字或图片至少填写一项</small></span>
             <textarea
               name="question"
               id="question-input"
               rows="4"
-              required
               maxlength="3000"
-              placeholder="把原题完整抄下来，包括数字和单位"
+              placeholder="把原题完整抄下来，包括数字和单位；也可以只上传图片"
             ></textarea>
           </label>
+
+          <section class="image-intake" aria-labelledby="image-intake-title">
+            <div class="image-intake-heading">
+              <div>
+                <span id="image-intake-title">题目图片 <small>可选</small></span>
+                <small>拍照、从相册选择，或在桌面直接粘贴图片。原图只保存在本机。</small>
+              </div>
+              <div class="image-intake-actions">
+                <button class="secondary-button compact" type="button" id="take-photo-button">
+                  拍照
+                </button>
+                <button class="secondary-button compact" type="button" id="choose-image-button">
+                  选择图片
+                </button>
+              </div>
+            </div>
+            <input
+              id="take-photo-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              hidden
+            />
+            <input
+              id="choose-image-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              hidden
+            />
+            <div id="attachment-list" class="attachment-list"></div>
+            <p id="image-upload-status" class="image-upload-status">
+              支持 JPG、PNG、WebP；单张不超过 8 MB，每道题最多 6 张。
+            </p>
+            <p class="image-privacy-note">
+              图片默认不会发送到外部。只有你勾选同意并点击“识别文字”时，当前图片才会发送给已配置的视觉模型。
+            </p>
+            <div id="ocr-panel" class="ocr-panel" hidden>
+              <strong id="ocr-attachment-label">识别题目文字（可选）</strong>
+              <label class="ocr-consent">
+                <input type="checkbox" id="ocr-consent" />
+                <span>我同意将当前图片发送给外部视觉模型，仅用于识别题目文字。</span>
+              </label>
+              <div class="ocr-actions">
+                <button class="secondary-button compact" type="button" id="run-ocr-button">
+                  识别文字
+                </button>
+                <button class="text-button" type="button" id="cancel-ocr-button">
+                  暂不识别
+                </button>
+              </div>
+              <p id="ocr-message" class="ocr-message"></p>
+              <div id="ocr-candidate" class="ocr-candidate" hidden>
+                <label for="ocr-text">识别结果（请先核对，再决定是否使用）</label>
+                <textarea id="ocr-text" rows="4" maxlength="3000"></textarea>
+                <div class="ocr-actions">
+                  <button class="primary-button compact" type="button" id="use-ocr-text-button">
+                    使用这段文字
+                  </button>
+                  <button class="text-button" type="button" id="discard-ocr-button">
+                    不使用
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
 
           <section class="parts-editor">
             <div class="parts-editor-heading">
@@ -614,6 +680,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261110-11"></script>
+    <script type="module" src="/app.js?v=20261111-2"></script>
   </body>
 </html>

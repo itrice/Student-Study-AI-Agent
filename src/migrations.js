@@ -926,6 +926,69 @@ const LEGACY_MASTERY_EVIDENCE_BACKFILL_REQUIRED_COLUMNS = {
   review_schedule: M6_LEARNING_EVIDENCE_REQUIRED_COLUMNS.review_schedule
 };
 
+const IMAGE_ATTACHMENTS_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mistake_id INTEGER REFERENCES mistakes(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('question', 'part', 'draft', 'answer')),
+    storage_key TEXT NOT NULL UNIQUE,
+    mime_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL CHECK (byte_size > 0),
+    width INTEGER NOT NULL CHECK (width > 0),
+    height INTEGER NOT NULL CHECK (height > 0),
+    sha256 TEXT NOT NULL,
+    original_name TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS attachments_mistake_id_idx
+    ON attachments (mistake_id, created_at);
+  CREATE INDEX IF NOT EXISTS attachments_created_at_idx
+    ON attachments (created_at);
+
+  CREATE TABLE IF NOT EXISTS attachment_extractions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    attachment_id INTEGER NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+    raw_output TEXT NOT NULL DEFAULT '',
+    normalized_text TEXT NOT NULL DEFAULT '',
+    confidence REAL,
+    provider TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    prompt_version TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS attachment_extractions_attachment_idx
+    ON attachment_extractions (attachment_id, created_at);
+`;
+
+const IMAGE_ATTACHMENTS_REQUIRED_COLUMNS = {
+  attachments: [
+    "id",
+    "mistake_id",
+    "kind",
+    "storage_key",
+    "mime_type",
+    "byte_size",
+    "width",
+    "height",
+    "sha256",
+    "original_name",
+    "created_at"
+  ],
+  attachment_extractions: [
+    "id",
+    "attachment_id",
+    "raw_output",
+    "normalized_text",
+    "confidence",
+    "provider",
+    "model",
+    "prompt_version",
+    "created_at"
+  ]
+};
+
 function assertRequiredColumns(db, table, requiredColumns) {
   const rows = db.prepare(`PRAGMA table_info("${table}")`).all();
   if (!rows.length) {
@@ -1001,6 +1064,10 @@ const M6_LEARNING_EVIDENCE_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
 
 const LEGACY_MASTERY_EVIDENCE_BACKFILL_CHECKSUM_SOURCE = JSON.stringify({
   schema: LEGACY_MASTERY_EVIDENCE_BACKFILL_SCHEMA_SQL
+});
+
+const IMAGE_ATTACHMENTS_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: IMAGE_ATTACHMENTS_SCHEMA_SQL
 });
 
 export const SCHEMA_MIGRATIONS = [
@@ -1118,6 +1185,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(LEGACY_MASTERY_EVIDENCE_BACKFILL_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         LEGACY_MASTERY_EVIDENCE_BACKFILL_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 10,
+    name: "image_attachments",
+    checksumSource: IMAGE_ATTACHMENTS_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(IMAGE_ATTACHMENTS_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        IMAGE_ATTACHMENTS_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

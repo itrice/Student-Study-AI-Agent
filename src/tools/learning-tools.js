@@ -1,4 +1,5 @@
 import { TOOL_ERROR_CODES, ToolError } from "./errors.js";
+import { MAX_ATTACHMENTS_PER_MISTAKE } from "../attachments.js";
 
 const partInputSchema = {
   type: "object",
@@ -317,12 +318,17 @@ export function createLearningToolDefinitions(repository) {
         additionalProperties: false,
         properties: {
           mistakeId: { type: "integer", minimum: 1 },
-          question: { type: "string", minLength: 1, maxLength: 3000 },
+          question: { type: "string", maxLength: 3000 },
           studentAnswer: { type: "string", maxLength: 1000 },
           correctAnswer: { type: "string", minLength: 1, maxLength: 1000 },
           analysis: { type: "string", maxLength: 3000 },
           knowledgePoint: { type: "string", minLength: 1, maxLength: 100 },
           errorType: { type: "string", minLength: 1, maxLength: 100 },
+          attachmentIds: {
+            type: "array",
+            maxItems: MAX_ATTACHMENTS_PER_MISTAKE,
+            items: { type: "integer", minimum: 1 }
+          },
           parts: mistakeInputProperties.parts
         }
       },

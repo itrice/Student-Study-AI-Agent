@@ -825,6 +825,24 @@ svg {
   -webkit-line-clamp: 2;
 }
 
+.priority-attachments,
+.recent-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.priority-attachments img,
+.recent-attachments img {
+  width: 84px;
+  height: 58px;
+  border: 1px solid #e0e7e1;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #eef3ef;
+}
+
 .priority-footer {
   display: flex;
   flex-wrap: wrap;
@@ -2459,6 +2477,228 @@ svg {
     right: 14px;
     bottom: 14px;
     left: 14px;
+  }
+}
+
+.image-intake {
+  display: grid;
+  gap: 12px;
+  padding: 17px;
+  border: 1px solid #e1e8e2;
+  border-radius: 15px;
+  background: #f9fbf9;
+}
+
+.image-intake-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.image-intake-heading > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.image-intake-heading span {
+  color: #53685b;
+  font-size: var(--text-label);
+  font-weight: 700;
+}
+
+.image-intake-heading small {
+  color: #8a998f;
+  font-size: var(--text-meta);
+  line-height: 1.6;
+}
+
+.image-intake-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.image-intake-actions .secondary-button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: var(--text-label);
+}
+
+.attachment-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.attachment-card {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #dce6de;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.attachment-thumb {
+  flex: 0 0 auto;
+}
+
+.attachment-thumb img {
+  display: block;
+  width: 72px;
+  height: 72px;
+  border-radius: 9px;
+  object-fit: cover;
+  background: #eef3ef;
+}
+
+.attachment-card-body {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.attachment-card-body strong {
+  color: var(--ink);
+  font-size: var(--text-label);
+}
+
+.attachment-card-body small {
+  color: #8a998f;
+  font-size: var(--text-meta);
+}
+
+.attachment-card-actions,
+.ocr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.attachment-card-actions .text-button {
+  min-height: 30px;
+  padding: 0;
+  font-size: var(--text-label);
+}
+
+.image-intake .text-button.danger {
+  color: var(--coral);
+}
+
+.image-upload-status,
+.image-privacy-note,
+.ocr-message {
+  margin: 0;
+  color: #708076;
+  font-size: var(--text-label);
+  line-height: 1.7;
+}
+
+.image-upload-status.is-error,
+.ocr-message {
+  color: #916158;
+}
+
+.image-privacy-note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f1f6f2;
+}
+
+.ocr-panel {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px dashed #c8d8cc;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ocr-panel strong {
+  color: var(--green-dark);
+  font-size: var(--text-label);
+}
+
+.ocr-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #53685b;
+  font-size: var(--text-label);
+  line-height: 1.65;
+}
+
+.ocr-consent input {
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+
+.ocr-candidate {
+  display: grid;
+  gap: 8px;
+}
+
+.ocr-candidate label {
+  color: #53685b;
+  font-size: var(--text-label);
+  font-weight: 600;
+}
+
+.ocr-candidate textarea {
+  width: 100%;
+  min-height: 104px;
+  padding: 12px;
+  border: 1px solid #dce3dd;
+  border-radius: 10px;
+  color: var(--ink);
+  background: #fbfcfb;
+  font-size: var(--text-body);
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.mistake-attachments,
+.review-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.mistake-attachments img {
+  width: 88px;
+  height: 64px;
+  border: 1px solid #e0e7e1;
+  border-radius: 9px;
+  object-fit: cover;
+  background: #eef3ef;
+}
+
+.review-attachments img {
+  max-width: min(100%, 520px);
+  max-height: 360px;
+  border: 1px solid #e0e7e1;
+  border-radius: 12px;
+  object-fit: contain;
+  background: #f4f7f5;
+}
+
+@media (max-width: 560px) {
+  .attachment-list {
+    grid-template-columns: 1fr;
+  }
+
+  .image-intake-actions .secondary-button,
+  .attachment-card-actions .text-button,
+  .ocr-actions .secondary-button,
+  .ocr-actions .primary-button,
+  .ocr-actions .text-button {
+    min-height: 42px;
   }
 }
 

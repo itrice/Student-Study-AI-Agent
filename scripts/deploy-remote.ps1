@@ -48,7 +48,7 @@ cd "__REMOTE_DIR__"
 mkdir -p data
 if [ -n "$(docker compose ps -q app 2>/dev/null)" ]; then
   echo "==> 部署前备份"
-  docker compose exec -T app node scripts/backup-database.mjs
+  docker compose exec -T app sh -c 'if [ -f scripts/backup-learning-data.mjs ]; then node scripts/backup-learning-data.mjs; else node scripts/backup-database.mjs; fi'
 fi
 previous_image=$(docker compose images -q app 2>/dev/null | head -1 || true)
 if [ -n "$previous_image" ]; then
