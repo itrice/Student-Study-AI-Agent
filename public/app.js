@@ -1,3 +1,5 @@
+import { createRequestKey } from "./request-key.js";
+
 const state = {
   student: null,
   knowledgePoints: [],
@@ -1275,7 +1277,7 @@ async function openReview(id, { updateHash = true } = {}) {
 
 async function loadHintLevel(level) {
   if (!state.review || state.busy) return;
-  if (!state.hintRequestKey) state.hintRequestKey = crypto.randomUUID();
+  if (!state.hintRequestKey) state.hintRequestKey = createRequestKey();
   $("#review-pre-actions").hidden = true;
   $("#hint-panel").hidden = false;
   const nextButton = $("#next-hint-button");
@@ -1325,7 +1327,7 @@ async function submitFollowUp() {
     return;
   }
   if (!state.followUpRequestKey) {
-    state.followUpRequestKey = crypto.randomUUID();
+    state.followUpRequestKey = createRequestKey();
   }
   const button = $("#follow-up-button");
   state.busy = true;
@@ -1374,7 +1376,7 @@ async function submitAttempt(event) {
     })
   );
   const button = $("#answer-form button[type='submit']");
-  if (!state.attemptRequestKey) state.attemptRequestKey = crypto.randomUUID();
+  if (!state.attemptRequestKey) state.attemptRequestKey = createRequestKey();
   state.busy = true;
   setBusy(button, true, "正在判断…");
   try {
@@ -1780,7 +1782,7 @@ async function saveMistake(event) {
   const button = $("#save-mistake-button");
   const isEdit = state.dialogMode === "edit" && state.editingMistakeId;
   if (isEdit && !state.editSubmissionKey) {
-    state.editSubmissionKey = crypto.randomUUID();
+    state.editSubmissionKey = createRequestKey();
   }
   state.busy = true;
   setBusy(button, true, isEdit ? "正在保存修改…" : "正在诊断并保存…");
