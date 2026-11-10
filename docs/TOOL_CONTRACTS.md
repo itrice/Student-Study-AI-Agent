@@ -352,3 +352,15 @@ answers: [
 - 创建和更新时间
 
 工具日志保存在本地 SQLite，不包含 API Key。图片和文件内容将在 M9 按附件规则单独处理。
+
+## 9. 运营与数据接口
+
+| 接口 | 方法 | 说明 |
+|---|---|---|
+| `/api/operations/metrics` | GET | 聚合 LLM、工具、Agent 运行、诊断降级率和 token 成本；只读 |
+| `/api/learning-data` | DELETE | 删除全部学习数据；必须携带 `x-confirm-delete: DELETE_ALL_LEARNING_DATA` |
+
+LLM 网关新增两个安全配置：
+
+- `LLM_MAX_INPUT_CHARS`：输入上下文字符上限，默认 24000。
+- `LLM_RATE_LIMIT_PER_MINUTE`：单进程每分钟请求上限，默认 0（关闭）。

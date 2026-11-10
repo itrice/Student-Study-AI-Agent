@@ -139,7 +139,7 @@ function deterministicStepAssessment(part) {
 function conflictsWithDeterministicResult(text, correct) {
   const value = modelText(text);
   const correctClaim =
-    /(最终答案|整题|全部(?:小问|答案)?|答案|结果|这一步|这一小问|都|均|全对)[^，,。！？；;\n]{0,12}(?:正确|答对|无误)/;
+    /(最终答案|整题|全部(?:小问|答案)?|答案|结果|这一步|这一小问|都|均|全对)[^，,。！？；;\n]{0,12}(?<![不未])(?:正确|答对|无误)/;
   const incorrectClaim =
     /(最终答案|整题|全部(?:小问|答案)?|答案|结果|这一步|这一小问)[^，,。！？；;\n]{0,12}(?:错误|有误|不正确|不对|需订正|需要订正)|(?:答错|全错|完全错误)/;
   return correct
@@ -896,3 +896,9 @@ export class TutoringAgent {
 export function createTutoringAgent({ repository, tools, gateway }) {
   return new TutoringAgent({ repository, tools, gateway });
 }
+
+export {
+  conflictsWithDeterministicResult as modelContradictsDeterministicResult,
+  fallbackHint as buildFallbackHint,
+  leaksAnswer as containsAnswerLeak
+};

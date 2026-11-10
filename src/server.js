@@ -402,6 +402,37 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, repository.getDashboard());
   }
 
+  if (request.method === "GET" && url.pathname === "/api/operations/metrics") {
+    const to = url.searchParams.get("to")
+      ? new Date(url.searchParams.get("to"))
+      : new Date();
+    const from = url.searchParams.get("from")
+      ? new Date(url.searchParams.get("from"))
+      : new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
+    if (Number.isNaN(to.getTime()) || Number.isNaN(from.getTime())) {
+      throw new HttpError(400, "时间范围格式无效");
+    }
+    return sendJson(
+      response,
+      200,
+      repository.buildOperationalMetrics({
+        from: from.toISOString(),
+        to: to.toISOString(),
+        costPer1kInput: Number(url.searchParams.get("costPer1kInput") || 0),
+        costPer1kOutput: Number(url.searchParams.get("costPer1kOutput") || 0)
+      })
+    );
+  }
+
+  if (request.method === "DELETE" && url.pathname === "/api/learning-data") {
+    if (
+      request.headers["x-confirm-delete"] !== "DELETE_ALL_LEARNING_DATA"
+    ) {
+      throw new HttpError(400, "删除学习数据需要明确确认");
+    }
+    return sendJson(response, 200, repository.deleteAllLearningData());
+  }
+
   if (request.method === "GET" && url.pathname === "/api/feedback/daily") {
     const date = parseCalendarDate(url.searchParams.get("date"));
     const bounds = dayBounds(date);

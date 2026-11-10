@@ -16,6 +16,8 @@
 - 支持一道题包含多个小问，为每个小问保存独立答案、可接受答案变体和判题结果。
 - 建立 12 个六年级数学知识点卡片、84 个知识片段和可追溯来源，支持别名与全文检索。
 - 诊断、提示和作答评价只引用检索到的知识来源；覆盖不足时明确提示，不编造来源。
+- 建立 90 条 M7 评测与安全样本，覆盖知识点识别、错因诊断、提示有效性、步骤评价和提示注入。
+- 提供上下文长度、限流、模型异常降级、运营指标和全量学习数据删除能力。
 - 数据默认保存在本机 SQLite 文件，不依赖云服务。
 
 M3 已接入 OpenAI-compatible LLM 网关、知识检索工具和结构化诊断，真实 DeepSeek 模型 30/30 题自测已通过并完成验收；
@@ -27,8 +29,10 @@ M5 已加入可发布知识库与检索：12 个知识点、来源引用、覆�
 （含 12 道留出改写题）。Top-3 命中率 100%，Top-1 命中率 97.9%，验收者-ark 已复验通过。
 知识内容为项目自编摘要，任课教师最终签字仍待完成。
 
-M6 已加入四状态掌握度与学习反馈：每次状态变化都有可追溯证据，改题后回到巩固流程，
-已掌握题到期后进入复习队列；学习反馈页提供日总结、周报和数据边界说明。当前等待验收。
+M6 已通过验收：四状态掌握度与学习反馈、可追溯掌握证据、复习队列、日总结和周报均已交付。
+
+M7 已加入评测、安全与稳定性能力：90 条已标注评测样本、提示注入识别、答案泄露扫描、
+上下文超限保护、本地限流、模型异常降级、运营指标接口和全量学习数据删除接口。
 
 LLM 未配置时系统自动使用本地规则；配置方式、诊断链路和安全边界见
 [LLM 接入说明](docs/LLM_SETUP.md)。
@@ -68,6 +72,15 @@ npm test
 npm run evaluate:knowledge
 ```
 
+运行 M7 评测与安全门禁：
+
+```powershell
+npm run evaluate:m7
+```
+
+M7 报告会写入 `docs/reports/m7-evaluation-2026-11-10.md` 和对应 JSON；
+稳定性与安全清单见 `docs/reports/m7-stability-2026-11-10.md` 和 `docs/M7_SECURITY_CHECKLIST.md`。
+
 评测报告会写入 `docs/reports/m5-knowledge-evaluation-2026-11-10.md` 和对应 JSON。
 
 开发时自动重启：
@@ -98,6 +111,8 @@ src/agent.js         知识点识别、错因诊断与答案等价判断
 src/database.js      错题、复习记录、学习统计和 SQLite 访问
 src/migrations.js    版本化数据库迁移、基线和完整性校验
 src/knowledge/       知识点内容卡片、全文检索、覆盖判断和检索评测
+src/evaluation/      M7 评测集、离线评测运行器和质量门槛
+src/security/        不可信输入识别与提示注入检测
 src/server.js        零依赖 HTTP API 与静态页面服务
 src/tools/           工具注册、Schema 校验、权限、幂等和审计
 test/                规则与学习数据流程测试
@@ -111,6 +126,12 @@ docs/KNOWLEDGE_REVIEW_CHECKLIST.md
                      知识内容审核清单与逐知识点审核登记
 docs/UI_ACCEPTANCE_CHECKLIST.md
                      UI 字号、可读性、缩放和交互验收清单
+docs/M7_SECURITY_CHECKLIST.md
+                     M7 安全测试清单与发布门禁
+docs/reports/m7-evaluation-2026-11-10.md
+                     M7 质量指标、评测明细和发布门禁
+docs/reports/m7-stability-2026-11-10.md
+                     M7 稳定性、运营指标和数据删除报告
 docs/reports/m5-knowledge-evaluation-2026-11-10.md
                      M5 知识点 Top-3 命中率和来源覆盖评测
 docs/reports/ui-readability-2026-11-10.md
