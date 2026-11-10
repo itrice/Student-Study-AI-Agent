@@ -1,0 +1,15 @@
+.git
+.gitignore
+node_modules
+data
+backups
+coverage
+test
+docs
+*.log
+.env
+.env.*
+!.env.example
+pnpm-lock.yaml
+docker-compose.yml
+README.md

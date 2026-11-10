@@ -89,6 +89,160 @@ M7 报告会写入 `docs/reports/m7-evaluation-2026-11-10.md` 和对应 JSON；
 npm run dev
 ```
 
+## Docker 部署
+
+镜像只包含程序。SQLite 数据库不放进镜像，而是挂载到**运行容器的那台主机**的持久目录。
+重建镜像、升级版本或删除容器都不会影响数据。
+
+> 重要：SQLite 必须和容器运行在同一台主机上，并使用本地文件系统。不要把实时数据库
+> 放在 SMB/NFS 网络共享、跨主机同步目录或另一台电脑的磁盘上。SQLite 的 WAL 和文件锁
+> 在跨主机文件系统上不可靠，可能导致锁错误或数据损坏。
+>
+> 如果程序部署在服务器或 NAS 上，数据库就挂载在那台服务器/NAS 的本地磁盘。
+> 本机可以通过备份文件获取数据，但不要直接挂载正在使用的数据库。
+
+### 数据库放容器内还是容器外？
+
+| 位置 | 升级/重建容器后 | 直接备份 | 结论 |
+| --- | --- | --- | --- |
+| 镜像层 | 丢失 | 不能 | 禁止 |
+| 容器可写层 | 通常丢失 | 困难 | 不要 |
+| Docker 命名卷 | 保留 | 需要 Docker 命令 | 可用 |
+| 宿主机目录（bind mount） | 保留 | 直接复制或运行备份脚本 | 推荐 |
+
+本项目默认使用宿主机目录：容器内路径是 `/app/data/learning.sqlite`，
+实际文件在 `${DATA_DIR}/learning.sqlite`。升级时只替换镜像和容器，数据目录不动。
+
+本项目只需要一个应用容器。SQLite 是嵌入式数据库，随 Node 进程运行，不需要再启动
+MySQL/PostgreSQL 容器；数据库文件通过目录挂载放在容器外。
+
+### 目标主机准备
+
+1. 安装 Docker Engine 和 Docker Compose。Windows/macOS 可用 Docker Desktop，
+   Linux 使用发行版仓库或 Docker 官方仓库。
+2. 准备固定的数据目录，放在项目目录之外：
+   - Linux：`/srv/math-coach-data`
+   - Windows：`D:/math-coach-data`
+3. Linux 主机需要让运行容器的 uid/gid 对数据目录可写。默认容器用户是 uid 1000；
+   如果宿主机登录用户不是 1000（例如 `deployer` 是 1001），用 `id -u` / `id -g`
+   查询后写入 `.env` 的 `APP_UID` / `APP_GID`：
+
+   ```bash
+   sudo mkdir -p /srv/math-coach-data
+   sudo chown -R "$(id -u):$(id -g)" /srv/math-coach-data
+   ```
+
+4. 在目标主机的项目目录准备 `.env`（从 `.env.example` 复制），填写模型参数，
+   再追加数据目录和端口配置：
+
+   ```dotenv
+   DATA_DIR=/srv/math-coach-data
+   APP_PORT=3000
+   BIND_ADDRESS=127.0.0.1
+   IMAGE_TAG=0.9
+   APP_UID=1000
+   APP_GID=1000
+   ```
+
+   Windows 主机的路径写成 `D:/math-coach-data`。如果前面有反向代理，保持
+   `BIND_ADDRESS=127.0.0.1`；需要局域网直接访问时改为 `0.0.0.0`，并确认网络可信。
+   当前版本没有账号隔离，不建议直接暴露到公网。
+
+   `IMAGE_TAG` 建议使用明确的版本号，不要长期使用 `latest`。升级时保留旧标签，
+   回滚会更容易。
+
+5. 在目标主机构建并启动：
+
+   ```bash
+   docker-compose up -d --build
+   # 使用 Docker Compose v2 时：
+   docker compose up -d --build
+   ```
+
+6. 访问 `http://<目标主机IP>:<APP_PORT>`，或通过反向代理访问。
+
+容器内数据库固定为 `/app/data/learning.sqlite`，对应 `DATA_DIR/learning.sqlite`。
+迁移前的一致性备份会写入 `DATA_DIR/backups/`。
+
+### 把镜像带到另一台机器
+
+按目标环境选择一种：
+
+- 目标机可以访问代码仓库：`git clone` 或 `git pull` 后直接
+  `docker compose up -d --build`。
+- 目标机不能构建：在开发机执行 `docker build -t math-mistake-coach:0.9 .`，
+  然后 `docker save -o math-coach-0.9.tar math-mistake-coach:0.9`；
+  复制到目标机后执行 `docker load -i math-coach-0.9.tar`，再用 Compose 启动。
+- 有镜像仓库：把镜像推送到 GHCR/私有 registry，目标机执行
+  `docker compose pull` 后 `docker compose up -d`。
+
+`.env` 不会进入镜像（`.dockerignore` 已排除），需要在目标主机单独提供并妥善保管。
+
+### 升级
+
+```bash
+git pull
+docker-compose build
+docker-compose up -d --force-recreate
+```
+
+重建同一镜像标签后，Compose 不一定会自动替换正在运行的容器；`--force-recreate`
+确保新镜像生效。如果每次发布使用新的 `IMAGE_TAG`，执行 `docker compose up -d`
+即可，因为镜像名已变化。使用镜像仓库或离线 tar 包时同理。
+数据库文件在宿主机目录中，重建镜像和容器不会删除。启动时程序按版本执行迁移，
+迁移前会自动把一致性备份写入 `DATA_DIR/backups/`。不要使用
+`docker-compose down -v`，也不要删除数据目录。
+
+升级前也可以手动备份：
+
+```bash
+docker-compose exec app node scripts/backup-database.mjs
+```
+
+本地运行时等价命令是 `npm run backup`，或在任意目录设置 `DB_PATH` 后执行
+`node scripts/backup-database.mjs`。脚本使用 SQLite `VACUUM INTO` 生成一致性快照，
+并执行 `quick_check` 校验。
+
+### Windows 一键更新
+
+在项目根目录执行：
+
+```powershell
+.\scripts\deploy-remote.ps1
+# 如果本机有 npm，也可以：
+npm run deploy:remote
+```
+
+脚本会依次执行：本地测试 → 打包（排除 `.env`、`data`、`.git`）→ 上传 →
+目标机部署前备份 → 构建镜像 → `up -d --force-recreate` → 健康检查。
+默认目标是 `deployer@192.168.1.66:/var/www/student-start-ai-agent`，
+可用参数覆盖：
+
+```powershell
+.\scripts\deploy-remote.ps1 `
+  -Target deployer@host `
+  -RemoteDir /srv/math-coach-app `
+  -AppUrl http://host:3000
+```
+
+只同步代码、跳过本地测试时加 `-SkipTests`。脚本会把上一版镜像标记为
+`math-mistake-coach:previous`，便于应急回滚。
+
+### 回滚
+
+数据库迁移是单向的：新版本数据库不能再被旧版本程序打开，旧镜像会拒绝启动。
+需要回滚时：
+
+1. 停止容器：`docker-compose down`
+2. 把 `DATA_DIR/backups/` 中升级前的备份复制为 `learning.sqlite`
+3. 删除同目录下的 `learning.sqlite-wal` 和 `learning.sqlite-shm`
+4. 使用旧版本镜像启动
+
+### 与本地 node 启动共存
+
+开发时也可以不用 Docker：`git pull` 后直接运行 `node src/server.js`。两种方式可以
+共用同一个数据目录，但不要同时启动，避免两个进程同时写同一个 SQLite 文件。
+
 ## 数据位置
 
 默认数据库为 `data/learning.sqlite`，已加入 `.gitignore`。可通过环境变量覆盖：
@@ -100,6 +254,8 @@ npm start
 
 当已有数据库需要升级时，程序会在执行迁移前将一致性备份写入
 `data/backups/`，并对备份执行 SQLite 完整性检查。迁移按版本执行，重复启动不会重复变更数据库。
+Docker 部署时数据库位置由 `docker-compose.yml` 中的 `DB_PATH` 和
+`${DATA_DIR:-./data}:/app/data` 挂载共同决定，数据实际保存在宿主机的 `DATA_DIR` 中。
 
 首次进入空错题库时，页面可载入 5 道六年级数学示例题，便于体验完整复习流程。
 

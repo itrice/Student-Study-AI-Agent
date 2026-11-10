@@ -1,0 +1,20 @@
+services:
+  app:
+    build:
+      context: .
+    image: math-mistake-coach:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    init: true
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DB_PATH: /app/data/learning.sqlite
+      TZ: Asia/Shanghai
+    volumes:
+      - ${DATA_DIR:-./data}:/app/data
+    stop_grace_period: 20s

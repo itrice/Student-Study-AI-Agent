@@ -8,6 +8,8 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "test": "node --test",
+    "backup": "node scripts/backup-database.mjs",
+    "deploy:remote": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-remote.ps1",
     "evaluate:knowledge": "node scripts/evaluate-m5-knowledge.js",
     "evaluate:m7": "node scripts/evaluate-m7.js"
   },
