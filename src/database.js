@@ -5,6 +5,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { DatabaseSync } from "node:sqlite";
 import { diagnoseMistake } from "./agent.js";
 import {
+  LEARNING_POLICY_VERSION,
+  REVIEW_INTERVAL_DAYS,
   evaluateAttemptState,
   toIsoAfterDays
 } from "./domain/learning-policy.js";
@@ -30,6 +32,10 @@ import {
 
 const nowIso = () => new Date().toISOString();
 const toolWriteLeaseStorage = new AsyncLocalStorage();
+
+function safeRatio(numerator, denominator) {
+  return denominator > 0 ? numerator / denominator : null;
+}
 
 export function runWithToolWriteLease(lease, callback) {
   return toolWriteLeaseStorage.run(lease, callback);
@@ -811,7 +817,7 @@ export class LearningRepository {
             student_id, question, student_answer, correct_answer, analysis,
             knowledge_point, error_type, hint, method_steps, common_errors,
             diagnosis, status, due_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`
         )
         .run(
           draft.studentId,
@@ -826,6 +832,7 @@ export class LearningRepository {
           JSON.stringify(diagnosis.commonErrors || []),
           diagnosis.diagnosis || "",
           timestamp,
+          timestamp,
           timestamp
         );
       const mistakeId = Number(result.lastInsertRowid);
@@ -836,6 +843,25 @@ export class LearningRepository {
         diagnosis.knowledgePoint
       );
       this.insertDiagnosis(mistakeId, diagnosis, timestamp);
+      const reviewScheduleId = this.insertReviewSchedule({
+        mistakeId,
+        nextReviewAt: timestamp,
+        intervalDays: REVIEW_INTERVAL_DAYS.newMistake,
+        reason: "new_mistake",
+        ruleVersion: LEARNING_POLICY_VERSION,
+        createdAt: timestamp
+      });
+      this.insertMasteryEvidence({
+        mistakeId,
+        evidenceType: "created",
+        ruleVersion: LEARNING_POLICY_VERSION,
+        previousStatus: "",
+        nextStatus: "new",
+        reviewScheduleId,
+        reason: "mistake_created",
+        detail: { source: "save_mistake_draft" },
+        createdAt: timestamp
+      });
       this.db
         .prepare(
           `UPDATE mistake_drafts
@@ -879,7 +905,7 @@ export class LearningRepository {
             student_id, question, student_answer, correct_answer, analysis,
             knowledge_point, error_type, hint, method_steps, common_errors,
             diagnosis, status, due_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`
         )
         .run(
           student.id,
@@ -894,6 +920,7 @@ export class LearningRepository {
           JSON.stringify(diagnosis.commonErrors),
           diagnosis.diagnosis,
           timestamp,
+          timestamp,
           timestamp
         );
       const mistakeId = Number(result.lastInsertRowid);
@@ -904,6 +931,25 @@ export class LearningRepository {
         diagnosis.knowledgePoint
       );
       this.insertDiagnosis(mistakeId, diagnosis, timestamp);
+      const reviewScheduleId = this.insertReviewSchedule({
+        mistakeId,
+        nextReviewAt: timestamp,
+        intervalDays: REVIEW_INTERVAL_DAYS.newMistake,
+        reason: "new_mistake",
+        ruleVersion: LEARNING_POLICY_VERSION,
+        createdAt: timestamp
+      });
+      this.insertMasteryEvidence({
+        mistakeId,
+        evidenceType: "created",
+        ruleVersion: LEARNING_POLICY_VERSION,
+        previousStatus: "",
+        nextStatus: "new",
+        reviewScheduleId,
+        reason: "mistake_created",
+        detail: { source: "create_mistake" },
+        createdAt: timestamp
+      });
       this.db.exec("COMMIT");
       return this.getMistake(mistakeId, { includeSolution: true });
     } catch (error) {
@@ -1022,13 +1068,190 @@ export class LearningRepository {
       );
   }
 
+  getActiveReviewSchedule(mistakeId) {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM review_schedule
+         WHERE mistake_id = ? AND active = 1
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(mistakeId);
+    if (!row) return null;
+    return {
+      id: row.id,
+      mistakeId: row.mistake_id,
+      nextReviewAt: row.next_review_at,
+      intervalDays: row.interval_days,
+      reason: row.reason,
+      ruleVersion: row.rule_version,
+      active: row.active === 1,
+      createdAt: row.created_at,
+      supersededAt: row.superseded_at
+    };
+  }
+
+  getMasteryEvidence(mistakeId) {
+    return this.db
+      .prepare(
+        `SELECT
+          e.*,
+          a.answer AS attempt_answer,
+          a.outcome AS attempt_outcome,
+          a.independent AS attempt_independent,
+          a.created_at AS attempt_created_at
+         FROM mastery_evidence e
+         LEFT JOIN attempts a ON a.id = e.attempt_id
+         WHERE e.mistake_id = ?
+         ORDER BY e.created_at ASC, e.id ASC`
+      )
+      .all(mistakeId)
+      .map((row) => ({
+        id: row.id,
+        mistakeId: row.mistake_id,
+        attemptId: row.attempt_id,
+        evidenceType: row.evidence_type,
+        ruleVersion: row.rule_version,
+        independent:
+          row.independent === 1
+            ? true
+            : row.independent === 0
+              ? false
+              : null,
+        previousStatus: row.previous_status,
+        nextStatus: row.next_status,
+        outcome: row.outcome,
+        consecutiveIndependentCorrect:
+          row.consecutive_independent_correct,
+        reviewScheduleId: row.review_schedule_id,
+        reason: row.reason,
+        detail: parseJsonObject(row.detail_json),
+        createdAt: row.created_at,
+        attempt: row.attempt_id
+          ? {
+              answer: row.attempt_answer,
+              outcome: row.attempt_outcome,
+              independent:
+                row.attempt_independent === 1
+                  ? true
+                  : row.attempt_independent === 0
+                    ? false
+                    : null,
+              createdAt: row.attempt_created_at
+            }
+          : null
+      }));
+  }
+
+  insertReviewSchedule({
+    mistakeId,
+    nextReviewAt,
+    intervalDays,
+    reason,
+    ruleVersion,
+    createdAt
+  }) {
+    const result = this.db
+      .prepare(
+        `INSERT INTO review_schedule (
+          mistake_id, next_review_at, interval_days, reason, rule_version,
+          active, created_at, superseded_at
+        ) VALUES (?, ?, ?, ?, ?, 1, ?, NULL)`
+      )
+      .run(
+        mistakeId,
+        nextReviewAt,
+        intervalDays,
+        reason,
+        ruleVersion,
+        createdAt
+      );
+    return Number(result.lastInsertRowid);
+  }
+
+  replaceReviewSchedule({
+    mistakeId,
+    nextReviewAt,
+    intervalDays,
+    reason,
+    ruleVersion,
+    createdAt
+  }) {
+    this.db
+      .prepare(
+        `UPDATE review_schedule
+         SET active = 0, superseded_at = ?
+         WHERE mistake_id = ? AND active = 1`
+      )
+      .run(createdAt, mistakeId);
+    return this.insertReviewSchedule({
+      mistakeId,
+      nextReviewAt,
+      intervalDays,
+      reason,
+      ruleVersion,
+      createdAt
+    });
+  }
+
+  insertMasteryEvidence({
+    mistakeId,
+    attemptId = null,
+    evidenceType,
+    ruleVersion,
+    independent = null,
+    previousStatus = "",
+    nextStatus,
+    outcome = "",
+    consecutiveIndependentCorrect = 0,
+    reviewScheduleId = null,
+    reason = "",
+    detail = {},
+    createdAt
+  }) {
+    const result = this.db
+      .prepare(
+        `INSERT INTO mastery_evidence (
+          mistake_id, attempt_id, evidence_type, rule_version, independent,
+          previous_status, next_status, outcome,
+          consecutive_independent_correct, review_schedule_id, reason,
+          detail_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        mistakeId,
+        attemptId,
+        evidenceType,
+        ruleVersion,
+        independent === true ? 1 : independent === false ? 0 : null,
+        previousStatus,
+        nextStatus,
+        outcome,
+        consecutiveIndependentCorrect,
+        reviewScheduleId,
+        reason,
+        JSON.stringify(detail),
+        createdAt
+      );
+    return Number(result.lastInsertRowid);
+  }
+
   updateMistake(id, input) {
     assertToolWriteAllowed();
     const current = this.getMistake(id, { includeSolution: true });
     if (!current) return null;
     const partsProvided = Array.isArray(input.parts);
     const proposedParts = partsProvided
-      ? normalizeParts(input)
+      ? normalizeParts({
+          ...input,
+          parts: input.parts.map((part, index) => {
+            const existing = current.parts[index];
+            return {
+              ...part,
+              hint: part.hint ?? existing?.hint ?? "",
+              explanation: part.explanation ?? existing?.explanation ?? ""
+            };
+          })
+        })
       : current.parts;
     const combinedStudentAnswer = proposedParts
       .map((part) => part.studentAnswer)
@@ -1058,18 +1281,35 @@ export class LearningRepository {
     const changedFields = Object.keys(finalFields).filter(
       (field) => finalFields[field] !== current[field]
     );
-    const partsChanged =
+    const comparablePart = (part) => ({
+      partNo: part.partNo,
+      label: part.label || "",
+      prompt: part.prompt || "",
+      studentAnswer: part.studentAnswer || "",
+      answerType: part.answerType || "auto",
+      comparisonRule: part.comparisonRule || "auto",
+      knowledgePoint: part.knowledgePoint || "",
+      acceptedAnswers: part.acceptedAnswers || []
+    });
+    const partsContentChanged =
       partsProvided &&
-      JSON.stringify(proposedParts) !==
+      JSON.stringify(proposedParts.map(comparablePart)) !==
+        JSON.stringify(current.parts.map(comparablePart));
+    const partsMetadataChanged =
+      partsProvided &&
+      JSON.stringify(
+        proposedParts.map((part) => ({
+          hint: part.hint || "",
+          explanation: part.explanation || ""
+        }))
+      ) !==
         JSON.stringify(
           current.parts.map((part) => ({
-            ...part,
-            id: undefined,
             hint: part.hint || "",
-            explanation: part.explanation || "",
-            acceptedAnswers: part.acceptedAnswers || []
+            explanation: part.explanation || ""
           }))
         );
+    const partsChanged = partsContentChanged || partsMetadataChanged;
     if (partsChanged) changedFields.push("parts");
     if (!changedFields.length) {
       return {
@@ -1081,9 +1321,11 @@ export class LearningRepository {
       };
     }
 
-    const resetLearning = changedFields.some((field) =>
-      ["question", "correctAnswer", "knowledgePoint", "parts"].includes(field)
-    );
+    const resetLearning =
+      partsContentChanged ||
+      changedFields.some((field) =>
+        ["question", "correctAnswer", "knowledgePoint"].includes(field)
+      );
     const revisionAfter = current.revision + 1;
     const timestamp = nowIso();
     const nextLearningState = resetLearning
@@ -1091,7 +1333,7 @@ export class LearningRepository {
           status: "new",
           consecutiveCorrect: 0,
           attemptCount: 0,
-          dueAt: null,
+          dueAt: timestamp,
           lastReviewedAt: null
         }
       : {
@@ -1149,7 +1391,32 @@ export class LearningRepository {
           timestamp,
           id
         );
-      if (partsProvided) {
+      if (resetLearning) {
+        const reviewScheduleId = this.replaceReviewSchedule({
+          mistakeId: id,
+          nextReviewAt: timestamp,
+          intervalDays: REVIEW_INTERVAL_DAYS.newMistake,
+          reason: "content_changed_reset",
+          ruleVersion: LEARNING_POLICY_VERSION,
+          createdAt: timestamp
+        });
+        this.insertMasteryEvidence({
+          mistakeId: id,
+          evidenceType: "learning_reset",
+          ruleVersion: LEARNING_POLICY_VERSION,
+          previousStatus: current.status,
+          nextStatus: "new",
+          reviewScheduleId,
+          reason: "content_changed",
+          detail: {
+            changedFields,
+            revisionBefore: current.revision,
+            revisionAfter
+          },
+          createdAt: timestamp
+        });
+      }
+      if (partsProvided && partsChanged) {
         this.db
           .prepare(
             `UPDATE mistake_parts
@@ -1229,7 +1496,7 @@ export class LearningRepository {
   }
 
   listMistakes({ status = "all" } = {}) {
-    const validStatus = ["new", "practicing", "mastered"].includes(status)
+    const validStatus = ["new", "practicing", "mastered", "relearning"].includes(status)
       ? status
       : "all";
     const where = validStatus === "all" ? "" : "WHERE m.status = ?";
@@ -1239,7 +1506,12 @@ export class LearningRepository {
        JOIN knowledge_points k ON k.name = m.knowledge_point
        ${where}
        ORDER BY
-         CASE m.status WHEN 'new' THEN 0 WHEN 'practicing' THEN 1 ELSE 2 END,
+         CASE m.status
+           WHEN 'new' THEN 0
+           WHEN 'relearning' THEN 1
+           WHEN 'practicing' THEN 2
+           ELSE 3
+         END,
          COALESCE(m.due_at, m.created_at) ASC,
          m.id DESC`
     );
@@ -1258,14 +1530,23 @@ export class LearningRepository {
     const timestamp = nowIso();
     const row = this.db
       .prepare(
-        `SELECT m.*, k.name AS knowledge_point
+        `SELECT m.*, k.name AS knowledge_point,
+                rs.next_review_at AS scheduled_review_at,
+                rs.interval_days AS review_interval_days,
+                rs.reason AS review_reason
          FROM mistakes m
          JOIN knowledge_points k ON k.name = m.knowledge_point
-         WHERE m.status != 'mastered'
-           AND (m.due_at IS NULL OR m.due_at <= ?)
+         LEFT JOIN review_schedule rs
+           ON rs.mistake_id = m.id AND rs.active = 1
+         WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
          ORDER BY
-           CASE WHEN m.attempt_count = 0 THEN 0 ELSE 1 END,
-           COALESCE(m.due_at, m.created_at) ASC,
+           CASE m.status
+             WHEN 'new' THEN 0
+             WHEN 'relearning' THEN 1
+             WHEN 'practicing' THEN 2
+             ELSE 3
+           END,
+           COALESCE(rs.next_review_at, m.due_at, m.created_at) ASC,
            m.id ASC
          LIMIT 1`
       )
@@ -1284,14 +1565,23 @@ export class LearningRepository {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 5, 20));
     return this.db
       .prepare(
-        `SELECT m.*, k.name AS knowledge_point
+        `SELECT m.*, k.name AS knowledge_point,
+                rs.next_review_at AS scheduled_review_at,
+                rs.interval_days AS review_interval_days,
+                rs.reason AS review_reason
          FROM mistakes m
          JOIN knowledge_points k ON k.name = m.knowledge_point
-         WHERE m.status != 'mastered'
-           AND (m.due_at IS NULL OR m.due_at <= ?)
+         LEFT JOIN review_schedule rs
+           ON rs.mistake_id = m.id AND rs.active = 1
+         WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
          ORDER BY
-           CASE WHEN m.attempt_count = 0 THEN 0 ELSE 1 END,
-           COALESCE(m.due_at, m.created_at) ASC,
+           CASE m.status
+             WHEN 'new' THEN 0
+             WHEN 'relearning' THEN 1
+             WHEN 'practicing' THEN 2
+             ELSE 3
+           END,
+           COALESCE(rs.next_review_at, m.due_at, m.created_at) ASC,
            m.id ASC
          LIMIT ?`
       )
@@ -1347,6 +1637,7 @@ export class LearningRepository {
     });
 
     let attemptId = null;
+    let reviewScheduleId = null;
     this.db.exec("BEGIN");
     try {
       const attemptResult = this.db
@@ -1421,6 +1712,35 @@ export class LearningRepository {
           timestamp,
           id
         );
+      reviewScheduleId = this.replaceReviewSchedule({
+        mistakeId: id,
+        nextReviewAt: policy.dueAt,
+        intervalDays: policy.intervalDays,
+        reason: policy.reviewReason,
+        ruleVersion: policy.policyVersion,
+        createdAt: timestamp
+      });
+      this.insertMasteryEvidence({
+        mistakeId: id,
+        attemptId,
+        evidenceType: policy.evidenceType,
+        ruleVersion: policy.policyVersion,
+        independent: effectiveIndependent,
+        previousStatus: policy.previousStatus,
+        nextStatus: policy.nextStatus,
+        outcome: policy.outcome,
+        consecutiveIndependentCorrect:
+          policy.nextConsecutiveCorrect,
+        reviewScheduleId,
+        reason: policy.reviewReason,
+        detail: {
+          correctPartCount: evaluation.correctPartCount,
+          totalPartCount: evaluation.totalPartCount,
+          linkedHintCount: pendingHints.count,
+          evaluationSource
+        },
+        createdAt: timestamp
+      });
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -1434,6 +1754,13 @@ export class LearningRepository {
       linkedHintCount: pendingHints.count,
       correct: policy.correct,
       mastered: policy.mastered,
+      previousStatus: policy.previousStatus,
+      nextStatus: policy.nextStatus,
+      statusChanged: policy.statusChanged,
+      evidenceType: policy.evidenceType,
+      intervalDays: policy.intervalDays,
+      reviewReason: policy.reviewReason,
+      reviewScheduleId,
       feedback: policy.feedback,
       answer: mistake.correctAnswer,
       analysis: mistake.analysis,
@@ -1723,13 +2050,15 @@ export class LearningRepository {
       .prepare(
         `SELECT
           COUNT(*) AS total,
-          SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) AS new_count,
-          SUM(CASE WHEN status = 'practicing' THEN 1 ELSE 0 END) AS practicing_count,
-          SUM(CASE WHEN status = 'mastered' THEN 1 ELSE 0 END) AS mastered_count,
-          SUM(CASE WHEN status != 'mastered'
-                    AND (due_at IS NULL OR due_at <= ?)
+          SUM(CASE WHEN m.status = 'new' THEN 1 ELSE 0 END) AS new_count,
+          SUM(CASE WHEN m.status = 'practicing' THEN 1 ELSE 0 END) AS practicing_count,
+          SUM(CASE WHEN m.status = 'mastered' THEN 1 ELSE 0 END) AS mastered_count,
+          SUM(CASE WHEN m.status = 'relearning' THEN 1 ELSE 0 END) AS relearning_count,
+          SUM(CASE WHEN COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
                    THEN 1 ELSE 0 END) AS due_count
-         FROM mistakes`
+         FROM mistakes m
+         LEFT JOIN review_schedule rs
+           ON rs.mistake_id = m.id AND rs.active = 1`
       )
       .get(timestamp);
     const nextReview = this.getNextReview();
@@ -1741,6 +2070,7 @@ export class LearningRepository {
         new: Number(counts.new_count || 0),
         practicing: Number(counts.practicing_count || 0),
         mastered: Number(counts.mastered_count || 0),
+        relearning: Number(counts.relearning_count || 0),
         due: Number(counts.due_count || 0)
       },
       nextReview: nextReview
@@ -1778,6 +2108,9 @@ export class LearningRepository {
       const practicing = items.filter(
         (item) => item.status === "practicing"
       ).length;
+      const relearning = items.filter(
+        (item) => item.status === "relearning"
+      ).length;
       const newCount = items.filter((item) => item.status === "new").length;
       const score = items.length
         ? Math.round(
@@ -1785,6 +2118,9 @@ export class LearningRepository {
               if (item.status === "mastered") return total + 100;
               if (item.status === "practicing") {
                 return total + Math.min(80, 25 + item.consecutive_correct * 25);
+              }
+              if (item.status === "relearning") {
+                return total + Math.min(60, 10 + item.consecutive_correct * 20);
               }
               return total + 10;
             }, 0) / items.length
@@ -1797,6 +2133,7 @@ export class LearningRepository {
         total: items.length,
         new: newCount,
         practicing,
+        relearning,
         mastered,
         mastery: score
       };
@@ -1849,6 +2186,56 @@ export class LearningRepository {
       )
       .all(...hintParameters);
 
+    const evidenceClauses = [
+      "e.created_at >= ?",
+      "e.created_at <= ?",
+      "e.attempt_id IS NOT NULL",
+      "e.next_status != e.previous_status",
+      "e.evidence_type NOT IN ('legacy_backfill', 'legacy_seed')",
+      "e.rule_version != 'legacy'"
+    ];
+    const evidenceParameters = [from, to];
+    if (knowledgePoint) {
+      evidenceClauses.push("m.knowledge_point = ?");
+      evidenceParameters.push(knowledgePoint);
+    }
+    const masteryChanges = this.db
+      .prepare(
+        `SELECT
+          e.id, e.mistake_id, e.attempt_id, e.previous_status,
+          e.next_status, e.outcome, e.independent, e.created_at,
+          m.knowledge_point, m.question
+         FROM mastery_evidence e
+         JOIN mistakes m ON m.id = e.mistake_id
+         WHERE ${evidenceClauses.join(" AND ")}
+         ORDER BY e.created_at ASC, e.id ASC`
+      )
+      .all(...evidenceParameters)
+      .map((row) => ({
+        evidenceId: row.id,
+        mistakeId: row.mistake_id,
+        attemptId: row.attempt_id,
+        knowledgePoint: row.knowledge_point,
+        question: row.question,
+        previousStatus: row.previous_status,
+        nextStatus: row.next_status,
+        outcome: row.outcome,
+        independent:
+          row.independent === 1 ? true : row.independent === 0 ? false : null,
+        createdAt: row.created_at
+      }));
+
+    const legacyEvidence = Number(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM mastery_evidence
+           WHERE evidence_type IN ('legacy_backfill', 'legacy_seed')
+              OR rule_version = 'legacy'`
+        )
+        .get().count || 0
+    );
+
     const pointStatistics = new Map();
     const ensurePoint = (name) => {
       if (!pointStatistics.has(name)) {
@@ -1857,8 +2244,11 @@ export class LearningRepository {
           mistakes: 0,
           activeMistakes: 0,
           masteredMistakes: 0,
+          relearningMistakes: 0,
           attempts: 0,
           correctAttempts: 0,
+          independentCorrectAttempts: 0,
+          hintDependentAttempts: 0,
           hints: 0
         });
       }
@@ -1873,11 +2263,18 @@ export class LearningRepository {
       } else {
         point.activeMistakes += 1;
       }
+      if (mistake.status === "relearning") {
+        point.relearningMistakes += 1;
+      }
     }
     for (const attempt of attempts) {
       const point = ensurePoint(attempt.knowledge_point);
       point.attempts += 1;
       if (attempt.outcome === "correct") point.correctAttempts += 1;
+      if (attempt.outcome === "correct" && attempt.independent === 1) {
+        point.independentCorrectAttempts += 1;
+      }
+      if (attempt.independent === 0) point.hintDependentAttempts += 1;
     }
     for (const hint of hints) {
       ensurePoint(hint.knowledge_point).hints += 1;
@@ -1896,26 +2293,258 @@ export class LearningRepository {
           b.activeMistakes - a.activeMistakes
       );
 
+    const correctAttempts = attempts.filter(
+      (attempt) => attempt.outcome === "correct"
+    ).length;
+    const partialAttempts = attempts.filter(
+      (attempt) => attempt.outcome === "partial"
+    ).length;
+    const incorrectAttempts = attempts.filter(
+      (attempt) => attempt.outcome === "incorrect"
+    ).length;
+    const independentAttempts = attempts.filter(
+      (attempt) => attempt.independent === 1
+    ).length;
+    const hintDependentAttempts = attempts.filter(
+      (attempt) => attempt.independent === 0
+    ).length;
+    const unknownDependencyAttempts = attempts.filter(
+      (attempt) => attempt.independent !== 0 && attempt.independent !== 1
+    ).length;
+    const independentCorrectAttempts = attempts.filter(
+      (attempt) => attempt.outcome === "correct" && attempt.independent === 1
+    ).length;
+    const hintDependentCorrectAttempts = attempts.filter(
+      (attempt) => attempt.outcome === "correct" && attempt.independent === 0
+    ).length;
+    const knownDependencyAttempts =
+      independentAttempts + hintDependentAttempts;
     const mastered = mistakes.filter(
       (mistake) => mistake.status === "mastered"
     ).length;
+    const relearning = mistakes.filter(
+      (mistake) => mistake.status === "relearning"
+    ).length;
+    const toMastered = masteryChanges.filter(
+      (change) => change.nextStatus === "mastered"
+    ).length;
+    const toRelearning = masteryChanges.filter(
+      (change) => change.nextStatus === "relearning"
+    ).length;
+
     return {
       period: { from, to },
+      policyVersion: LEARNING_POLICY_VERSION,
       totals: {
         mistakes: mistakes.length,
         activeMistakes: mistakes.length - mastered,
         masteredMistakes: mastered,
+        relearningMistakes: relearning,
         attempts: attempts.length,
-        correctAttempts: attempts.filter(
-          (attempt) => attempt.outcome === "correct"
-        ).length,
-        independentCorrectAttempts: attempts.filter(
-          (attempt) =>
-            attempt.outcome === "correct" && attempt.independent === 1
-        ).length,
+        correctAttempts,
+        partialAttempts,
+        incorrectAttempts,
+        independentCorrectAttempts,
+        hintDependentCorrectAttempts,
         hints: hints.length
       },
-      knowledgePoints
+      rates: {
+        accuracy: safeRatio(correctAttempts, attempts.length),
+        independentCorrectRate: safeRatio(
+          independentCorrectAttempts,
+          attempts.length
+        ),
+        hintDependencyRate: safeRatio(
+          hintDependentAttempts,
+          knownDependencyAttempts
+        ),
+        independentAnswerRate: safeRatio(
+          independentAttempts,
+          knownDependencyAttempts
+        )
+      },
+      dependency: {
+        knownAttempts: knownDependencyAttempts,
+        independentAttempts,
+        hintDependentAttempts,
+        unknownAttempts: unknownDependencyAttempts,
+        hintEvents: hints.length,
+        rateAvailable: knownDependencyAttempts > 0
+      },
+      masteryChanges: {
+        toMastered,
+        toRelearning,
+        items: masteryChanges
+      },
+      knowledgePoints,
+      dataStatus: {
+        hasData:
+          mistakes.length > 0 ||
+          attempts.length > 0 ||
+          hints.length > 0 ||
+          masteryChanges.length > 0,
+        hasMistakes: mistakes.length > 0,
+        hasAttempts: attempts.length > 0,
+        hasHints: hints.length > 0,
+        hasMasteryChanges: masteryChanges.length > 0,
+        hasLegacyEvidence: legacyEvidence > 0,
+        dependencyRateAvailable: knownDependencyAttempts > 0
+      }
+    };
+  }
+
+  countDueReviews({ at = nowIso() } = {}) {
+    return Number(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM mistakes m
+           LEFT JOIN review_schedule rs
+             ON rs.mistake_id = m.id AND rs.active = 1
+           WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?`
+        )
+        .get(at).count || 0
+    );
+  }
+
+  buildDailySummary({ from, to, knowledgePoint = null, at = null }) {
+    const summary = this.buildLearningSummary({ from, to, knowledgePoint });
+    const dueCount = this.countDueReviews({ at: at || to });
+    const attempts = summary.totals.attempts;
+    const hints = summary.totals.hints;
+    const independentCorrect = summary.totals.independentCorrectAttempts;
+    const sentences = [];
+    if (attempts > 0) {
+      sentences.push(
+        `今天完成 ${attempts} 次作答，其中 ${summary.totals.correctAttempts} 次全部答对。`
+      );
+    }
+    if (independentCorrect > 0) {
+      sentences.push(`其中 ${independentCorrect} 次是独立答对。`);
+    }
+    if (hints > 0) {
+      sentences.push(`今天使用了 ${hints} 次提示；提示帮助不计入独立掌握。`);
+    }
+    if (summary.masteryChanges.toMastered > 0) {
+      sentences.push(
+        `今天有 ${summary.masteryChanges.toMastered} 道题达到已掌握状态。`
+      );
+    }
+    if (summary.masteryChanges.toRelearning > 0) {
+      sentences.push(
+        `今天有 ${summary.masteryChanges.toRelearning} 道题回到巩固阶段。`
+      );
+    }
+    if (!attempts && !hints) {
+      sentences.push("今天还没有作答或提示记录，暂时不能判断掌握变化。");
+    }
+
+    const nextStep =
+      dueCount > 0
+        ? `接下来可以先复习 ${dueCount} 道到期的题。`
+        : attempts > 0
+          ? "今天没有到期复习，可以休息一下，明天再巩固。"
+          : "先选一道错题独立重做，日总结就会有内容。";
+
+    return {
+      ...summary,
+      kind: "daily",
+      hasData: summary.dataStatus.hasData,
+      insufficientData: !summary.dataStatus.hasData,
+      dueCount,
+      childSummary: {
+        headline:
+          attempts > 0
+            ? `今天完成了 ${attempts} 次作答`
+            : hints > 0
+              ? `今天有 ${hints} 次提示记录`
+              : "今天还没有学习记录",
+        sentences,
+        nextStep
+      },
+      limitations: [
+        ...(attempts === 0
+          ? ["没有作答记录，无法判断今天的掌握变化。"]
+          : []),
+        ...(!summary.dataStatus.dependencyRateAvailable
+          ? ["没有可用于判断独立作答与提示依赖的作答记录。"]
+          : []),
+        ...(summary.dataStatus.hasLegacyEvidence
+          ? ["历史导入的掌握证据不计入今天的掌握变化统计。"]
+          : [])
+      ]
+    };
+  }
+
+  buildWeeklyReport({ from, to, knowledgePoint = null, at = null }) {
+    const summary = this.buildLearningSummary({ from, to, knowledgePoint });
+    const dueCount = this.countDueReviews({ at: at || to });
+    const statements = [];
+    if (summary.totals.attempts > 0) {
+      statements.push({
+        text: `本周完成 ${summary.totals.attempts} 次作答，其中 ${summary.totals.correctAttempts} 次全部答对。`,
+        basis: { metric: "attempts", value: summary.totals.attempts }
+      });
+      statements.push({
+        text: `独立答对 ${summary.totals.independentCorrectAttempts} 次，提示后答对 ${summary.totals.hintDependentCorrectAttempts} 次。`,
+        basis: {
+          metric: "independentCorrectAttempts",
+          value: summary.totals.independentCorrectAttempts
+        }
+      });
+    }
+    if (summary.totals.hints > 0) {
+      statements.push({
+        text: `本周共使用 ${summary.totals.hints} 次提示。`,
+        basis: { metric: "hints", value: summary.totals.hints }
+      });
+    }
+    if (summary.masteryChanges.toMastered > 0) {
+      statements.push({
+        text: `本周有 ${summary.masteryChanges.toMastered} 道题进入已掌握状态。`,
+        basis: {
+          metric: "toMastered",
+          value: summary.masteryChanges.toMastered
+        }
+      });
+    }
+    if (summary.masteryChanges.toRelearning > 0) {
+      statements.push({
+        text: `本周有 ${summary.masteryChanges.toRelearning} 道题回到巩固阶段。`,
+        basis: {
+          metric: "toRelearning",
+          value: summary.masteryChanges.toRelearning
+        }
+      });
+    }
+
+    return {
+      ...summary,
+      kind: "weekly",
+      hasData: summary.dataStatus.hasData,
+      insufficientData: !summary.dataStatus.hasData,
+      dueCount,
+      parentReport: {
+        statements,
+        summaryText: statements.map((statement) => statement.text).join(" "),
+        limitations: [
+          ...(summary.totals.attempts === 0
+            ? ["本周没有作答记录，无法判断掌握变化。"]
+            : []),
+          ...(summary.dependency.knownAttempts > 0 &&
+          summary.dependency.knownAttempts < 3
+            ? ["本周可用于判断提示依赖的作答少于 3 次，比例仅供事实参考。"]
+            : []),
+          ...(summary.dependency.knownAttempts === 0
+            ? ["本周没有可用于判断提示依赖的作答记录。"]
+            : []),
+          ...(summary.dataStatus.hasLegacyEvidence
+            ? ["历史导入的掌握证据不计入本周掌握变化统计。"]
+            : [])
+        ],
+        knowledgePoints: summary.knowledgePoints,
+        masteryChanges: summary.masteryChanges.items
+      }
     };
   }
 

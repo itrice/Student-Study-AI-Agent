@@ -1,6 +1,6 @@
 # LLM 接入与诊断
 
-> 实现状态：M3 已完成；M4 教学闭环待验收
+> 实现状态：M3、M4 已完成
 > 接口形态：OpenAI-compatible Chat Completions
 > 降级策略：本地可解释规则
 
@@ -104,7 +104,7 @@ node src/server.js
 
 ## 7. M4 教学闭环
 
-M3 已通过验收，M4 当前待验收。新增接口：
+M3、M4 已通过验收。新增接口：
 
 - `GET /api/review/:id`：安全复习数据，不返回答案、解析或答案变体。
 - `POST /api/review/:id/hints`：生成并记录 1～4 级提示。

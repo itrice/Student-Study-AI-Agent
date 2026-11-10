@@ -9,7 +9,7 @@
     />
     <meta name="theme-color" content="#17324d" />
     <title>小步数学 · 六年级错题教练</title>
-    <link rel="stylesheet" href="/styles.css?v=20261110-4" />
+    <link rel="stylesheet" href="/styles.css?v=20261110-9" />
   </head>
   <body>
     <div class="app-shell">
@@ -48,6 +48,13 @@
               <path d="M14.5 3.5V7h3M9 11h6M9 14.5h4" />
             </svg>
             <span>我的错题</span>
+          </button>
+          <button class="nav-item" data-view="feedback">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 19V9M12 19V5M19 19v-7" />
+              <path d="M3.5 19.5h17" />
+            </svg>
+            <span>学习反馈</span>
           </button>
           <button class="nav-item" data-view="knowledge">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -381,6 +388,9 @@
               <button class="filter-chip" data-filter="practicing">
                 练习中 <span id="filter-count-practicing">0</span>
               </button>
+              <button class="filter-chip" data-filter="relearning">
+                需巩固 <span id="filter-count-relearning">0</span>
+              </button>
               <button class="filter-chip" data-filter="mastered">
                 已掌握 <span id="filter-count-mastered">0</span>
               </button>
@@ -389,6 +399,64 @@
           </div>
 
           <div id="mistake-list" class="mistake-list"></div>
+        </section>
+
+        <section class="view" id="view-feedback" data-view-panel="feedback">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">用学习证据回顾</span>
+              <h1>学习反馈</h1>
+              <p>日总结来自今天的作答和提示记录；周报只陈述有数据支持的事实。</p>
+            </div>
+            <button class="secondary-button" id="refresh-feedback-button" type="button">
+              刷新反馈
+            </button>
+          </div>
+
+          <div id="feedback-loading" class="review-card loading-card">
+            <div class="skeleton-line wide"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line medium"></div>
+          </div>
+
+          <div id="feedback-content" class="feedback-grid" hidden>
+            <section class="panel feedback-card">
+              <div class="panel-heading">
+                <div>
+                  <span class="section-kicker" id="daily-date-label">今日小结</span>
+                  <h2>孩子可读的日总结</h2>
+                </div>
+                <span class="small-pill" id="daily-status-pill">--</span>
+              </div>
+              <p class="feedback-copy" id="daily-copy"></p>
+              <div class="feedback-metrics" id="daily-metrics"></div>
+              <div class="feedback-points" id="daily-points"></div>
+              <p class="feedback-next" id="daily-next"></p>
+            </section>
+
+            <section class="panel feedback-card">
+              <div class="panel-heading">
+                <div>
+                  <span class="section-kicker" id="weekly-period-label">近 7 天</span>
+                  <h2>家长可读的周报</h2>
+                </div>
+                <span class="small-pill" id="weekly-status-pill">--</span>
+              </div>
+              <p class="feedback-copy" id="weekly-copy"></p>
+              <div class="feedback-metrics" id="weekly-metrics"></div>
+              <div class="feedback-points" id="weekly-points"></div>
+              <div class="feedback-changes" id="weekly-changes"></div>
+              <div class="feedback-limitations" id="weekly-limitations"></div>
+            </section>
+          </div>
+
+          <div id="feedback-empty" class="empty-state" hidden>
+            <h2>还没有可展示的学习反馈</h2>
+            <p>先完成一次复习作答，系统会按作答和提示记录生成日总结。</p>
+            <button class="primary-button" type="button" data-go-view="review">
+              去复习
+            </button>
+          </div>
         </section>
 
         <section class="view" id="view-knowledge" data-view-panel="knowledge">
@@ -542,6 +610,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261110-4"></script>
+    <script type="module" src="/app.js?v=20261110-9"></script>
   </body>
 </html>

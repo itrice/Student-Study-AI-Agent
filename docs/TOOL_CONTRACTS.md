@@ -1,7 +1,7 @@
 # Agent 工具契约 v1
 
-> 更新日期：2026-11-09
-> 实现状态：M2、M2.2、M3 已完成；M4 待验收
+> 更新日期：2026-11-10
+> 实现状态：M2、M2.2、M3、M4 已完成；M5 条件通过；M6 待验收
 > 代码入口：`src/tools/index.js`
 
 ## 1. 设计原则
@@ -187,10 +187,13 @@ tools.invoke(toolName, arguments, {
 - 整题 `outcome`：`correct`、`partial` 或 `incorrect`
 - `nextReviewAt`
 - 更新后的错题状态
+- M6 状态字段：`previousStatus`、`nextStatus`、`statusChanged`、`reviewReason`、`evidenceType`、`intervalDays`
 
 最终答案由确定性规则校验；M3 后再增加 LLM 步骤评价。
 
 服务端必须拒绝不属于当前错题或重复出现的 `partId`，且校验失败前不得写入作答记录。只有 `independent=true` 的全对作答才累计掌握次数。
+
+M6 起，每次状态变化都必须同时写入掌握证据和 active 复习计划；模型评价只能补充说明，不能覆盖确定性判题或直接修改掌握状态。
 
 ### 5.8 `update_mistake`
 
@@ -237,6 +240,9 @@ HTTP 编辑流程使用以下门控：
 - 作答、正确作答和独立正确作答数量
 - 查看提示次数
 - 按知识点拆分的统计
+- M6 字段：`policyVersion`、`rates`、`dependency`、`masteryChanges`、`dataStatus`
+
+无数据时返回明确的 `insufficientData` 状态，不生成无事实依据的掌握判断。
 
 该工具不返回正确答案、解析或具体作答文本。
 

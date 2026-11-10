@@ -77,7 +77,7 @@ function createLegacyDatabase(filePath) {
 test("新数据库建立版本化迁移记录并初始化基线数据", () => {
   const repository = new LearningRepository();
 
-  assert.equal(repository.getSchemaVersion(), 7);
+  assert.equal(repository.getSchemaVersion(), 9);
   assert.equal(repository.lastBackupPath, null);
   assert.equal(repository.getStudent().name, "六年级同学");
   assert.equal(repository.getKnowledgePoints().length, 12);
@@ -96,7 +96,9 @@ test("新数据库建立版本化迁移记录并初始化基线数据", () => {
       "mistake_editing",
       "multi_part_questions",
       "attempt_evaluations",
-      "knowledge_base"
+      "knowledge_base",
+      "mastery_evidence_and_spaced_review",
+      "legacy_mastery_evidence_backfill"
     ]
   );
   assert.equal(migrations[0].checksum.length, 64);
@@ -106,9 +108,11 @@ test("新数据库建立版本化迁移记录并初始化基线数据", () => {
   assert.equal(migrations[4].checksum.length, 64);
   assert.equal(migrations[5].checksum.length, 64);
   assert.equal(migrations[6].checksum.length, 64);
+  assert.equal(migrations[7].checksum.length, 64);
+  assert.equal(migrations[8].checksum.length, 64);
   assert.equal(
     Number(repository.db.prepare("PRAGMA user_version").get().user_version),
-    7
+    9
   );
 
   for (const table of [
@@ -163,7 +167,7 @@ test("旧数据库自动升级、创建校验备份并保留学习记录", () =>
     createLegacyDatabase(databasePath);
 
     const repository = new LearningRepository(databasePath);
-    assert.equal(repository.getSchemaVersion(), 7);
+    assert.equal(repository.getSchemaVersion(), 9);
     assert.ok(repository.lastBackupPath);
     assert.equal(fs.existsSync(repository.lastBackupPath), true);
     assert.equal(fs.existsSync(`${repository.lastBackupPath}-wal`), false);
@@ -210,13 +214,13 @@ test("旧数据库自动升级、创建校验备份并保留学习记录", () =>
     repository.close();
     const reopened = new LearningRepository(databasePath);
     assert.equal(reopened.lastBackupPath, null);
-    assert.equal(reopened.getSchemaVersion(), 7);
+    assert.equal(reopened.getSchemaVersion(), 9);
     assert.equal(reopened.listMistakes().length, 1);
     assert.equal(
       reopened.db
         .prepare("SELECT COUNT(*) AS count FROM schema_migrations")
         .get().count,
-      7
+      9
     );
     reopened.close();
   });
@@ -229,8 +233,8 @@ test("已有 v1 数据库可以增量升级到最新版本", () => {
 
   const result = migrateDatabase(db);
   assert.equal(result.fromVersion, 1);
-  assert.equal(result.toVersion, 7);
-  assert.deepEqual(result.appliedVersions, [2, 3, 4, 5, 6, 7]);
+  assert.equal(result.toVersion, 9);
+  assert.deepEqual(result.appliedVersions, [2, 3, 4, 5, 6, 7, 8, 9]);
   assert.equal(
     db
       .prepare(
@@ -249,8 +253,8 @@ test("已有 v2 数据库可以增量升级到最新数据模型", () => {
 
   const result = migrateDatabase(db);
   assert.equal(result.fromVersion, 2);
-  assert.equal(result.toVersion, 7);
-  assert.deepEqual(result.appliedVersions, [3, 4, 5, 6, 7]);
+  assert.equal(result.toVersion, 9);
+  assert.deepEqual(result.appliedVersions, [3, 4, 5, 6, 7, 8, 9]);
   const toolColumns = new Set(
     db
       .prepare('PRAGMA table_info("tool_calls")')
@@ -276,8 +280,8 @@ test("已有 v3 数据库可以增量升级到最新数据模型", () => {
   assert.equal(getSchemaVersion(db), 3);
 
   const result = migrateDatabase(db);
-  assert.equal(result.toVersion, 7);
-  assert.deepEqual(result.appliedVersions, [4, 5, 6, 7]);
+  assert.equal(result.toVersion, 9);
+  assert.deepEqual(result.appliedVersions, [4, 5, 6, 7, 8, 9]);
   const mistakeColumns = new Set(
     db
       .prepare('PRAGMA table_info("mistakes")')
@@ -302,8 +306,8 @@ test("已有 v4 数据库可以增量升级到最新模型", () => {
   assert.equal(getSchemaVersion(db), 4);
 
   const result = migrateDatabase(db);
-  assert.equal(result.toVersion, 7);
-  assert.deepEqual(result.appliedVersions, [5, 6, 7]);
+  assert.equal(result.toVersion, 9);
+  assert.deepEqual(result.appliedVersions, [5, 6, 7, 8, 9]);
   assert.equal(
     db
       .prepare(
@@ -321,8 +325,8 @@ test("已有 v5 数据库可以增量升级到最新模型", () => {
   assert.equal(getSchemaVersion(db), 5);
 
   const result = migrateDatabase(db);
-  assert.equal(result.toVersion, 7);
-  assert.deepEqual(result.appliedVersions, [6, 7]);
+  assert.equal(result.toVersion, 9);
+  assert.deepEqual(result.appliedVersions, [6, 7, 8, 9]);
   assert.equal(
     db
       .prepare(
@@ -342,14 +346,14 @@ test("已有 v5 数据库可以增量升级到最新模型", () => {
   db.close();
 });
 
-test("已有 v6 数据库可以增量升级到 v7 知识库", () => {
+test("已有 v6 数据库可以增量升级到 v9 掌握证据模型", () => {
   const db = new DatabaseSync(":memory:");
   migrateDatabase(db, { migrations: SCHEMA_MIGRATIONS.slice(0, 6) });
   assert.equal(getSchemaVersion(db), 6);
 
   const result = migrateDatabase(db);
-  assert.equal(result.toVersion, 7);
-  assert.deepEqual(result.appliedVersions, [7]);
+  assert.equal(result.toVersion, 9);
+  assert.deepEqual(result.appliedVersions, [7, 8, 9]);
   assert.equal(
     db
       .prepare(
@@ -357,6 +361,139 @@ test("已有 v6 数据库可以增量升级到 v7 知识库", () => {
       )
       .get("knowledge_sources").name,
     "knowledge_sources"
+  );
+  db.close();
+});
+
+test("v7 零作答旧题升级后补齐掌握证据且不重复回填", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON;");
+  migrateDatabase(db, { migrations: SCHEMA_MIGRATIONS.slice(0, 7) });
+  assert.equal(getSchemaVersion(db), 7);
+
+  let studentId = db.prepare("SELECT id FROM students LIMIT 1").get()?.id;
+  if (!studentId) {
+    studentId = Number(
+      db
+        .prepare(
+          "INSERT INTO students (name, grade, created_at) VALUES (?, ?, ?)"
+        )
+        .run("迁移学生", 6, "2026-01-01T00:00:00.000Z").lastInsertRowid
+    );
+  }
+  let knowledgePoint = db
+    .prepare("SELECT name FROM knowledge_points LIMIT 1")
+    .get()?.name;
+  if (!knowledgePoint) {
+    knowledgePoint = "百分数";
+    db.prepare(
+      "INSERT INTO knowledge_points (name, position) VALUES (?, ?)"
+    ).run(knowledgePoint, 0);
+  }
+
+  const insertMistake = db.prepare(
+    `INSERT INTO mistakes (
+      student_id, question, student_answer, correct_answer, analysis,
+      knowledge_point, error_type, hint, method_steps, common_errors,
+      diagnosis, status, consecutive_correct, attempt_count, due_at,
+      last_reviewed_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const zeroAttemptId = Number(
+    insertMistake.run(
+      studentId,
+      "从未作答的旧题",
+      "",
+      "120元",
+      "",
+      knowledgePoint,
+      "单位“1”找错",
+      "先找单位“1”",
+      "[]",
+      "[]",
+      "旧诊断",
+      "new",
+      0,
+      0,
+      null,
+      null,
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z"
+    ).lastInsertRowid
+  );
+  const attemptedId = Number(
+    insertMistake.run(
+      studentId,
+      "有历史作答的旧题",
+      "100元",
+      "120元",
+      "",
+      knowledgePoint,
+      "单位“1”找错",
+      "先找单位“1”",
+      "[]",
+      "[]",
+      "旧诊断",
+      "practicing",
+      1,
+      1,
+      null,
+      null,
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z"
+    ).lastInsertRowid
+  );
+  db.prepare(
+    `INSERT INTO attempts
+     (mistake_id, answer, is_correct, feedback, created_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(
+    attemptedId,
+    "100元",
+    0,
+    "需要先计算涨价部分",
+    "2026-01-02T00:00:00.000Z"
+  );
+
+  const result = migrateDatabase(db);
+  assert.equal(result.toVersion, 9);
+  const zeroEvidence = db
+    .prepare(
+      `SELECT evidence_type, attempt_id, previous_status, next_status
+       FROM mastery_evidence WHERE mistake_id = ? ORDER BY id`
+    )
+    .all(zeroAttemptId);
+  assert.equal(zeroEvidence.length, 1);
+  assert.equal(zeroEvidence[0].evidence_type, "legacy_seed");
+  assert.equal(zeroEvidence[0].attempt_id, null);
+  assert.equal(zeroEvidence[0].previous_status, "");
+  assert.equal(zeroEvidence[0].next_status, "new");
+
+  const attemptedEvidence = db
+    .prepare(
+      `SELECT evidence_type, attempt_id FROM mastery_evidence
+       WHERE mistake_id = ? ORDER BY id`
+    )
+    .all(attemptedId);
+  assert.equal(attemptedEvidence.length, 1);
+  assert.equal(attemptedEvidence[0].evidence_type, "legacy_backfill");
+  assert.ok(attemptedEvidence[0].attempt_id);
+  assert.equal(
+    db
+      .prepare(
+        `SELECT COUNT(DISTINCT mistake_id) AS count FROM mastery_evidence`
+      )
+      .get().count,
+    2
+  );
+
+  const rerun = migrateDatabase(db);
+  assert.deepEqual(rerun.appliedVersions, []);
+  assert.equal(
+    db
+      .prepare("SELECT COUNT(*) AS count FROM mastery_evidence")
+      .get().count,
+    2
   );
   db.close();
 });

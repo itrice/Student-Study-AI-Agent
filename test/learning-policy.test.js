@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LEARNING_POLICY_VERSION,
+  REVIEW_INTERVAL_DAYS,
+  evaluateAttemptState,
   evaluateMistakeAttempt
 } from "../src/domain/learning-policy.js";
 
@@ -60,4 +62,78 @@ test("领域策略保持现有答题、复习和掌握规则", () => {
   assert.equal(wrong.nextStatus, "practicing");
   assert.equal(wrong.nextConsecutiveCorrect, 0);
   assert.equal(wrong.dueAt, "2026-11-10T00:00:00.000Z");
+});
+
+test("掌握状态会因回顾失败回到巩固，并重新积累独立答对次数", () => {
+  const now = new Date("2026-11-09T00:00:00.000Z");
+  const masteredMistake = {
+    correctAnswer: "120元",
+    status: "mastered",
+    consecutiveCorrect: 2
+  };
+
+  const failedReview = evaluateMistakeAttempt({
+    mistake: masteredMistake,
+    answer: "100元",
+    independent: true,
+    now
+  });
+  assert.equal(failedReview.nextStatus, "relearning");
+  assert.equal(failedReview.previousStatus, "mastered");
+  assert.equal(failedReview.nextConsecutiveCorrect, 0);
+  assert.equal(failedReview.reviewReason, "mastery_lost");
+  assert.equal(failedReview.evidenceType, "mastery_lost");
+
+  const hintedReview = evaluateMistakeAttempt({
+    mistake: masteredMistake,
+    answer: "120元",
+    independent: false,
+    hintLevel: 2,
+    now
+  });
+  assert.equal(hintedReview.nextStatus, "relearning");
+  assert.equal(hintedReview.mastered, false);
+
+  const firstRecovery = evaluateAttemptState({
+    mistake: { ...masteredMistake, status: "relearning", consecutiveCorrect: 0 },
+    correct: true,
+    independent: true,
+    now
+  });
+  assert.equal(firstRecovery.nextStatus, "practicing");
+  assert.equal(firstRecovery.nextConsecutiveCorrect, 1);
+
+  const secondRecovery = evaluateAttemptState({
+    mistake: { ...masteredMistake, status: "relearning", consecutiveCorrect: 1 },
+    correct: true,
+    independent: true,
+    now
+  });
+  assert.equal(secondRecovery.nextStatus, "mastered");
+  assert.equal(secondRecovery.nextConsecutiveCorrect, 2);
+});
+
+test("已掌握题目的回顾间隔会逐步拉长", () => {
+  const now = new Date("2026-11-09T00:00:00.000Z");
+  const base = {
+    correctAnswer: "120元",
+    status: "mastered"
+  };
+  const firstReview = evaluateAttemptState({
+    mistake: { ...base, consecutiveCorrect: 2 },
+    correct: true,
+    independent: true,
+    now
+  });
+  assert.equal(firstReview.nextStatus, "mastered");
+  assert.equal(firstReview.intervalDays, REVIEW_INTERVAL_DAYS.masteryReview);
+  assert.equal(firstReview.evidenceType, "mastery_review_confirmed");
+
+  const secondReview = evaluateAttemptState({
+    mistake: { ...base, consecutiveCorrect: 3 },
+    correct: true,
+    independent: true,
+    now
+  });
+  assert.equal(secondReview.intervalDays, REVIEW_INTERVAL_DAYS.masteryReviewLong);
 });
