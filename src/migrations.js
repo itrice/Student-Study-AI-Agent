@@ -752,6 +752,144 @@ const KNOWLEDGE_BASE_REQUIRED_COLUMNS = {
   ]
 };
 
+export const M6_LEARNING_EVIDENCE_SCHEMA_SQL = `
+  DROP INDEX IF EXISTS idx_mastery_evidence_mistake;
+
+  ALTER TABLE mastery_evidence RENAME TO mastery_evidence_v7;
+
+  CREATE TABLE mastery_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mistake_id INTEGER NOT NULL,
+    attempt_id INTEGER UNIQUE,
+    evidence_type TEXT NOT NULL,
+    rule_version TEXT NOT NULL,
+    independent INTEGER CHECK (independent IN (0, 1) OR independent IS NULL),
+    previous_status TEXT NOT NULL DEFAULT '',
+    next_status TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL DEFAULT '',
+    consecutive_independent_correct INTEGER NOT NULL DEFAULT 0,
+    review_schedule_id INTEGER,
+    reason TEXT NOT NULL DEFAULT '',
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(mistake_id) REFERENCES mistakes(id) ON DELETE CASCADE,
+    FOREIGN KEY(attempt_id) REFERENCES attempts(id) ON DELETE CASCADE,
+    FOREIGN KEY(review_schedule_id) REFERENCES review_schedule(id) ON DELETE SET NULL
+  );
+
+  INSERT INTO mastery_evidence (
+    id, mistake_id, attempt_id, evidence_type, rule_version, independent,
+    previous_status, next_status, outcome,
+    consecutive_independent_correct, review_schedule_id, reason, detail_json,
+    created_at
+  )
+  SELECT
+    id, mistake_id, attempt_id, evidence_type, rule_version, independent,
+    '', '', '', 0, NULL, 'legacy', '{}', created_at
+  FROM mastery_evidence_v7;
+
+  DROP TABLE mastery_evidence_v7;
+
+  CREATE INDEX idx_mastery_evidence_mistake
+  ON mastery_evidence(mistake_id, created_at);
+
+  CREATE INDEX idx_mastery_evidence_schedule
+  ON mastery_evidence(review_schedule_id);
+
+  INSERT INTO review_schedule (
+    mistake_id, next_review_at, interval_days, reason, rule_version, active,
+    created_at, superseded_at
+  )
+  SELECT
+    m.id,
+    COALESCE(m.due_at, m.created_at),
+    CASE WHEN m.status = 'mastered' THEN 7 ELSE 0 END,
+    'migration_backfill',
+    'm6-v1',
+    1,
+    COALESCE(m.created_at, datetime('now')),
+    NULL
+  FROM mistakes m
+  WHERE NOT EXISTS (
+    SELECT 1 FROM review_schedule rs
+    WHERE rs.mistake_id = m.id AND rs.active = 1
+  );
+
+  UPDATE mistakes
+  SET due_at = (
+    SELECT rs.next_review_at FROM review_schedule rs
+    WHERE rs.mistake_id = mistakes.id AND rs.active = 1
+  )
+  WHERE due_at IS NULL
+    AND EXISTS (
+      SELECT 1 FROM review_schedule rs
+      WHERE rs.mistake_id = mistakes.id AND rs.active = 1
+    );
+
+  INSERT INTO mastery_evidence (
+    mistake_id, attempt_id, evidence_type, rule_version, independent,
+    previous_status, next_status, outcome,
+    consecutive_independent_correct, review_schedule_id, reason, detail_json,
+    created_at
+  )
+  SELECT
+    a.mistake_id,
+    a.id,
+    'legacy_backfill',
+    'legacy',
+    a.independent,
+    '',
+    m.status,
+    COALESCE(a.outcome, CASE WHEN a.is_correct = 1 THEN 'correct' ELSE 'incorrect' END),
+    m.consecutive_correct,
+    (
+      SELECT rs.id FROM review_schedule rs
+      WHERE rs.mistake_id = m.id AND rs.active = 1
+      LIMIT 1
+    ),
+    'legacy_attempt',
+    '{"source":"migration_v8"}',
+    a.created_at
+  FROM attempts a
+  JOIN mistakes m ON m.id = a.mistake_id
+  WHERE a.id = (
+    SELECT MAX(a2.id) FROM attempts a2 WHERE a2.mistake_id = a.mistake_id
+  )
+    AND NOT EXISTS (
+      SELECT 1 FROM mastery_evidence e WHERE e.attempt_id = a.id
+    );
+`;
+
+const M6_LEARNING_EVIDENCE_REQUIRED_COLUMNS = {
+  mastery_evidence: [
+    "id",
+    "mistake_id",
+    "attempt_id",
+    "evidence_type",
+    "rule_version",
+    "independent",
+    "previous_status",
+    "next_status",
+    "outcome",
+    "consecutive_independent_correct",
+    "review_schedule_id",
+    "reason",
+    "detail_json",
+    "created_at"
+  ],
+  review_schedule: [
+    "id",
+    "mistake_id",
+    "next_review_at",
+    "interval_days",
+    "reason",
+    "rule_version",
+    "active",
+    "created_at",
+    "superseded_at"
+  ]
+};
+
 function assertRequiredColumns(db, table, requiredColumns) {
   const rows = db.prepare(`PRAGMA table_info("${table}")`).all();
   if (!rows.length) {
@@ -819,6 +957,10 @@ const ATTEMPT_EVALUATION_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
 
 const KNOWLEDGE_BASE_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: KNOWLEDGE_BASE_SCHEMA_SQL
+});
+
+const M6_LEARNING_EVIDENCE_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: M6_LEARNING_EVIDENCE_SCHEMA_SQL
 });
 
 export const SCHEMA_MIGRATIONS = [
@@ -910,6 +1052,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(KNOWLEDGE_BASE_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         KNOWLEDGE_BASE_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 8,
+    name: "mastery_evidence_and_spaced_review",
+    checksumSource: M6_LEARNING_EVIDENCE_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(M6_LEARNING_EVIDENCE_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        M6_LEARNING_EVIDENCE_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

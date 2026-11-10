@@ -102,6 +102,64 @@ function optionalText(value, maxLength = 3000) {
   return text;
 }
 
+function parseCalendarDate(value, fallback = new Date()) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return new Date(
+      fallback.getFullYear(),
+      fallback.getMonth(),
+      fallback.getDate()
+    );
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (!match) {
+    throw new HttpError(400, "日期格式应为 YYYY-MM-DD");
+  }
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3])
+  );
+  if (
+    date.getFullYear() !== Number(match[1]) ||
+    date.getMonth() !== Number(match[2]) - 1 ||
+    date.getDate() !== Number(match[3])
+  ) {
+    throw new HttpError(400, "日期无效");
+  }
+  return date;
+}
+
+function dayBounds(date) {
+  const start = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    0,
+    0,
+    0,
+    0
+  );
+  const end = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    23,
+    59,
+    59,
+    999
+  );
+  return { from: start.toISOString(), to: end.toISOString() };
+}
+
+function optionalKnowledgePoint(value) {
+  const name = optionalText(value, 100);
+  if (name && !repository.getKnowledgePoint(name)) {
+    throw new HttpError(400, "指定知识点不在当前知识目录中");
+  }
+  return name || null;
+}
+
 function parseId(value) {
   const id = Number(value);
   if (!Number.isInteger(id) || id <= 0) {
@@ -344,6 +402,42 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, repository.getDashboard());
   }
 
+  if (request.method === "GET" && url.pathname === "/api/feedback/daily") {
+    const date = parseCalendarDate(url.searchParams.get("date"));
+    const bounds = dayBounds(date);
+    return sendJson(
+      response,
+      200,
+      repository.buildDailySummary({
+        ...bounds,
+        knowledgePoint: optionalKnowledgePoint(
+          url.searchParams.get("knowledgePoint")
+        ),
+        at: new Date().toISOString()
+      })
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/feedback/weekly") {
+    const endDate = parseCalendarDate(url.searchParams.get("end"));
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - 6);
+    const startBounds = dayBounds(startDate);
+    const endBounds = dayBounds(endDate);
+    return sendJson(
+      response,
+      200,
+      repository.buildWeeklyReport({
+        from: startBounds.from,
+        to: endBounds.to,
+        knowledgePoint: optionalKnowledgePoint(
+          url.searchParams.get("knowledgePoint")
+        ),
+        at: new Date().toISOString()
+      })
+    );
+  }
+
   if (request.method === "GET" && url.pathname === "/api/knowledge-points") {
     return sendJson(response, 200, repository.getKnowledgeSummary());
   }
@@ -470,6 +564,15 @@ async function handleApi(request, response, url) {
     });
   }
 
+  if (request.method === "GET" && url.pathname === "/api/review/queue") {
+    const limit = Math.max(
+      1,
+      Math.min(20, Number(url.searchParams.get("limit") || 5))
+    );
+    const items = repository.listDueReviews({ limit });
+    return sendJson(response, 200, { items, count: items.length });
+  }
+
   if (request.method === "POST" && url.pathname === "/api/demo") {
     return sendJson(response, 200, repository.addDemoData());
   }
@@ -481,6 +584,23 @@ async function handleApi(request, response, url) {
     });
     if (!mistake) throw new HttpError(404, "没有找到这道错题");
     return sendJson(response, 200, mistake);
+  }
+
+  const evidenceMatch = url.pathname.match(
+    /^\/api\/mistakes\/(\d+)\/evidence$/
+  );
+  if (evidenceMatch && request.method === "GET") {
+    const mistakeId = parseId(evidenceMatch[1]);
+    const mistake = repository.getMistake(mistakeId, {
+      includeSolution: false
+    });
+    if (!mistake) throw new HttpError(404, "没有找到这道错题");
+    return sendJson(response, 200, {
+      mistakeId,
+      currentStatus: mistake.status,
+      schedule: repository.getActiveReviewSchedule(mistakeId),
+      evidence: repository.getMasteryEvidence(mistakeId)
+    });
   }
 
   const editSessionMatch = url.pathname.match(

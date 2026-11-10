@@ -5,6 +5,7 @@ const state = {
   mistakes: [],
   knowledge: [],
   knowledgeBase: null,
+  feedback: null,
   knowledgeSearch: null,
   filter: "all",
   review: null,
@@ -26,13 +27,15 @@ const viewLabels = {
   home: "今日学习",
   review: "开始复习",
   mistakes: "我的错题",
+  feedback: "学习反馈",
   knowledge: "知识点地图"
 };
 
 const statusLabels = {
   new: "待复习",
   practicing: "练习中",
-  mastered: "已掌握"
+  mastered: "已掌握",
+  relearning: "需巩固"
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -181,6 +184,8 @@ function navigateTo(name) {
   showView(name);
   if (name === "review") {
     loadNextReview();
+  } else if (name === "feedback") {
+    loadFeedback();
   }
 }
 
@@ -331,6 +336,7 @@ function renderMistakeCounts() {
     all: state.mistakes.length,
     new: state.mistakes.filter((item) => item.status === "new").length,
     practicing: state.mistakes.filter((item) => item.status === "practicing").length,
+    relearning: state.mistakes.filter((item) => item.status === "relearning").length,
     mastered: state.mistakes.filter((item) => item.status === "mastered").length
   };
   for (const [status, count] of Object.entries(counts)) {
@@ -537,7 +543,9 @@ function renderKnowledge() {
       createElement(
         "span",
         "",
-        point.total ? `待复习 ${point.new} · 练习中 ${point.practicing}` : "尚未覆盖"
+        point.total
+          ? `待复习 ${point.new ?? 0} · 练习中 ${point.practicing ?? 0} · 需巩固 ${point.relearning ?? 0}`
+          : "尚未覆盖"
       )
     );
     card.append(meta);
@@ -666,6 +674,21 @@ function renderKnowledgeBase() {
   }
 }
 
+function resetKnowledgeSearch() {
+  state.knowledgeSearch = null;
+  const target = $("#knowledge-search-result");
+  if (target) {
+    target.hidden = true;
+    target.replaceChildren();
+  }
+  const input = $("#knowledge-search-input");
+  if (input) {
+    input.value = "";
+    input.focus({ preventScroll: true });
+  }
+  $(".knowledge-library")?.scrollIntoView({ block: "start" });
+}
+
 function renderKnowledgeSearch(result) {
   const target = $("#knowledge-search-result");
   if (!target) return;
@@ -673,8 +696,11 @@ function renderKnowledgeSearch(result) {
   target.replaceChildren();
 
   const head = createElement("div", "knowledge-search-head");
-  head.append(
-    createElement("strong", "", `检索：${result.query}`),
+  const headActions = createElement("div", "knowledge-search-head-actions");
+  const resetButton = createElement("button", "text-button", "返回默认界面");
+  resetButton.type = "button";
+  resetButton.addEventListener("click", resetKnowledgeSearch);
+  headActions.append(
     createElement(
       "span",
       `coverage-badge coverage-${result.coverage.status}`,
@@ -683,8 +709,10 @@ function renderKnowledgeSearch(result) {
         : result.coverage.status === "insufficient"
           ? "覆盖不足"
           : "未覆盖"
-    )
+    ),
+    resetButton
   );
+  head.append(createElement("strong", "", `检索：${result.query}`), headActions);
   target.append(head, createElement("p", "knowledge-search-note", result.coverage.note));
 
   if (result.coverage.status === "not_covered") {
@@ -726,10 +754,216 @@ function renderKnowledgeSearch(result) {
   }
 }
 
+function localDateValue(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatPercent(rate) {
+  return typeof rate === "number" ? `${Math.round(rate * 100)}%` : "--";
+}
+
+function feedbackMetric(label, value, note = "") {
+  const card = createElement("div", "feedback-metric");
+  card.append(
+    createElement("small", "", label),
+    createElement("strong", "", String(value))
+  );
+  if (note) card.append(createElement("span", "", note));
+  return card;
+}
+
+function renderFeedbackMetrics(target, items) {
+  const container = $(target);
+  if (!container) return;
+  container.replaceChildren(
+    ...items.map((item) =>
+      feedbackMetric(item.label, item.value, item.note)
+    )
+  );
+}
+
+function renderFeedbackPoints(target, points) {
+  const container = $(target);
+  if (!container) return;
+  container.replaceChildren();
+  const activePoints = (points || [])
+    .filter((point) => point.attempts > 0 || point.hints > 0)
+    .slice(0, 5);
+  if (!activePoints.length) {
+    container.append(
+      createElement("p", "feedback-muted", "这个时间段还没有知识点记录。")
+    );
+    return;
+  }
+  for (const point of activePoints) {
+    const item = createElement("div", "feedback-point-row");
+    item.append(
+      createElement("strong", "", point.knowledgePoint),
+      createElement(
+        "span",
+        "",
+        `作答 ${point.attempts} · 答对 ${point.correctAttempts} · 提示 ${point.hints}`
+      )
+    );
+    container.append(item);
+  }
+}
+
+function renderFeedback() {
+  const daily = state.feedback?.daily;
+  const weekly = state.feedback?.weekly;
+  $("#feedback-loading").hidden = true;
+  const hasAny = Boolean(daily || weekly);
+  $("#feedback-content").hidden = !hasAny;
+  $("#feedback-empty").hidden = hasAny;
+  if (!hasAny) return;
+
+  if (daily) {
+    $("#daily-date-label").textContent = new Intl.DateTimeFormat("zh-CN", {
+      month: "long",
+      day: "numeric",
+      weekday: "long"
+    }).format(new Date(daily.period.from));
+    $("#daily-status-pill").textContent = daily.hasData ? "有记录" : "暂无记录";
+    const sentences = daily.childSummary?.sentences || [];
+    $("#daily-copy").textContent = [
+      daily.childSummary?.headline || "",
+      ...sentences
+    ]
+      .filter(Boolean)
+      .join(" ");
+    renderFeedbackMetrics("#daily-metrics", [
+      {
+        label: "今日作答",
+        value: daily.totals.attempts,
+        note: `答对 ${daily.totals.correctAttempts} 次`
+      },
+      {
+        label: "独立答对",
+        value: daily.totals.independentCorrectAttempts,
+        note: "不计提示帮助"
+      },
+      {
+        label: "提示次数",
+        value: daily.totals.hints,
+        note: "来自今天"
+      },
+      {
+        label: "到期复习",
+        value: daily.dueCount,
+        note: "当前队列"
+      }
+    ]);
+    renderFeedbackPoints("#daily-points", daily.knowledgePoints);
+    $("#daily-next").textContent = daily.childSummary?.nextStep || "";
+  }
+
+  if (weekly) {
+    $("#weekly-period-label").textContent = `${formatDate(
+      weekly.period.from
+    )} - ${formatDate(weekly.period.to)}`;
+    $("#weekly-status-pill").textContent = weekly.hasData
+      ? "有数据"
+      : "数据不足";
+    $("#weekly-copy").textContent =
+      weekly.parentReport?.summaryText ||
+      "本周还没有作答记录，无法判断掌握变化。";
+    renderFeedbackMetrics("#weekly-metrics", [
+      {
+        label: "本周作答",
+        value: weekly.totals.attempts,
+        note: `答对 ${weekly.totals.correctAttempts} 次`
+      },
+      {
+        label: "独立答对",
+        value: weekly.totals.independentCorrectAttempts,
+        note: "有独立证据"
+      },
+      {
+        label: "提示依赖率",
+        value: formatPercent(weekly.rates.hintDependencyRate),
+        note: weekly.dependency.rateAvailable
+          ? `${weekly.dependency.knownAttempts} 次有效样本`
+          : "样本不足"
+      },
+      {
+        label: "掌握变化",
+        value: `+${weekly.masteryChanges.toMastered}`,
+        note: `回到巩固 ${weekly.masteryChanges.toRelearning} 道`
+      }
+    ]);
+    renderFeedbackPoints("#weekly-points", weekly.knowledgePoints);
+
+    const changes = $("#weekly-changes");
+    changes.replaceChildren();
+    const items = weekly.parentReport?.masteryChanges || [];
+    if (items.length) {
+      changes.append(createElement("h3", "", "本周掌握状态变化"));
+      for (const item of items.slice(-6).reverse()) {
+        const row = createElement("div", "feedback-change-row");
+        row.append(
+          createElement("span", "", item.knowledgePoint || "未分类"),
+          createElement(
+            "strong",
+            "",
+            `${statusLabels[item.previousStatus] || item.previousStatus || "新题"} → ${
+              statusLabels[item.nextStatus] || item.nextStatus
+            }`
+          ),
+          createElement("time", "", formatDate(item.createdAt))
+        );
+        changes.append(row);
+      }
+    }
+
+    const limitations = $("#weekly-limitations");
+    limitations.replaceChildren();
+    const notes = weekly.parentReport?.limitations || [];
+    if (notes.length) {
+      limitations.append(createElement("h3", "", "数据边界"));
+      const list = createElement("ul");
+      for (const note of notes) list.append(createElement("li", "", note));
+      limitations.append(list);
+    }
+  }
+}
+
+async function loadFeedback() {
+  const date = localDateValue();
+  const [dailyResult, weeklyResult] = await Promise.allSettled([
+    api(`/api/feedback/daily?date=${date}`),
+    api(`/api/feedback/weekly?end=${date}`)
+  ]);
+  const feedback = { ...(state.feedback || {}) };
+  if (dailyResult.status === "fulfilled") {
+    feedback.daily = dailyResult.value;
+  }
+  if (weeklyResult.status === "fulfilled") {
+    feedback.weekly = weeklyResult.value;
+  }
+  state.feedback = feedback;
+  renderFeedback();
+  const failures = [
+    dailyResult.status === "rejected"
+      ? `日总结：${dailyResult.reason?.message || "加载失败"}`
+      : null,
+    weeklyResult.status === "rejected"
+      ? `周报：${weeklyResult.reason?.message || "加载失败"}`
+      : null
+  ].filter(Boolean);
+  if (failures.length) {
+    throw new Error(failures.join("；"));
+  }
+}
+
 async function refreshAll() {
   const targets = [
     { name: "学习概览", load: loadDashboard },
     { name: "错题列表", load: loadMistakes },
+    { name: "学习反馈", load: loadFeedback },
     { name: "知识点地图", load: loadKnowledge }
   ];
   const results = await Promise.allSettled(
@@ -1197,7 +1431,9 @@ function renderReviewResult(result) {
         ? result.mastered
           ? "你已经能独立、稳定地做对这道题"
           : "离真正掌握还差一次独立重做"
-        : `下次复习：${formatRelativeDate(result.nextReviewAt)}`
+        : result.nextStatus === "relearning"
+          ? `已回到巩固阶段，下次复习：${formatRelativeDate(result.nextReviewAt)}`
+          : `下次复习：${formatRelativeDate(result.nextReviewAt)}`
     )
   );
   heading.append(mark, headingText);
@@ -1652,6 +1888,18 @@ function bindEvents() {
   $("#menu-button").addEventListener("click", () => {
     $(".sidebar").classList.toggle("is-open");
   });
+  $("#refresh-feedback-button").addEventListener("click", async () => {
+    const button = $("#refresh-feedback-button");
+    setBusy(button, true, "正在刷新…");
+    try {
+      await loadFeedback();
+      showToast("学习反馈已刷新");
+    } catch (error) {
+      showToast(error.message, true);
+    } finally {
+      setBusy(button, false);
+    }
+  });
 
   $("#knowledge-search-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1772,6 +2020,8 @@ function bindEvents() {
       } else {
         loadNextReview();
       }
+    } else if (route.view === "feedback") {
+      loadFeedback().catch((error) => showToast(error.message, true));
     }
   });
 

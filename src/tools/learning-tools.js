@@ -459,7 +459,7 @@ export function createLearningToolDefinitions(repository) {
       outputSchema: {
         type: "object",
         required: ["period", "totals", "knowledgePoints"],
-        additionalProperties: false,
+        additionalProperties: true,
         properties: {
           period: objectOutput(["from", "to"]),
           totals: objectOutput([
@@ -471,7 +471,12 @@ export function createLearningToolDefinitions(repository) {
             "independentCorrectAttempts",
             "hints"
           ]),
-          knowledgePoints: { type: "array" }
+          knowledgePoints: { type: "array" },
+          policyVersion: { type: "string" },
+          rates: objectOutput(),
+          dependency: objectOutput(),
+          masteryChanges: objectOutput(),
+          dataStatus: objectOutput()
         }
       },
       async handler(args) {
