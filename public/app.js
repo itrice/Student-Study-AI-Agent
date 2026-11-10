@@ -6,6 +6,7 @@ const state = {
   knowledge: [],
   knowledgeBase: null,
   knowledgeSearch: null,
+  knowledgeSearchRequest: 0,
   filter: "all",
   review: null,
   reviewSessionId: null,
@@ -673,7 +674,8 @@ function renderKnowledgeSearch(result) {
   target.replaceChildren();
 
   const head = createElement("div", "knowledge-search-head");
-  head.append(
+  const headMain = createElement("div", "knowledge-search-head-main");
+  headMain.append(
     createElement("strong", "", `检索：${result.query}`),
     createElement(
       "span",
@@ -685,6 +687,10 @@ function renderKnowledgeSearch(result) {
           : "未覆盖"
     )
   );
+  const reset = createElement("button", "text-button", "返回默认视图");
+  reset.type = "button";
+  reset.addEventListener("click", resetKnowledgeSearch);
+  head.append(headMain, reset);
   target.append(head, createElement("p", "knowledge-search-note", result.coverage.note));
 
   if (result.coverage.status === "not_covered") {
@@ -723,6 +729,18 @@ function renderKnowledgeSearch(result) {
     }
     card.append(chunks);
     target.append(card);
+  }
+}
+
+function resetKnowledgeSearch() {
+  state.knowledgeSearch = null;
+  state.knowledgeSearchRequest += 1;
+  const input = $("#knowledge-search-input");
+  if (input) input.value = "";
+  const target = $("#knowledge-search-result");
+  if (target) {
+    target.hidden = true;
+    target.replaceChildren();
   }
 }
 
@@ -1663,12 +1681,17 @@ function bindEvents() {
     }
     const button = event.currentTarget.querySelector("button");
     setBusy(button, true, "检索中…");
+    const requestId = state.knowledgeSearchRequest + 1;
+    state.knowledgeSearchRequest = requestId;
     try {
-      state.knowledgeSearch = await api(
+      const result = await api(
         `/api/knowledge-base/search?q=${encodeURIComponent(query)}&limit=3`
       );
-      renderKnowledgeSearch(state.knowledgeSearch);
+      if (requestId !== state.knowledgeSearchRequest) return;
+      state.knowledgeSearch = result;
+      renderKnowledgeSearch(result);
     } catch (error) {
+      if (requestId !== state.knowledgeSearchRequest) return;
       showToast(error.message, true);
     } finally {
       setBusy(button, false);
