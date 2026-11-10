@@ -2044,6 +2044,191 @@ export class LearningRepository {
     );
   }
 
+  buildOperationalMetrics({
+    from = null,
+    to = null,
+    costPer1kInput = 0,
+    costPer1kOutput = 0
+  } = {}) {
+    const buildRange = (column) => {
+      const clauses = [];
+      const parameters = [];
+      if (from) {
+        clauses.push(`${column} >= ?`);
+        parameters.push(from);
+      }
+      if (to) {
+        clauses.push(`${column} <= ?`);
+        parameters.push(to);
+      }
+      return {
+        sql: clauses.length ? ` AND ${clauses.join(" AND ")}` : "",
+        parameters
+      };
+    };
+    const llmRange = buildRange("created_at");
+    const toolRange = buildRange("created_at");
+    const runRange = buildRange("started_at");
+    const diagnosisRange = buildRange("created_at");
+
+    const llm = this.db
+      .prepare(
+        `SELECT
+          COUNT(*) AS total,
+          COALESCE(SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END), 0) AS succeeded,
+          COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
+          COALESCE(SUM(input_tokens), 0) AS input_tokens,
+          COALESCE(SUM(output_tokens), 0) AS output_tokens
+         FROM llm_calls WHERE 1 = 1${llmRange.sql}`
+      )
+      .get(...llmRange.parameters);
+    const llmLatencies = this.db
+      .prepare(
+        `SELECT latency_ms FROM llm_calls
+         WHERE latency_ms IS NOT NULL${llmRange.sql}
+         ORDER BY latency_ms ASC`
+      )
+      .all(...llmRange.parameters)
+      .map((row) => Number(row.latency_ms));
+    const percentile = (values, ratio) => {
+      if (!values.length) return null;
+      const index = Math.min(
+        values.length - 1,
+        Math.max(0, Math.ceil(values.length * ratio) - 1)
+      );
+      return values[index];
+    };
+
+    const tools = this.db
+      .prepare(
+        `SELECT
+          COUNT(*) AS total,
+          COALESCE(SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END), 0) AS succeeded,
+          COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
+          COALESCE(SUM(CASE WHEN error_message LIKE '%TOOL_TIMEOUT%' THEN 1 ELSE 0 END), 0) AS timeouts,
+          AVG(latency_ms) AS average_latency_ms
+         FROM tool_calls WHERE 1 = 1${toolRange.sql}`
+      )
+      .get(...toolRange.parameters);
+    const runs = this.db
+      .prepare(
+        `SELECT
+          COUNT(*) AS total,
+          COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS completed,
+          COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
+          COALESCE(SUM(CASE WHEN status IN ('created', 'in_progress', 'awaiting_user') THEN 1 ELSE 0 END), 0) AS active
+         FROM agent_runs WHERE 1 = 1${runRange.sql}`
+      )
+      .get(...runRange.parameters);
+    const diagnoses = this.db
+      .prepare(
+        `SELECT
+          COUNT(*) AS total,
+          COALESCE(SUM(CASE WHEN provider = 'rules' THEN 1 ELSE 0 END), 0) AS rules,
+          COALESCE(SUM(CASE WHEN provider != 'rules' AND provider != '' THEN 1 ELSE 0 END), 0) AS llm,
+          COALESCE(SUM(CASE WHEN accepted_by_user = 1 THEN 1 ELSE 0 END), 0) AS accepted
+         FROM diagnoses WHERE 1 = 1${diagnosisRange.sql}`
+      )
+      .get(...diagnosisRange.parameters);
+
+    const inputTokens = Number(llm.input_tokens || 0);
+    const outputTokens = Number(llm.output_tokens || 0);
+    const totalDiagnoses = Number(diagnoses.total || 0);
+    const ruleDiagnoses = Number(diagnoses.rules || 0);
+    const estimatedCost =
+      (inputTokens / 1000) * Number(costPer1kInput || 0) +
+      (outputTokens / 1000) * Number(costPer1kOutput || 0);
+
+    return {
+      generatedAt: nowIso(),
+      period: { from, to },
+      llm: {
+        calls: Number(llm.total || 0),
+        succeeded: Number(llm.succeeded || 0),
+        failed: Number(llm.failed || 0),
+        inputTokens,
+        outputTokens,
+        averageLatencyMs: llmLatencies.length
+          ? Math.round(
+              llmLatencies.reduce((total, value) => total + value, 0) /
+                llmLatencies.length
+            )
+          : null,
+        p50LatencyMs: percentile(llmLatencies, 0.5),
+        p95LatencyMs: percentile(llmLatencies, 0.95)
+      },
+      tools: {
+        calls: Number(tools.total || 0),
+        succeeded: Number(tools.succeeded || 0),
+        failed: Number(tools.failed || 0),
+        timeouts: Number(tools.timeouts || 0),
+        averageLatencyMs:
+          tools.average_latency_ms === null
+            ? null
+            : Math.round(Number(tools.average_latency_ms))
+      },
+      agentRuns: {
+        total: Number(runs.total || 0),
+        completed: Number(runs.completed || 0),
+        failed: Number(runs.failed || 0),
+        active: Number(runs.active || 0)
+      },
+      diagnoses: {
+        total: totalDiagnoses,
+        rules: ruleDiagnoses,
+        llm: Number(diagnoses.llm || 0),
+        accepted: Number(diagnoses.accepted || 0),
+        degradationRate: totalDiagnoses ? ruleDiagnoses / totalDiagnoses : null
+      },
+      cost: {
+        currency: "USD",
+        inputTokens,
+        outputTokens,
+        costPer1kInput: Number(costPer1kInput || 0),
+        costPer1kOutput: Number(costPer1kOutput || 0),
+        estimated: Number(estimatedCost.toFixed(6))
+      }
+    };
+  }
+
+  deleteAllLearningData() {
+    const tables = [
+      "attempt_part_results",
+      "attempt_evaluations",
+      "mastery_evidence",
+      "review_schedule",
+      "hint_events",
+      "attempts",
+      "diagnoses",
+      "mistake_parts",
+      "mistake_edits",
+      "mistake_drafts",
+      "mistakes",
+      "tool_calls",
+      "llm_calls",
+      "agent_runs"
+    ];
+    const deleted = {};
+    this.db.exec("BEGIN");
+    try {
+      for (const table of tables) {
+        deleted[table] = Number(
+          this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()
+            .count || 0
+        );
+        this.db.prepare(`DELETE FROM ${table}`).run();
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return {
+      deleted,
+      total: Object.values(deleted).reduce((sum, value) => sum + value, 0)
+    };
+  }
+
   getDashboard() {
     const timestamp = nowIso();
     const counts = this.db

@@ -118,11 +118,14 @@ export class OpenAICompatibleGateway {
     timeoutMs = 30_000,
     maxRetries = 2,
     retryDelayMs = 300,
+    maxInputChars = 24_000,
+    rateLimitPerMinute = 0,
     maxOutputTokens = 1200,
     temperature = 0.2,
     stream = false,
     fetchImpl = globalThis.fetch,
-    sleepImpl = sleep
+    sleepImpl = sleep,
+    clock = () => Date.now()
   } = {}) {
     const errors = [];
     this.baseUrl = String(baseUrl || "").replace(/\/+$/, "");
@@ -151,6 +154,22 @@ export class OpenAICompatibleGateway {
       max: 30_000,
       errors
     });
+    this.maxInputChars = normalizeNumber(maxInputChars, {
+      name: "maxInputChars",
+      fallback: 24_000,
+      min: 1,
+      max: 1_000_000,
+      integer: true,
+      errors
+    });
+    this.rateLimitPerMinute = normalizeNumber(rateLimitPerMinute, {
+      name: "rateLimitPerMinute",
+      fallback: 0,
+      min: 0,
+      max: 600,
+      integer: true,
+      errors
+    });
     this.maxOutputTokens = normalizeNumber(maxOutputTokens, {
       name: "maxOutputTokens",
       fallback: 1200,
@@ -174,6 +193,8 @@ export class OpenAICompatibleGateway {
     this.configurationErrors = errors;
     this.fetchImpl = fetchImpl;
     this.sleepImpl = sleepImpl;
+    this.clock = clock;
+    this.requestTimestamps = [];
   }
 
   isConfigured() {
@@ -192,6 +213,8 @@ export class OpenAICompatibleGateway {
       model: this.model,
       timeoutMs: this.timeoutMs,
       maxRetries: this.maxRetries,
+      maxInputChars: this.maxInputChars,
+      rateLimitPerMinute: this.rateLimitPerMinute,
       maxOutputTokens: this.maxOutputTokens,
       temperature: this.temperature,
       stream: this.stream,
@@ -211,6 +234,35 @@ export class OpenAICompatibleGateway {
         "LLM 尚未配置 API Key、模型或 Base URL",
         { status: 503, retryable: false }
       );
+    }
+
+    const inputCharacters = messages.reduce(
+      (total, message) =>
+        total +
+        String(message.content || "").length +
+        (message.tool_calls ? JSON.stringify(message.tool_calls).length : 0),
+      0
+    );
+    if (inputCharacters > this.maxInputChars) {
+      throw new LlmGatewayError(
+        "LLM_CONTEXT_TOO_LONG",
+        `LLM 输入上下文过长（${inputCharacters} 字符，上限 ${this.maxInputChars}）`,
+        { status: 400, retryable: false }
+      );
+    }
+    if (this.rateLimitPerMinute > 0) {
+      const now = this.clock();
+      this.requestTimestamps = this.requestTimestamps.filter(
+        (timestamp) => now - timestamp < 60_000
+      );
+      if (this.requestTimestamps.length >= this.rateLimitPerMinute) {
+        throw new LlmGatewayError(
+          "LLM_RATE_LIMITED",
+          "LLM 请求过于频繁，请稍后重试",
+          { status: 429, retryable: true }
+        );
+      }
+      this.requestTimestamps.push(now);
     }
 
     const body = {
@@ -342,6 +394,8 @@ export function createGatewayFromEnvironment(environment = process.env) {
     provider: environment.LLM_PROVIDER || "openai-compatible",
     timeoutMs: Number(environment.LLM_TIMEOUT_MS || 30_000),
     maxRetries: Number(environment.LLM_MAX_RETRIES || 2),
+    maxInputChars: Number(environment.LLM_MAX_INPUT_CHARS || 24_000),
+    rateLimitPerMinute: Number(environment.LLM_RATE_LIMIT_PER_MINUTE || 0),
     maxOutputTokens: Number(environment.LLM_MAX_OUTPUT_TOKENS || 1200),
     temperature: Number(environment.LLM_TEMPERATURE ?? 0.2),
     stream: environment.LLM_STREAM ?? false

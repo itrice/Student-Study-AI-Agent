@@ -480,6 +480,11 @@ export class DiagnosisAgent {
         agentRunId: runId
       };
     } catch (error) {
+      const failureCode =
+        error.code ||
+        (error instanceof SyntaxError
+          ? "LLM_INVALID_RESPONSE"
+          : "LLM_ERROR");
       this.repository.recordLlmCall({
         runId,
         provider: this.gateway.provider,
@@ -488,14 +493,14 @@ export class DiagnosisAgent {
         inputSummary: compact(input.question, 500),
         outputSummary: "",
         status: "failed",
-        errorMessage: `${error.code || "LLM_ERROR"}: ${error.message}`
+        errorMessage: `${failureCode}: ${error.message}`
       });
       this.repository.finishAgentRun(runId, {
         status: "failed",
-        errorMessage: `${error.code || "LLM_ERROR"}: ${error.message}`
+        errorMessage: `${failureCode}: ${error.message}`
       });
       return {
-        ...ruleDiagnosis(input, error.code || "LLM_ERROR"),
+        ...ruleDiagnosis(input, failureCode),
         agentRunId: runId
       };
     }
