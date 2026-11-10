@@ -110,15 +110,23 @@ svg {
   height: 45px;
   flex: 0 0 45px;
   place-items: center;
-  border-radius: 14px;
-  color: #17324d;
-  background: #d8ebdf;
-  transform: rotate(-2deg);
+  border-radius: 12px;
+  overflow: hidden;
 }
 
-.brand-mark svg {
-  width: 27px;
-  stroke-width: 2.2;
+.brand-mark img {
+  display: block;
+  width: 45px;
+  height: 45px;
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+.brand-copy strong,
+.brand-copy small {
+  white-space: nowrap;
 }
 
 .brand strong,
