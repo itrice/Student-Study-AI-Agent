@@ -34,6 +34,8 @@ test("新错题进入优先复习队列，并计入知识点统计", () => {
   const circle = summary.find((item) => item.name === "圆");
   assert.equal(percent.total, 1);
   assert.equal(circle.new, 1);
+  assert.equal(percent.relearning, 0);
+  assert.equal(circle.relearning, 0);
   assert.ok(percent.mastery < 50);
 
   const next = repository.getNextReview();

@@ -45,9 +45,9 @@ function validDiagnosis(overrides = {}) {
   };
 }
 
-test("v7 知识库包含 12 张完整卡片和可追溯来源", () => {
+test("v8 知识库包含 12 张完整卡片和可追溯来源", () => {
   const { repository } = createFixture();
-  assert.equal(repository.getSchemaVersion(), 7);
+  assert.equal(repository.getSchemaVersion(), 8);
 
   const cards = repository.getKnowledgeCards();
   assert.equal(cards.length, 12);
