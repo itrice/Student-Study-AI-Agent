@@ -1182,17 +1182,28 @@ function collectMistakeParts({ requireAnswers = true } = {}) {
   return parts;
 }
 
+function displayReviewPartTitle(part, partCount) {
+  const label = String(part.label || "").trim();
+  const name = label || String(part.prompt || "").trim();
+  if (partCount > 1) {
+    if (!name) return `小问 ${part.partNo}`;
+    return /^小问\s*\d+/.test(name) ? name : `小问 ${part.partNo} · ${name}`;
+  }
+  return name || "你的答案";
+}
+
 function renderReviewPartInputs(review) {
   const container = $("#review-parts");
   container.replaceChildren();
   for (const part of review.parts || []) {
     const wrapper = createElement("div", "review-part");
+    const partName = String(part.label || part.prompt || "").trim();
     const label = createElement(
       "label",
       "",
-      part.label || (review.partCount > 1 ? `小问 ${part.partNo}` : "你的答案")
+      displayReviewPartTitle(part, review.partCount)
     );
-    if (part.prompt) {
+    if (part.prompt && part.prompt !== partName) {
       label.append(createElement("small", "", part.prompt));
     }
     const input = document.createElement("input");
@@ -1500,7 +1511,7 @@ function renderReviewResult(result) {
         createElement(
           "strong",
           "",
-          part.label || `小问 ${part.partNo}`
+          displayReviewPartTitle(part, result.partResults.length)
         ),
         createElement(
           "span",
