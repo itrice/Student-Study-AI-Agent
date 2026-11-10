@@ -403,15 +403,30 @@ function renderMistakes() {
 }
 
 async function loadKnowledge() {
-  const [summary, base] = await Promise.all([
+  const [summaryResult, baseResult] = await Promise.allSettled([
     api("/api/knowledge-points"),
     api("/api/knowledge-base")
   ]);
-  state.knowledge = summary;
-  state.knowledgeBase = base;
+  if (summaryResult.status === "fulfilled") {
+    state.knowledge = summaryResult.value;
+  }
+  if (baseResult.status === "fulfilled") {
+    state.knowledgeBase = baseResult.value;
+  }
   renderKnowledge();
   renderKnowledgeBase();
   renderWeakness();
+  const failures = [
+    summaryResult.status === "rejected"
+      ? `知识点统计：${summaryResult.reason?.message || "加载失败"}`
+      : null,
+    baseResult.status === "rejected"
+      ? `知识库：${baseResult.reason?.message || "加载失败"}`
+      : null
+  ].filter(Boolean);
+  if (failures.length) {
+    throw new Error(failures.join("；"));
+  }
 }
 
 function renderKnowledge() {
@@ -679,7 +694,27 @@ function renderKnowledgeSearch(result) {
 }
 
 async function refreshAll() {
-  await Promise.all([loadDashboard(), loadMistakes(), loadKnowledge()]);
+  const targets = [
+    { name: "学习概览", load: loadDashboard },
+    { name: "错题列表", load: loadMistakes },
+    { name: "知识点地图", load: loadKnowledge }
+  ];
+  const results = await Promise.allSettled(
+    targets.map((target) => target.load())
+  );
+  const failures = results
+    .map((result, index) => ({ result, name: targets[index].name }))
+    .filter(({ result }) => result.status === "rejected");
+  if (failures.length) {
+    console.error(
+      "页面刷新失败",
+      failures.map(({ name, result }) => ({
+        name,
+        error: result.reason
+      }))
+    );
+  }
+  return { ok: failures.length === 0, failures };
 }
 
 async function loadNextReview() {
@@ -1077,7 +1112,10 @@ async function submitAttempt(event) {
     state.reviewAttemptsThisSession += 1;
     state.attemptRequestKey = null;
     renderReviewResult(result);
-    await Promise.all([loadDashboard(), loadMistakes(), loadKnowledge()]);
+    const refresh = await refreshAll();
+    if (!refresh.ok) {
+      showToast("作答已提交，但页面刷新失败，请刷新页面查看最新数据。", true);
+    }
   } catch (error) {
     showToast(error.message, true);
   } finally {
@@ -1460,7 +1498,6 @@ async function saveMistake(event) {
           body: JSON.stringify(data)
         });
     closeAddDialog();
-    await refreshAll();
     if (isEdit) {
       showView("mistakes");
       showToast(
@@ -1474,6 +1511,10 @@ async function saveMistake(event) {
       showView("review");
       renderReview();
       showToast(`已归入“${result.knowledgePoint}”，开始独立重做`);
+    }
+    const refresh = await refreshAll();
+    if (!refresh.ok) {
+      showToast("数据已保存，但页面刷新失败，请刷新页面查看最新数据。", true);
     }
   } catch (error) {
     showToast(error.message, true);
@@ -1494,8 +1535,11 @@ async function deleteMistake(id) {
   if (!confirmed) return;
   try {
     await api(`/api/mistakes/${id}`, { method: "DELETE" });
-    await refreshAll();
     showToast("错题已删除");
+    const refresh = await refreshAll();
+    if (!refresh.ok) {
+      showToast("错题已删除，但页面刷新失败，请刷新页面。", true);
+    }
   } catch (error) {
     showToast(error.message, true);
   }
@@ -1505,8 +1549,11 @@ async function loadDemo() {
   try {
     const result = await api("/api/demo", { method: "POST" });
     if (result.added) {
-      await refreshAll();
       showToast(`已载入 ${result.added} 道六年级数学示例错题`);
+      const refresh = await refreshAll();
+      if (!refresh.ok) {
+        showToast("示例数据已载入，但页面刷新失败，请刷新页面。", true);
+      }
     } else {
       showToast("错题库中已有内容，示例数据未载入");
     }
@@ -1695,7 +1742,10 @@ async function init() {
   bindEvents();
   try {
     await loadBootstrap();
-    await refreshAll();
+    const refresh = await refreshAll();
+    if (!refresh.ok) {
+      showToast("部分页面数据加载失败，请刷新重试。", true);
+    }
     const initialRoute = readRoute();
     showView(initialRoute.view, { updateHash: false });
     if (initialRoute.view === "review") {
