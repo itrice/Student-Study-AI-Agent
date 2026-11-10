@@ -105,8 +105,12 @@ docs/KNOWLEDGE_BASE.md
                      知识库结构、来源、检索策略和扩展方式
 docs/KNOWLEDGE_REVIEW_CHECKLIST.md
                      知识内容审核清单与逐知识点审核登记
+docs/UI_ACCEPTANCE_CHECKLIST.md
+                     UI 字号、可读性、缩放和交互验收清单
 docs/reports/m5-knowledge-evaluation-2026-11-10.md
                      M5 知识点 Top-3 命中率和来源覆盖评测
+docs/reports/ui-readability-2026-11-10.md
+                     UI 字号与缩放可读性自测记录
 docs/reports/m4-ui-validation-2026-11-09.md
                      M4 真实模型教学闭环验证记录
 docs/IMPLEMENTATION_PLAN.md
