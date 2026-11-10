@@ -7,6 +7,7 @@ const state = {
   knowledgeBase: null,
   feedback: null,
   knowledgeSearch: null,
+  knowledgeSearchRequest: 0,
   filter: "all",
   review: null,
   reviewSessionId: null,
@@ -676,6 +677,7 @@ function renderKnowledgeBase() {
 
 function resetKnowledgeSearch() {
   state.knowledgeSearch = null;
+  state.knowledgeSearchRequest += 1;
   const target = $("#knowledge-search-result");
   if (target) {
     target.hidden = true;
@@ -696,11 +698,9 @@ function renderKnowledgeSearch(result) {
   target.replaceChildren();
 
   const head = createElement("div", "knowledge-search-head");
-  const headActions = createElement("div", "knowledge-search-head-actions");
-  const resetButton = createElement("button", "text-button", "返回默认界面");
-  resetButton.type = "button";
-  resetButton.addEventListener("click", resetKnowledgeSearch);
-  headActions.append(
+  const headMain = createElement("div", "knowledge-search-head-main");
+  headMain.append(
+    createElement("strong", "", `检索：${result.query}`),
     createElement(
       "span",
       `coverage-badge coverage-${result.coverage.status}`,
@@ -709,10 +709,12 @@ function renderKnowledgeSearch(result) {
         : result.coverage.status === "insufficient"
           ? "覆盖不足"
           : "未覆盖"
-    ),
-    resetButton
+    )
   );
-  head.append(createElement("strong", "", `检索：${result.query}`), headActions);
+  const reset = createElement("button", "text-button", "返回默认视图");
+  reset.type = "button";
+  reset.addEventListener("click", resetKnowledgeSearch);
+  head.append(headMain, reset);
   target.append(head, createElement("p", "knowledge-search-note", result.coverage.note));
 
   if (result.coverage.status === "not_covered") {
@@ -1915,12 +1917,17 @@ function bindEvents() {
     }
     const button = event.currentTarget.querySelector("button");
     setBusy(button, true, "检索中…");
+    const requestId = state.knowledgeSearchRequest + 1;
+    state.knowledgeSearchRequest = requestId;
     try {
-      state.knowledgeSearch = await api(
+      const result = await api(
         `/api/knowledge-base/search?q=${encodeURIComponent(query)}&limit=3`
       );
-      renderKnowledgeSearch(state.knowledgeSearch);
+      if (requestId !== state.knowledgeSearchRequest) return;
+      state.knowledgeSearch = result;
+      renderKnowledgeSearch(result);
     } catch (error) {
+      if (requestId !== state.knowledgeSearchRequest) return;
       showToast(error.message, true);
     } finally {
       setBusy(button, false);

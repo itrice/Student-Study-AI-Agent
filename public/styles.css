@@ -2545,6 +2545,13 @@ svg {
   gap: 12px;
 }
 
+.knowledge-search-head-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
 .knowledge-search-head strong {
   font-size: var(--text-label);
 }

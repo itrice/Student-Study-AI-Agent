@@ -109,6 +109,7 @@ test("放大文字后的横向布局具备换行或滚动兜底", () => {
     ".mistake-actions",
     ".knowledge-meta",
     ".knowledge-search-head",
+    ".knowledge-search-head-main",
     ".knowledge-search-item-head",
     ".parts-editor-heading"
   ]) {
@@ -122,4 +123,14 @@ test("放大文字后的横向布局具备换行或滚动兜底", () => {
       `${selector} 缺少换行或滚动兜底`
     );
   }
+});
+
+test("知识库检索结果提供返回默认视图的重置入口", () => {
+  const app = fs.readFileSync(
+    new URL("../public/app.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(app, /function resetKnowledgeSearch\(/);
+  assert.match(app, /"返回默认视图"/);
+  assert.match(app, /state\.knowledgeSearchRequest \+= 1/);
 });
