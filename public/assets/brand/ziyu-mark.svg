@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="子鱼学习AI 标志">
+  <title>子鱼学习AI 标志</title>
+  <path d="M176 256C148 222 118 198 92 190c14 36 20 52 20 66s-6 30-20 66c26-8 56-32 84-66Z" fill="#dc6858"/>
+  <path d="M168 256c22-80 100-110 174-86 46 16 74 48 90 86-16 38-44 70-90 86-74 24-152-6-174-86Z" fill="#1f7a63"/>
+  <path d="M208 256c58-6 148-6 208 0" fill="none" stroke="#f4f7f4" stroke-width="9" stroke-linecap="round" opacity=".95"/>
+  <path d="M226 234c50-28 118-34 166-16" fill="none" stroke="#f4f7f4" stroke-width="6" stroke-linecap="round" opacity=".5"/>
+  <path d="M226 278c50 28 118 34 166 16" fill="none" stroke="#f4f7f4" stroke-width="6" stroke-linecap="round" opacity=".38"/>
+  <circle cx="382" cy="234" r="14" fill="#f4f7f4"/>
+  <circle cx="385" cy="234" r="7" fill="#17324d"/>
+  <path d="M392 112l9 27 27 9-27 9-9 27-9-27-27-9 27-9Z" fill="#b9862f"/>
+</svg>
