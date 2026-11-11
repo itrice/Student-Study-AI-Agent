@@ -279,10 +279,12 @@ test("Agent 调用未授权工具时只返回错误结果，不写入业务数�
 
 test("运营指标聚合调用、延迟、成本和降级率", () => {
   const { repository } = createFixture();
+  const now = Date.now();
+  const at = (offsetMs) => new Date(now + offsetMs).toISOString();
   const runId = repository.createAgentRun({
     taskType: "diagnose_mistake",
     goal: "指标测试",
-    startedAt: "2026-11-10T01:00:00.000Z"
+    startedAt: at(-3 * 60 * 1000)
   });
   repository.recordLlmCall({
     runId,
@@ -293,7 +295,7 @@ test("运营指标聚合调用、延迟、成本和降级率", () => {
     outputTokens: 50,
     latencyMs: 100,
     status: "succeeded",
-    createdAt: "2026-11-10T01:01:00.000Z"
+    createdAt: at(-2 * 60 * 1000)
   });
   repository.recordLlmCall({
     runId,
@@ -305,7 +307,7 @@ test("运营指标聚合调用、延迟、成本和降级率", () => {
     latencyMs: 300,
     status: "failed",
     errorMessage: "LLM_TIMEOUT",
-    createdAt: "2026-11-10T01:02:00.000Z"
+    createdAt: at(-60 * 1000)
   });
   const toolCallId = repository.beginToolCall({
     runId,
@@ -330,12 +332,12 @@ test("运营指标聚合调用、延迟、成本和降级率", () => {
       knowledgeSources: [],
       _meta: { provider: "rules" }
     },
-    "2026-11-10T01:03:00.000Z"
+    at(0)
   );
 
   const metrics = repository.buildOperationalMetrics({
-    from: "2026-11-10T00:00:00.000Z",
-    to: "2026-11-10T23:59:59.999Z",
+    from: at(-60 * 60 * 1000),
+    to: at(60 * 60 * 1000),
     costPer1kInput: 1,
     costPer1kOutput: 2
   });
