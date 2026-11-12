@@ -23,7 +23,9 @@ const state = {
   editSubmissionKey: null,
   dialogAttachments: [],
   newAttachmentIds: new Set(),
+  originalPreviewIds: new Set(),
   ocrAttachmentId: null,
+  cropEditor: null,
   imageUploads: 0,
   lastDiagnosis: null,
   busy: false,
@@ -98,8 +100,8 @@ function displayQuestion(mistake) {
 
 function createAttachmentImage(attachment, className = "") {
   const image = document.createElement("img");
-  image.src = attachment.url;
-  image.alt = "题目图片";
+  image.src = attachment.displayUrl || attachment.url;
+  image.alt = attachment.hasCrop ? "已裁剪的题目图片" : "题目图片";
   image.loading = "lazy";
   image.decoding = "async";
   if (className) image.className = className;
@@ -123,6 +125,7 @@ async function api(path, options = {}) {
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_DIALOG_IMAGES = 6;
+const MIN_CROP_SIZE_PX = 28;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function setImageUploadStatus(message, isError = false) {
@@ -194,6 +197,8 @@ async function uploadImageFiles(fileList) {
 }
 
 async function removeDialogAttachment(id) {
+  if (state.cropEditor?.attachmentId === id) closeCropEditor();
+  state.originalPreviewIds.delete(id);
   state.dialogAttachments = state.dialogAttachments.filter(
     (attachment) => attachment.id !== id
   );
@@ -215,31 +220,476 @@ async function removeDialogAttachment(id) {
 function renderDialogAttachments() {
   const list = $("#attachment-list");
   list.replaceChildren();
-  for (const attachment of state.dialogAttachments) {
+  state.dialogAttachments.forEach((attachment, index) => {
     const card = createElement("article", "attachment-card");
     const thumb = createElement("div", "attachment-thumb");
-    thumb.append(createAttachmentImage(attachment));
+    const showOriginal = state.originalPreviewIds.has(attachment.id);
+    thumb.append(
+      createAttachmentImage({
+        ...attachment,
+        displayUrl: showOriginal ? attachment.originalUrl : attachment.displayUrl
+      })
+    );
     const body = createElement("div", "attachment-card-body");
     body.append(
-      createElement("strong", "", "题目图片"),
-      createElement("small", "", `${Math.max(1, Math.round(attachment.byteSize / 1024))} KB`)
+      createElement("strong", "", `题目图片 ${index + 1}`),
+      createElement(
+        "small",
+        "",
+        `${Math.max(1, Math.round(attachment.byteSize / 1024))} KB${
+          attachment.hasCrop ? " · 已裁剪" : " · 原图"
+        }`
+      )
     );
     const actions = createElement("div", "attachment-card-actions");
+    const crop = createElement(
+      "button",
+      "text-button",
+      attachment.hasCrop ? "重新裁剪" : "裁剪"
+    );
+    crop.type = "button";
+    crop.dataset.cropAttachment = String(attachment.id);
+    if (attachment.hasCrop) {
+      const original = createElement(
+        "button",
+        "text-button",
+        showOriginal ? "查看裁剪" : "查看原图"
+      );
+      original.type = "button";
+      original.dataset.toggleOriginalAttachment = String(attachment.id);
+      actions.append(original);
+    }
     const extract = createElement("button", "text-button", "识别文字");
     extract.type = "button";
     extract.dataset.extractAttachment = String(attachment.id);
     const remove = createElement("button", "text-button danger", "移除");
     remove.type = "button";
     remove.dataset.removeAttachment = String(attachment.id);
+    actions.prepend(crop);
     actions.append(extract, remove);
     body.append(actions);
     card.append(thumb, body);
     list.append(card);
-  }
+  });
   if (!state.dialogAttachments.length) {
     setImageUploadStatus(
       "支持 JPG、PNG、WebP；单张不超过 8 MB，每道题最多 6 张。"
     );
+  }
+}
+
+function findDialogAttachment(id) {
+  return state.dialogAttachments.find((attachment) => attachment.id === id) || null;
+}
+
+function replaceDialogAttachment(updated) {
+  const index = state.dialogAttachments.findIndex(
+    (attachment) => attachment.id === updated.id
+  );
+  if (index >= 0) state.dialogAttachments[index] = updated;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function rotatedSourceDimensions(attachment, rotation) {
+  const sourceWidth = Number(
+    attachment?.crop?.sourceWidth || attachment?.width || 0
+  );
+  const sourceHeight = Number(
+    attachment?.crop?.sourceHeight || attachment?.height || 0
+  );
+  return {
+    sourceWidth,
+    sourceHeight,
+    width: rotation === 90 || rotation === 270 ? sourceHeight : sourceWidth,
+    height: rotation === 90 || rotation === 270 ? sourceWidth : sourceHeight
+  };
+}
+
+function selectionForAttachment(attachment, rotation) {
+  const dimensions = rotatedSourceDimensions(attachment, rotation);
+  if (attachment?.crop) {
+    return {
+      x: clampNumber(Number(attachment.crop.x) / dimensions.width, 0, 1),
+      y: clampNumber(Number(attachment.crop.y) / dimensions.height, 0, 1),
+      width: clampNumber(Number(attachment.crop.width) / dimensions.width, 0.01, 1),
+      height: clampNumber(Number(attachment.crop.height) / dimensions.height, 0.01, 1)
+    };
+  }
+  return { x: 0.04, y: 0.04, width: 0.92, height: 0.92 };
+}
+
+function setCropStatus(message, isError = false) {
+  const status = $("#crop-status");
+  status.textContent = message;
+  status.classList.toggle("is-error", isError);
+}
+
+function renderCropSelection() {
+  const editor = state.cropEditor;
+  if (!editor?.image) return;
+  const selection = editor.selection;
+  const element = $("#crop-selection");
+  element.style.left = `${selection.x * editor.displayWidth}px`;
+  element.style.top = `${selection.y * editor.displayHeight}px`;
+  element.style.width = `${selection.width * editor.displayWidth}px`;
+  element.style.height = `${selection.height * editor.displayHeight}px`;
+  const width = Math.max(1, Math.round(selection.width * editor.rotatedWidth));
+  const height = Math.max(1, Math.round(selection.height * editor.rotatedHeight));
+  setCropStatus(
+    `原图 ${editor.sourceWidth} × ${editor.sourceHeight}，当前裁剪区域 ${width} × ${height}。`
+  );
+}
+
+function renderCropEditor() {
+  const editor = state.cropEditor;
+  if (!editor?.image) return;
+  const canvas = $("#crop-canvas");
+  const panel = $(".crop-editor-panel");
+  const maxWidth = Math.max(260, Math.min(900, (panel?.clientWidth || 900) - 42));
+  const maxHeight = Math.max(220, Math.min(window.innerHeight * 0.58, 580));
+  const sourceWidth = editor.image.naturalWidth;
+  const sourceHeight = editor.image.naturalHeight;
+  const rotatedWidth = editor.rotation === 90 || editor.rotation === 270
+    ? sourceHeight
+    : sourceWidth;
+  const rotatedHeight = editor.rotation === 90 || editor.rotation === 270
+    ? sourceWidth
+    : sourceHeight;
+  const scale = Math.min(
+    1,
+    maxWidth / Math.max(1, rotatedWidth),
+    maxHeight / Math.max(1, rotatedHeight)
+  );
+  const displayWidth = Math.max(1, Math.round(rotatedWidth * scale));
+  const displayHeight = Math.max(1, Math.round(rotatedHeight * scale));
+  canvas.width = displayWidth;
+  canvas.height = displayHeight;
+  canvas.style.width = `${displayWidth}px`;
+  canvas.style.height = `${displayHeight}px`;
+
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, displayWidth, displayHeight);
+  context.fillStyle = "#132019";
+  context.fillRect(0, 0, displayWidth, displayHeight);
+  context.save();
+  context.translate(displayWidth / 2, displayHeight / 2);
+  context.rotate((editor.rotation * Math.PI) / 180);
+  context.drawImage(
+    editor.image,
+    -(sourceWidth * scale) / 2,
+    -(sourceHeight * scale) / 2,
+    sourceWidth * scale,
+    sourceHeight * scale
+  );
+  context.restore();
+
+  editor.sourceWidth = sourceWidth;
+  editor.sourceHeight = sourceHeight;
+  editor.rotatedWidth = rotatedWidth;
+  editor.rotatedHeight = rotatedHeight;
+  editor.displayWidth = displayWidth;
+  editor.displayHeight = displayHeight;
+  editor.scale = scale;
+  renderCropSelection();
+}
+
+function startCropDrag(event) {
+  const editor = state.cropEditor;
+  if (!editor?.image || (event.pointerType === "mouse" && event.button !== 0)) {
+    return;
+  }
+  const selection = event.target.closest("#crop-selection");
+  if (!selection) return;
+  event.preventDefault();
+  const handle = event.target.closest("[data-crop-handle]");
+  editor.drag = {
+    pointerId: event.pointerId,
+    handle: handle?.dataset.cropHandle || "move",
+    startX: event.clientX,
+    startY: event.clientY,
+    selection: { ...editor.selection }
+  };
+  try {
+    selection.setPointerCapture(event.pointerId);
+  } catch {
+    // Document-level pointermove still handles browsers without capture.
+  }
+}
+
+function moveCropDrag(event) {
+  const editor = state.cropEditor;
+  if (!editor?.drag || editor.drag.pointerId !== event.pointerId) return;
+  event.preventDefault();
+  const drag = editor.drag;
+  const dx = (event.clientX - drag.startX) / editor.displayWidth;
+  const dy = (event.clientY - drag.startY) / editor.displayHeight;
+  const start = drag.selection;
+  const minWidth = Math.min(1, MIN_CROP_SIZE_PX / editor.displayWidth);
+  const minHeight = Math.min(1, MIN_CROP_SIZE_PX / editor.displayHeight);
+
+  if (drag.handle === "move") {
+    editor.selection = {
+      x: clampNumber(start.x + dx, 0, 1 - start.width),
+      y: clampNumber(start.y + dy, 0, 1 - start.height),
+      width: start.width,
+      height: start.height
+    };
+  } else {
+    let left = start.x;
+    let top = start.y;
+    let right = start.x + start.width;
+    let bottom = start.y + start.height;
+    if (drag.handle.includes("w")) {
+      left = clampNumber(start.x + dx, 0, right - minWidth);
+    }
+    if (drag.handle.includes("e")) {
+      right = clampNumber(start.x + start.width + dx, left + minWidth, 1);
+    }
+    if (drag.handle.includes("n")) {
+      top = clampNumber(start.y + dy, 0, bottom - minHeight);
+    }
+    if (drag.handle.includes("s")) {
+      bottom = clampNumber(start.y + start.height + dy, top + minHeight, 1);
+    }
+    editor.selection = {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top
+    };
+  }
+  renderCropSelection();
+}
+
+function endCropDrag(event) {
+  const editor = state.cropEditor;
+  if (!editor?.drag || editor.drag.pointerId !== event.pointerId) return;
+  editor.drag = null;
+  const selection = $("#crop-selection");
+  try {
+    selection.releasePointerCapture(event.pointerId);
+  } catch {
+    // The pointer may already have been released.
+  }
+}
+
+function rotateCropEditor() {
+  const editor = state.cropEditor;
+  if (!editor?.image) return;
+  const selection = editor.selection;
+  editor.selection = {
+    x: 1 - (selection.y + selection.height),
+    y: selection.x,
+    width: selection.height,
+    height: selection.width
+  };
+  editor.rotation = (editor.rotation + 90) % 360;
+  renderCropEditor();
+}
+
+function resetCropEditor() {
+  const editor = state.cropEditor;
+  if (!editor?.image) return;
+  editor.rotation = 0;
+  editor.selection = { x: 0.01, y: 0.01, width: 0.98, height: 0.98 };
+  renderCropEditor();
+}
+
+function openCropEditor(attachmentId) {
+  const attachment = findDialogAttachment(attachmentId);
+  if (!attachment) return;
+  closeCropEditor();
+  const rotation = Number(attachment.crop?.rotation || 0);
+  const editor = {
+    attachmentId,
+    attachment,
+    image: null,
+    rotation,
+    selection: selectionForAttachment(attachment, rotation),
+    drag: null,
+    sourceWidth: 0,
+    sourceHeight: 0,
+    rotatedWidth: 0,
+    rotatedHeight: 0,
+    displayWidth: 0,
+    displayHeight: 0,
+    scale: 1
+  };
+  state.cropEditor = editor;
+  $("#crop-editor").hidden = false;
+  $("#restore-original-button").hidden = !attachment.hasCrop;
+  setCropStatus("正在加载原图…");
+  const image = new Image();
+  image.decoding = "async";
+  image.onload = () => {
+    if (state.cropEditor !== editor) return;
+    editor.image = image;
+    renderCropEditor();
+    $("#close-crop-editor-button").focus();
+  };
+  image.onerror = () => {
+    if (state.cropEditor !== editor) return;
+    setCropStatus("原图加载失败，请取消后重试。", true);
+  };
+  image.src = attachment.originalUrl || attachment.url;
+}
+
+function closeCropEditor() {
+  const editor = state.cropEditor;
+  state.cropEditor = null;
+  if (editor?.image) editor.image.src = "";
+  $("#crop-editor").hidden = true;
+  $("#crop-status").textContent = "";
+  $("#crop-status").classList.remove("is-error");
+}
+
+function toggleOriginalPreview(attachmentId) {
+  if (state.originalPreviewIds.has(attachmentId)) {
+    state.originalPreviewIds.delete(attachmentId);
+  } else {
+    state.originalPreviewIds.add(attachmentId);
+  }
+  renderDialogAttachments();
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("浏览器无法生成裁剪图片"));
+      },
+      type,
+      quality
+    );
+  });
+}
+
+async function createCropBlob(canvas, preferredMime) {
+  const attempts = [];
+  if (ALLOWED_IMAGE_TYPES.has(preferredMime)) {
+    attempts.push([
+      preferredMime,
+      preferredMime === "image/jpeg" ? 0.95 : undefined
+    ]);
+  }
+  if (preferredMime !== "image/jpeg") {
+    attempts.push(["image/jpeg", 0.92], ["image/jpeg", 0.8]);
+  }
+  for (const [type, quality] of attempts) {
+    const blob = await canvasToBlob(canvas, type, quality);
+    if (blob.size <= MAX_IMAGE_BYTES) return blob;
+  }
+  throw new Error("裁剪后的图片超过 8 MB，请缩小裁剪区域后重试");
+}
+
+async function applyCropEditor() {
+  const editor = state.cropEditor;
+  if (!editor?.image) return;
+  const button = $("#apply-crop-button");
+  const sourceWidth = editor.image.naturalWidth;
+  const sourceHeight = editor.image.naturalHeight;
+  const rotatedWidth = editor.rotation === 90 || editor.rotation === 270
+    ? sourceHeight
+    : sourceWidth;
+  const rotatedHeight = editor.rotation === 90 || editor.rotation === 270
+    ? sourceWidth
+    : sourceHeight;
+  const selection = editor.selection;
+  const cropX = clampNumber(
+    Math.round(selection.x * rotatedWidth),
+    0,
+    Math.max(0, rotatedWidth - 1)
+  );
+  const cropY = clampNumber(
+    Math.round(selection.y * rotatedHeight),
+    0,
+    Math.max(0, rotatedHeight - 1)
+  );
+  const cropWidth = clampNumber(
+    Math.round(selection.width * rotatedWidth),
+    1,
+    rotatedWidth - cropX
+  );
+  const cropHeight = clampNumber(
+    Math.round(selection.height * rotatedHeight),
+    1,
+    rotatedHeight - cropY
+  );
+
+  const output = document.createElement("canvas");
+  output.width = cropWidth;
+  output.height = cropHeight;
+  const context = output.getContext("2d");
+  context.save();
+  context.translate(-cropX, -cropY);
+  context.translate(rotatedWidth / 2, rotatedHeight / 2);
+  context.rotate((editor.rotation * Math.PI) / 180);
+  context.drawImage(
+    editor.image,
+    -sourceWidth / 2,
+    -sourceHeight / 2,
+    sourceWidth,
+    sourceHeight
+  );
+  context.restore();
+
+  setBusy(button, true, "正在保存…");
+  setCropStatus("正在保存裁剪结果…");
+  try {
+    const blob = await createCropBlob(output, editor.attachment.mimeType);
+    const response = await fetch(`/api/attachments/${editor.attachmentId}/crop`, {
+      method: "POST",
+      headers: {
+        "Content-Type": blob.type,
+        "X-Crop-X": String(cropX),
+        "X-Crop-Y": String(cropY),
+        "X-Crop-Width": String(cropWidth),
+        "X-Crop-Height": String(cropHeight),
+        "X-Crop-Rotation": String(editor.rotation),
+        "X-Crop-Source-Width": String(sourceWidth),
+        "X-Crop-Source-Height": String(sourceHeight)
+      },
+      body: blob
+    });
+    const updated = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(updated.error || "裁剪图片保存失败");
+    }
+    replaceDialogAttachment(updated);
+    state.originalPreviewIds.delete(updated.id);
+    closeCropEditor();
+    renderDialogAttachments();
+    showToast("裁剪已应用，识别文字将只使用裁剪区域");
+  } catch (error) {
+    setCropStatus(error.message || "裁剪图片保存失败，原图未改变。", true);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+async function restoreOriginalImage() {
+  const editor = state.cropEditor;
+  const attachment = editor ? findDialogAttachment(editor.attachmentId) : null;
+  if (!attachment?.hasCrop) return;
+  const button = $("#restore-original-button");
+  setBusy(button, true, "正在恢复…");
+  try {
+    const updated = await api(`/api/attachments/${attachment.id}/crop`, {
+      method: "DELETE"
+    });
+    replaceDialogAttachment(updated);
+    state.originalPreviewIds.delete(updated.id);
+    closeCropEditor();
+    renderDialogAttachments();
+    showToast("已恢复原图");
+  } catch (error) {
+    setCropStatus(error.message || "恢复原图失败，请稍后重试。", true);
+  } finally {
+    setBusy(button, false);
   }
 }
 
@@ -248,9 +698,12 @@ function startOcrForAttachment(id) {
     (attachment) => attachment.id === id
   );
   if (index < 0) return;
+  const attachment = state.dialogAttachments[index];
   state.ocrAttachmentId = id;
   $("#ocr-panel").hidden = false;
-  $("#ocr-attachment-label").textContent = `识别第 ${index + 1} 张图片中的文字（可选）`;
+  $("#ocr-attachment-label").textContent = attachment.hasCrop
+    ? `识别第 ${index + 1} 张图片裁剪区域中的文字（可选）`
+    : `识别第 ${index + 1} 张图片中的文字（可选）`;
   $("#ocr-consent").checked = false;
   $("#ocr-message").textContent = "";
   $("#ocr-candidate").hidden = true;
@@ -1816,10 +2269,12 @@ function renderReviewResult(result) {
 
 function openAddDialog() {
   const dialog = $("#add-dialog");
+  closeCropEditor();
   $("#add-form").reset();
   renderPartsEditor();
   state.dialogAttachments = [];
   state.newAttachmentIds = new Set();
+  state.originalPreviewIds = new Set();
   state.ocrAttachmentId = null;
   state.imageUploads = 0;
   $("#ocr-panel").hidden = true;
@@ -1865,8 +2320,10 @@ async function openEditDialog(
     form.elements.errorType.value = mistake.errorType;
     form.elements.analysis.value = mistake.analysis || "";
     renderPartsEditor(mistake.parts || []);
+    closeCropEditor();
     state.dialogAttachments = [...(mistake.attachments || [])];
     state.newAttachmentIds = new Set();
+    state.originalPreviewIds = new Set();
     state.ocrAttachmentId = null;
     state.imageUploads = 0;
     $("#ocr-panel").hidden = true;
@@ -1891,11 +2348,13 @@ async function openEditDialog(
 }
 
 function closeAddDialog({ discardAttachments = true } = {}) {
+  closeCropEditor();
   if (discardAttachments) discardNewAttachments();
   const dialog = $("#add-dialog");
   if (dialog.open) dialog.close();
   state.dialogAttachments = [];
   state.newAttachmentIds = new Set();
+  state.originalPreviewIds = new Set();
   state.ocrAttachmentId = null;
   state.imageUploads = 0;
   $("#ocr-panel").hidden = true;
@@ -2187,13 +2646,23 @@ function bindEvents() {
     });
   }
   $("#add-dialog").addEventListener("paste", (event) => {
-    if (!$("#add-dialog").open) return;
+    if (!$("#add-dialog").open || state.cropEditor) return;
     const files = [...(event.clipboardData?.files || [])];
     if (!files.length) return;
     event.preventDefault();
     uploadImageFiles(files);
   });
   $("#attachment-list").addEventListener("click", (event) => {
+    const crop = event.target.closest("[data-crop-attachment]");
+    if (crop) {
+      openCropEditor(Number(crop.dataset.cropAttachment));
+      return;
+    }
+    const toggleOriginal = event.target.closest("[data-toggle-original-attachment]");
+    if (toggleOriginal) {
+      toggleOriginalPreview(Number(toggleOriginal.dataset.toggleOriginalAttachment));
+      return;
+    }
     const extract = event.target.closest("[data-extract-attachment]");
     if (extract) {
       startOcrForAttachment(Number(extract.dataset.extractAttachment));
@@ -2203,6 +2672,19 @@ function bindEvents() {
     if (remove) {
       removeDialogAttachment(Number(remove.dataset.removeAttachment));
     }
+  });
+  $("#rotate-crop-button").addEventListener("click", rotateCropEditor);
+  $("#reset-crop-button").addEventListener("click", resetCropEditor);
+  $("#restore-original-button").addEventListener("click", restoreOriginalImage);
+  $("#close-crop-editor-button").addEventListener("click", closeCropEditor);
+  $("#cancel-crop-button").addEventListener("click", closeCropEditor);
+  $("#apply-crop-button").addEventListener("click", applyCropEditor);
+  $("#crop-selection").addEventListener("pointerdown", startCropDrag);
+  document.addEventListener("pointermove", moveCropDrag);
+  document.addEventListener("pointerup", endCropDrag);
+  document.addEventListener("pointercancel", endCropDrag);
+  window.addEventListener("resize", () => {
+    if (state.cropEditor?.image) renderCropEditor();
   });
   $("#run-ocr-button").addEventListener("click", runOcr);
   $("#cancel-ocr-button").addEventListener("click", () => {
@@ -2362,6 +2844,11 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.cropEditor) {
+      event.preventDefault();
+      closeCropEditor();
+      return;
+    }
     if (event.key === "Escape") $(".sidebar").classList.remove("is-open");
   });
 }

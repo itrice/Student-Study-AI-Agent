@@ -1,4 +1,5 @@
 import { LearningValidationError } from "./domain/errors.js";
+import { readAttachmentContent } from "./attachment-crop.js";
 
 export async function extractAttachmentText({
   repository,
@@ -30,9 +31,9 @@ export async function extractAttachmentText({
     };
   }
 
-  let buffer;
+  let content;
   try {
-    buffer = attachmentStore.read(attachment.storageKey);
+    content = readAttachmentContent(attachment, attachmentStore);
   } catch {
     return {
       available: false,
@@ -43,8 +44,8 @@ export async function extractAttachmentText({
 
   try {
     const result = await extractor.extract({
-      buffer,
-      mimeType: attachment.mimeType
+      buffer: content.buffer,
+      mimeType: content.mimeType
     });
     const text = String(result.normalizedText || "").trim();
     if (!text) {
@@ -69,7 +70,8 @@ export async function extractAttachmentText({
       text,
       confidence: result.confidence,
       provider: result.provider,
-      model: result.model
+      model: result.model,
+      usedCrop: content.usedCrop
     };
   } catch {
     return {

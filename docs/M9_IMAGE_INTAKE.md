@@ -1,6 +1,6 @@
 # M9.1 + M9.2 图片录题最小切片
 
-> 状态：待验收
+> 状态：M9.1/M9.2 最小切片已验收；图片裁剪 P1 已实现待验收
 > 范围：图片附件闭环与可选文字识别辅助；不包含 M9.3 图形推理
 
 本文档冻结本轮图片录题的最小数据契约、API 契约、文件生命周期、隐私边界和备份恢复方式。
@@ -21,7 +21,7 @@
 
 ## 2. 数据库契约
 
-当前 schema 版本为 **v10**。迁移名称：`image_attachments`。
+当前 schema 版本为 **v11**。迁移名称：`image_attachments`（v10）、`image_crops`（v11）。
 
 ### `attachments`
 
@@ -55,6 +55,25 @@
 | `prompt_version` | TEXT | 提示词版本 |
 | `created_at` | TEXT | 创建时间 |
 
+### `attachment_crops`
+
+裁剪图是原图的派生文件，一张原图最多保存一条裁剪记录；原图记录和文件始终保留，
+删除裁剪记录即可恢复默认展示。
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `attachment_id` | INTEGER | PK, FK `attachments(id)` | 一张原图最多一条裁剪；级联删除 |
+| `storage_key` | TEXT | NOT NULL UNIQUE | 派生文件随机存储键，仅服务端使用 |
+| `mime_type` | TEXT | NOT NULL | 裁剪图的 `image/jpeg`、`image/png` 或 `image/webp` |
+| `byte_size` | INTEGER | NOT NULL, > 0 | 裁剪图字节数 |
+| `width` / `height` | INTEGER | NOT NULL, > 0 | 裁剪图实际像素尺寸 |
+| `sha256` | TEXT | NOT NULL | 裁剪图 SHA-256 |
+| `crop_x` / `crop_y` | INTEGER | NOT NULL, >= 0 | 裁剪起点，坐标基于旋转后的图片 |
+| `crop_width` / `crop_height` | INTEGER | NOT NULL, > 0 | 裁剪区域尺寸 |
+| `rotation` | INTEGER | NOT NULL, CHECK | `0`、`90`、`180`、`270` |
+| `source_width` / `source_height` | INTEGER | NOT NULL, > 0 | 保存时的原图尺寸，用于拒绝过期裁剪 |
+| `created_at` / `updated_at` | TEXT | NOT NULL | ISO 8601 时间 |
+
 ### 前端可见附件字段
 
 普通错题、列表、复习和仪表盘接口只返回：
@@ -68,9 +87,22 @@
   "width": 800,
   "height": 600,
   "url": "/api/attachments/12",
+  "displayUrl": "/api/attachments/12?v=crop-2026-11-12T08%3A00%3A00.000Z",
+  "originalUrl": "/api/attachments/12?variant=original",
+  "hasCrop": true,
+  "crop": {
+    "width": 640,
+    "height": 480,
+    "rotation": 0,
+    "sourceWidth": 800,
+    "sourceHeight": 600
+  },
   "createdAt": "2026-11-11T08:00:00.000Z"
 }
 ```
+
+`url` 保留为兼容字段，含义与 `displayUrl` 相同：有裁剪时指向裁剪图，无裁剪时指向原图。
+`originalUrl` 始终指向原图。`crop` 为 `null` 表示当前没有裁剪。
 
 `storage_key`、`original_name`、`sha256` 和磁盘路径不得出现在普通 API、页面或日志中。
 
@@ -96,8 +128,10 @@ X-Original-Name: <URL 编码后的文件名，可选>
 
 ```http
 GET /api/attachments/:id
+GET /api/attachments/:id?variant=original
 ```
 
+默认返回当前展示图：有裁剪时为裁剪图，否则为原图。`variant=original` 始终返回原图。
 成功返回图片二进制，响应头包含：
 
 ```text
@@ -106,6 +140,38 @@ X-Content-Type-Options: nosniff
 ```
 
 不存在或文件缺失返回 `404`。
+
+### 保存、替换与删除裁剪
+
+```http
+POST /api/attachments/:id/crop
+Content-Type: image/png
+X-Crop-X: 40
+X-Crop-Y: 20
+X-Crop-Width: 640
+X-Crop-Height: 480
+X-Crop-Rotation: 0
+X-Crop-Source-Width: 800
+X-Crop-Source-Height: 600
+<裁剪后的图片二进制>
+```
+
+成功返回 `200` 和更新后的前端可见附件字段。约束：
+
+- 裁剪图片与上传图片使用相同的格式、单张 8 MiB 和像素上限校验。
+- 裁剪矩形坐标基于旋转后的图片；`rotation` 只能是 0/90/180/270。
+- `X-Crop-Source-Width/Height` 必须等于当前原图元数据尺寸，否则返回 `400 INVALID_CROP`，
+  前端应提示重新打开裁剪编辑器。
+- 裁剪区域必须完整落在旋转后的图片范围内。
+- 原图永远不会被覆盖；新裁剪图先写入磁盘，元数据更新成功后才删除旧裁剪图。
+- 写入或元数据更新失败时清理新文件，原图和旧裁剪保持不变。
+- 修改裁剪不属于题目内容变更，不重置掌握度。
+
+```http
+DELETE /api/attachments/:id/crop
+```
+
+删除裁剪图和裁剪元数据，恢复默认展示原图。原图不受影响；没有裁剪时仍返回 `200`。
 
 ### 删除未绑定附件
 
@@ -124,7 +190,8 @@ Content-Type: application/json
 {"consent": true}
 ```
 
-`consent` 必须严格为布尔值 `true` 才会调用外部视觉模型。识别不会创建错题，也不会自动覆盖题目文字。
+`consent` 必须严格为布尔值 `true` 才会调用外部视觉模型。存在裁剪时只读取裁剪图；
+没有裁剪时读取原图。识别不会创建错题，也不会自动覆盖题目文字。
 
 成功：
 
@@ -181,6 +248,7 @@ Content-Type: application/json
 - 数量：每道错题最多 6 张。
 - 单题总量：不超过 30 MiB。
 - 单边像素：不超过 12000。
+- 裁剪图沿用上述格式、单张 8 MiB 和单边像素限制，且最多与原图一一对应。
 - 文件名：随机 UUID，例如 `550e8400-e29b-41d4-a716-446655440000.png`。
 - 默认目录：数据库同级的 `attachments/`。
 - 自定义目录：`ATTACHMENTS_DIR`，必须是服务进程可读写的本地文件系统目录。
@@ -192,15 +260,18 @@ Content-Type: application/json
 3. 未绑定附件超过 24 小时会在服务启动时及之后每小时清理元数据和文件。
 4. 修改错题移除的附件在事务提交后删除文件。
 5. 删除错题时数据库级联删除元数据，提交后删除原图。
-6. 删除全部学习数据时清空附件、识别记录和对应文件。
-7. 文件删除采用尽力而为策略；如果运行中删除失败，后续孤儿文件清理会重试。
+6. 删除或替换裁剪时删除旧派生文件；删除原图或错题时同时删除裁剪元数据和文件。
+7. 删除全部学习数据时清空附件、裁剪、识别记录和对应文件。
+8. 文件删除采用尽力而为策略；如果运行中删除失败，后续孤儿文件清理会重试。
 
-孤儿文件清理只删除超过 TTL 且不在 `attachments.storage_key` 集合中的文件，不删除仍被错题引用的图片。
+孤儿文件清理只删除超过 TTL 且不在 `attachments.storage_key` 或
+`attachment_crops.storage_key` 集合中的文件，不删除仍被引用的原图或裁剪图。
 
 ## 6. 隐私边界
 
 - 图片默认只保存在本机，不会因上传而自动发送到外部。
 - 只有学生勾选同意并点击“识别文字”后，当前图片才以 base64 发送给配置的 OpenAI-compatible 视觉模型。
+- 存在裁剪时只发送裁剪区域，不发送整张原图；页面上的提示文案必须与此一致。
 - 未设置 `VISION_MODEL` 时视觉识别不可用，不影响手工文字 + 图片保存。
 - 普通日志只记录数据库路径，不记录附件文件名、存储键或磁盘路径。
 - 原图保留原始 EXIF；备份也是未加密文件，应按本机隐私数据保护。
@@ -222,7 +293,7 @@ VISION_TIMEOUT_MS=30000
 
 ## 8. 备份与恢复
 
-完整备份包含数据库一致性快照、数据库引用的全部原图和 `manifest.json`：
+完整备份包含数据库一致性快照、数据库引用的全部原图、全部裁剪图和 `manifest.json`：
 
 ```powershell
 npm run backup
@@ -243,7 +314,8 @@ npm run restore -- <备份目录>
 npm run restore -- <备份目录> --force
 ```
 
-恢复前必须停止服务，避免 SQLite WAL 和附件目录被同时改写。恢复会校验数据库和每个附件的 SHA-256，再整体替换目标数据库和附件目录。
+恢复前必须停止服务，避免 SQLite WAL 和附件目录被同时改写。恢复会校验数据库、
+每个原图和每个裁剪图的 SHA-256 与字节数，再整体替换目标数据库和附件目录。
 
 配置：
 
@@ -256,6 +328,8 @@ npm run restore -- <备份目录> --force
 - 无账号与权限隔离；能访问页面的人可以读取附件 URL。
 - 视觉识别只做文字转录，不保证公式、表格、几何图形或手写内容的结构化还原。
 - 纯图片且没有文字时，知识点判断和提示质量受可选知识点与图片内容限制。
+- 裁剪只做旋转后矩形保留，不校正透视、不增强清晰度，也不做多区域拼接。
+- 裁剪图是派生位图；修改裁剪会重新上传派生图，不保留历史裁剪版本。
 - iPhone 的 HEIC/HEIF 照片需先转换为 JPG、PNG 或 WebP；本轮不内置 HEIC 转码。
 - 不支持多图批注、图形推理、PDF 导入、云端同步或跨设备迁移。
 - 恢复需要停服，不是在线热恢复。

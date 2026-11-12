@@ -989,6 +989,48 @@ const IMAGE_ATTACHMENTS_REQUIRED_COLUMNS = {
   ]
 };
 
+const IMAGE_CROPS_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS attachment_crops (
+    attachment_id INTEGER PRIMARY KEY REFERENCES attachments(id) ON DELETE CASCADE,
+    storage_key TEXT NOT NULL UNIQUE,
+    mime_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL CHECK (byte_size > 0),
+    width INTEGER NOT NULL CHECK (width > 0),
+    height INTEGER NOT NULL CHECK (height > 0),
+    sha256 TEXT NOT NULL,
+    crop_x INTEGER NOT NULL CHECK (crop_x >= 0),
+    crop_y INTEGER NOT NULL CHECK (crop_y >= 0),
+    crop_width INTEGER NOT NULL CHECK (crop_width > 0),
+    crop_height INTEGER NOT NULL CHECK (crop_height > 0),
+    rotation INTEGER NOT NULL CHECK (rotation IN (0, 90, 180, 270)),
+    source_width INTEGER NOT NULL CHECK (source_width > 0),
+    source_height INTEGER NOT NULL CHECK (source_height > 0),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`;
+
+const IMAGE_CROPS_REQUIRED_COLUMNS = {
+  attachment_crops: [
+    "attachment_id",
+    "storage_key",
+    "mime_type",
+    "byte_size",
+    "width",
+    "height",
+    "sha256",
+    "crop_x",
+    "crop_y",
+    "crop_width",
+    "crop_height",
+    "rotation",
+    "source_width",
+    "source_height",
+    "created_at",
+    "updated_at"
+  ]
+};
+
 function assertRequiredColumns(db, table, requiredColumns) {
   const rows = db.prepare(`PRAGMA table_info("${table}")`).all();
   if (!rows.length) {
@@ -1068,6 +1110,10 @@ const LEGACY_MASTERY_EVIDENCE_BACKFILL_CHECKSUM_SOURCE = JSON.stringify({
 
 const IMAGE_ATTACHMENTS_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: IMAGE_ATTACHMENTS_SCHEMA_SQL
+});
+
+const IMAGE_CROPS_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: IMAGE_CROPS_SCHEMA_SQL
 });
 
 export const SCHEMA_MIGRATIONS = [
@@ -1198,6 +1244,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(IMAGE_ATTACHMENTS_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         IMAGE_ATTACHMENTS_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 11,
+    name: "image_crops",
+    checksumSource: IMAGE_CROPS_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(IMAGE_CROPS_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        IMAGE_CROPS_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

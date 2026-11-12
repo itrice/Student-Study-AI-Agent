@@ -273,7 +273,7 @@ test("备份恢复同时保留数据库、附件元数据和原图哈希", () =>
       attachmentsDir: restoredAttachments
     });
 
-    assert.equal(restored.schemaVersion, 10);
+    assert.equal(restored.schemaVersion, 11);
     const db = new DatabaseSync(restoredDatabase, { readOnly: true });
     try {
       assert.equal(db.prepare("PRAGMA quick_check").get().quick_check, "ok");
