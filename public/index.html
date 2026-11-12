@@ -11,7 +11,7 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261111-2" />
+    <link rel="stylesheet" href="/styles.css?v=20261112-1" />
   </head>
   <body>
     <div class="app-shell">
@@ -565,13 +565,13 @@
               支持 JPG、PNG、WebP；单张不超过 8 MB，每道题最多 6 张。
             </p>
             <p class="image-privacy-note">
-              图片默认不会发送到外部。只有你勾选同意并点击“识别文字”时，当前图片才会发送给已配置的视觉模型。
+              图片默认不会发送到外部。只有你勾选同意并点击“识别文字”时，当前裁剪区域才会发送给已配置的视觉模型。
             </p>
             <div id="ocr-panel" class="ocr-panel" hidden>
               <strong id="ocr-attachment-label">识别题目文字（可选）</strong>
               <label class="ocr-consent">
                 <input type="checkbox" id="ocr-consent" />
-                <span>我同意将当前图片发送给外部视觉模型，仅用于识别题目文字。</span>
+                <span>我同意将当前裁剪区域发送给外部视觉模型，仅用于识别题目文字。</span>
               </label>
               <div class="ocr-actions">
                 <button class="secondary-button compact" type="button" id="run-ocr-button">
@@ -592,6 +592,75 @@
                   <button class="text-button" type="button" id="discard-ocr-button">
                     不使用
                   </button>
+                </div>
+              </div>
+            </div>
+
+            <div
+              id="crop-editor"
+              class="crop-editor"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="crop-editor-title"
+              hidden
+            >
+              <div class="crop-editor-panel">
+                <div class="crop-editor-heading">
+                  <div>
+                    <span class="eyebrow">图片取景</span>
+                    <h3 id="crop-editor-title">裁剪题目图片</h3>
+                    <p>拖动选框或四角、边线手柄，只保留需要识别和查看的题目区域。</p>
+                  </div>
+                  <button
+                    class="icon-button"
+                    type="button"
+                    id="close-crop-editor-button"
+                    aria-label="关闭裁剪编辑器"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m6 6 12 12M18 6 6 18" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="crop-stage" class="crop-stage">
+                  <canvas id="crop-canvas" aria-label="待裁剪的原图"></canvas>
+                  <div
+                    id="crop-selection"
+                    class="crop-selection"
+                    role="group"
+                    aria-label="裁剪区域，可拖动或使用边角手柄调整"
+                  >
+                    <span class="crop-handle" data-crop-handle="nw"></span>
+                    <span class="crop-handle" data-crop-handle="n"></span>
+                    <span class="crop-handle" data-crop-handle="ne"></span>
+                    <span class="crop-handle" data-crop-handle="e"></span>
+                    <span class="crop-handle" data-crop-handle="se"></span>
+                    <span class="crop-handle" data-crop-handle="s"></span>
+                    <span class="crop-handle" data-crop-handle="sw"></span>
+                    <span class="crop-handle" data-crop-handle="w"></span>
+                  </div>
+                </div>
+                <p id="crop-status" class="crop-status" aria-live="polite"></p>
+                <div class="crop-editor-footer">
+                  <div class="crop-tools">
+                    <button class="secondary-button compact" type="button" id="rotate-crop-button">
+                      旋转 90°
+                    </button>
+                    <button class="secondary-button compact" type="button" id="reset-crop-button">
+                      重置
+                    </button>
+                    <button class="text-button" type="button" id="restore-original-button" hidden>
+                      恢复原图
+                    </button>
+                  </div>
+                  <div class="crop-actions">
+                    <button class="secondary-button" type="button" id="cancel-crop-button">
+                      取消
+                    </button>
+                    <button class="primary-button" type="button" id="apply-crop-button">
+                      应用裁剪
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -680,6 +749,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261111-2"></script>
+    <script type="module" src="/app.js?v=20261112-1"></script>
   </body>
 </html>

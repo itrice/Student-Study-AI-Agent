@@ -50,17 +50,34 @@ function assertStorageKey(storageKey) {
 function readAttachmentRows(databasePath) {
   const db = new DatabaseSync(databasePath, { readOnly: true });
   try {
-    const table = db
-      .prepare(
-        "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'attachments'"
-      )
-      .get();
-    if (!table) return [];
-    return db
-      .prepare(
-        "SELECT storage_key, sha256, byte_size FROM attachments ORDER BY id"
-      )
-      .all();
+    const tables = new Set(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('attachments', 'attachment_crops')"
+        )
+        .all()
+        .map((row) => row.name)
+    );
+    const rows = [];
+    if (tables.has("attachments")) {
+      rows.push(
+        ...db
+          .prepare(
+            "SELECT storage_key, sha256, byte_size FROM attachments ORDER BY id"
+          )
+          .all()
+      );
+    }
+    if (tables.has("attachment_crops")) {
+      rows.push(
+        ...db
+          .prepare(
+            "SELECT storage_key, sha256, byte_size FROM attachment_crops ORDER BY attachment_id"
+          )
+          .all()
+      );
+    }
+    return rows;
   } finally {
     db.close();
   }

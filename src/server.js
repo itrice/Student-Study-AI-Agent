@@ -19,6 +19,11 @@ import {
 } from "./attachments.js";
 import { scheduleAttachmentCleanup } from "./attachment-cleanup.js";
 import { extractAttachmentText } from "./attachment-service.js";
+import {
+  clearAttachmentCrop,
+  readAttachmentContent,
+  saveAttachmentCrop
+} from "./attachment-crop.js";
 import { createVisionExtractorFromEnvironment } from "./llm/vision.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
@@ -482,6 +487,42 @@ async function handleApi(request, response, url) {
     );
   }
 
+  const attachmentCropMatch = url.pathname.match(
+    /^\/api\/attachments\/(\d+)\/crop$/
+  );
+  if (attachmentCropMatch && request.method === "POST") {
+    const buffer = await readBinary(request);
+    const attachment = saveAttachmentCrop({
+      repository,
+      attachmentStore,
+      attachmentId: parseId(attachmentCropMatch[1]),
+      buffer,
+      declaredMime: request.headers["content-type"],
+      crop: {
+        x: request.headers["x-crop-x"],
+        y: request.headers["x-crop-y"],
+        width: request.headers["x-crop-width"],
+        height: request.headers["x-crop-height"],
+        rotation: request.headers["x-crop-rotation"],
+        sourceWidth: request.headers["x-crop-source-width"],
+        sourceHeight: request.headers["x-crop-source-height"]
+      }
+    });
+    return sendJson(response, 200, attachment);
+  }
+
+  if (attachmentCropMatch && request.method === "DELETE") {
+    return sendJson(
+      response,
+      200,
+      clearAttachmentCrop({
+        repository,
+        attachmentStore,
+        attachmentId: parseId(attachmentCropMatch[1])
+      })
+    );
+  }
+
   const attachmentMatch = url.pathname.match(/^\/api\/attachments\/(\d+)$/);
   if (attachmentMatch && request.method === "GET") {
     const attachment = repository.getAttachment(parseId(attachmentMatch[1]), {
@@ -490,17 +531,19 @@ async function handleApi(request, response, url) {
     if (!attachment) throw new HttpError(404, "没有找到这张题目图片");
     let content;
     try {
-      content = attachmentStore.read(attachment.storageKey);
+      content = readAttachmentContent(attachment, attachmentStore, {
+        variant: url.searchParams.get("variant") || "crop"
+      });
     } catch {
       throw new HttpError(404, "题目图片文件不存在");
     }
     response.writeHead(200, {
-      "Content-Type": attachment.mimeType,
-      "Content-Length": content.length,
+      "Content-Type": content.mimeType,
+      "Content-Length": content.buffer.length,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff"
     });
-    return response.end(content);
+    return response.end(content.buffer);
   }
 
   if (attachmentMatch && request.method === "DELETE") {
@@ -511,7 +554,9 @@ async function handleApi(request, response, url) {
     if (result.bound) {
       throw new HttpError(409, "图片已关联到错题，请通过修改错题移除");
     }
-    attachmentStore.delete(result.storageKey);
+    for (const storageKey of result.storageKeys || [result.storageKey]) {
+      attachmentStore.delete(storageKey);
+    }
     return sendJson(response, 200, { deleted: true });
   }
 

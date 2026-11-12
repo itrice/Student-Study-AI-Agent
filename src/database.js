@@ -218,16 +218,55 @@ function mapPart(row, answers = [], { includeSolution = false } = {}) {
   return part;
 }
 
+const ATTACHMENT_SELECT = `
+  SELECT a.*,
+         c.storage_key AS crop_storage_key,
+         c.mime_type AS crop_mime_type,
+         c.byte_size AS crop_byte_size,
+         c.width AS crop_width_px,
+         c.height AS crop_height_px,
+         c.sha256 AS crop_sha256,
+         c.crop_x,
+         c.crop_y,
+         c.crop_width,
+         c.crop_height,
+         c.rotation,
+         c.source_width,
+         c.source_height,
+         c.updated_at AS crop_updated_at
+  FROM attachments a
+  LEFT JOIN attachment_crops c ON c.attachment_id = a.id
+`;
+
 function mapAttachment(row) {
   if (!row) return null;
+  const hasCrop = Boolean(row.crop_storage_key);
+  const version = encodeURIComponent(row.crop_updated_at || row.created_at);
   return {
     id: row.id,
     kind: row.kind,
-    mimeType: row.mime_type,
-    byteSize: row.byte_size,
-    width: row.width,
-    height: row.height,
+    mimeType: hasCrop ? row.crop_mime_type : row.mime_type,
+    byteSize: hasCrop ? row.crop_byte_size : row.byte_size,
+    width: hasCrop ? row.crop_width_px : row.width,
+    height: hasCrop ? row.crop_height_px : row.height,
     url: `/api/attachments/${row.id}`,
+    displayUrl: `/api/attachments/${row.id}?variant=${
+      hasCrop ? "crop" : "original"
+    }&v=${version}`,
+    originalUrl: `/api/attachments/${row.id}?variant=original`,
+    hasCrop,
+    crop: hasCrop
+      ? {
+          x: row.crop_x,
+          y: row.crop_y,
+          width: row.crop_width,
+          height: row.crop_height,
+          rotation: row.rotation,
+          sourceWidth: row.source_width,
+          sourceHeight: row.source_height,
+          updatedAt: row.crop_updated_at
+        }
+      : null,
     createdAt: row.created_at
   };
 }
@@ -408,7 +447,7 @@ export class LearningRepository {
 
   getAttachment(id, { includeStorageKey = false } = {}) {
     const row = this.db
-      .prepare("SELECT * FROM attachments WHERE id = ?")
+      .prepare(`${ATTACHMENT_SELECT} WHERE a.id = ?`)
       .get(id);
     if (!row) return null;
     if (!includeStorageKey) return mapAttachment(row);
@@ -416,16 +455,23 @@ export class LearningRepository {
       ...mapAttachment(row),
       mistakeId: row.mistake_id,
       storageKey: row.storage_key,
-      sha256: row.sha256
+      sha256: row.sha256,
+      originalMimeType: row.mime_type,
+      originalByteSize: row.byte_size,
+      originalWidth: row.width,
+      originalHeight: row.height,
+      cropStorageKey: row.crop_storage_key || null,
+      cropMimeType: row.crop_mime_type || null,
+      cropSha256: row.crop_sha256 || null
     };
   }
 
   listMistakeAttachments(mistakeId) {
     return this.db
       .prepare(
-        `SELECT * FROM attachments
-         WHERE mistake_id = ?
-         ORDER BY created_at, id`
+        `${ATTACHMENT_SELECT}
+         WHERE a.mistake_id = ?
+         ORDER BY a.created_at, a.id`
       )
       .all(mistakeId)
       .map(mapAttachment);
@@ -433,7 +479,12 @@ export class LearningRepository {
 
   getReferencedAttachmentKeys() {
     return this.db
-      .prepare("SELECT storage_key FROM attachments ORDER BY id")
+      .prepare(
+        `SELECT storage_key FROM attachments
+         UNION
+         SELECT storage_key FROM attachment_crops
+         ORDER BY storage_key`
+      )
       .all()
       .map((row) => row.storage_key);
   }
@@ -441,15 +492,108 @@ export class LearningRepository {
   deleteStaleUnboundAttachments(cutoffIso) {
     const rows = this.db
       .prepare(
-        `SELECT id, storage_key FROM attachments
-         WHERE mistake_id IS NULL AND created_at < ?`
+        `SELECT a.id, a.storage_key, c.storage_key AS crop_storage_key
+         FROM attachments a
+         LEFT JOIN attachment_crops c ON c.attachment_id = a.id
+         WHERE a.mistake_id IS NULL AND a.created_at < ?`
       )
       .all(cutoffIso);
     const remove = this.db.prepare(
       "DELETE FROM attachments WHERE id = ? AND mistake_id IS NULL"
     );
     for (const row of rows) remove.run(row.id);
-    return rows.map((row) => row.storage_key);
+    return rows.flatMap((row) =>
+      [row.storage_key, row.crop_storage_key].filter(Boolean)
+    );
+  }
+
+  saveAttachmentCrop(input) {
+    const attachment = this.db
+      .prepare("SELECT id FROM attachments WHERE id = ?")
+      .get(input.attachmentId);
+    if (!attachment) {
+      throw new LearningValidationError(
+        "ATTACHMENT_NOT_FOUND",
+        "没有找到这张题目图片"
+      );
+    }
+    const previous = this.db
+      .prepare(
+        "SELECT storage_key FROM attachment_crops WHERE attachment_id = ?"
+      )
+      .get(input.attachmentId);
+    const timestamp = input.updatedAt || nowIso();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO attachment_crops (
+            attachment_id, storage_key, mime_type, byte_size, width, height,
+            sha256, crop_x, crop_y, crop_width, crop_height, rotation,
+            source_width, source_height, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(attachment_id) DO UPDATE SET
+            storage_key = excluded.storage_key,
+            mime_type = excluded.mime_type,
+            byte_size = excluded.byte_size,
+            width = excluded.width,
+            height = excluded.height,
+            sha256 = excluded.sha256,
+            crop_x = excluded.crop_x,
+            crop_y = excluded.crop_y,
+            crop_width = excluded.crop_width,
+            crop_height = excluded.crop_height,
+            rotation = excluded.rotation,
+            source_width = excluded.source_width,
+            source_height = excluded.source_height,
+            updated_at = excluded.updated_at`
+        )
+        .run(
+          input.attachmentId,
+          input.storageKey,
+          input.mimeType,
+          input.byteSize,
+          input.width,
+          input.height,
+          input.sha256,
+          input.cropX,
+          input.cropY,
+          input.cropWidth,
+          input.cropHeight,
+          input.rotation,
+          input.sourceWidth,
+          input.sourceHeight,
+          input.createdAt || timestamp,
+          timestamp
+        );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return {
+      attachment: this.getAttachment(input.attachmentId, {
+        includeStorageKey: true
+      }),
+      previousStorageKey: previous?.storage_key || null
+    };
+  }
+
+  getAttachmentCrop(attachmentId) {
+    return (
+      this.db
+        .prepare("SELECT * FROM attachment_crops WHERE attachment_id = ?")
+        .get(attachmentId) || null
+    );
+  }
+
+  deleteAttachmentCrop(attachmentId) {
+    const row = this.getAttachmentCrop(attachmentId);
+    if (!row) return { deleted: false, storageKey: null };
+    this.db
+      .prepare("DELETE FROM attachment_crops WHERE attachment_id = ?")
+      .run(attachmentId);
+    return { deleted: true, storageKey: row.storage_key };
   }
 
   saveAttachmentExtraction(input) {
@@ -487,7 +631,13 @@ export class LearningRepository {
 
   deleteUnboundAttachment(id) {
     const row = this.db
-      .prepare("SELECT id, mistake_id, storage_key FROM attachments WHERE id = ?")
+      .prepare(
+        `SELECT a.id, a.mistake_id, a.storage_key,
+                c.storage_key AS crop_storage_key
+         FROM attachments a
+         LEFT JOIN attachment_crops c ON c.attachment_id = a.id
+         WHERE a.id = ?`
+      )
       .get(id);
     if (!row) return { deleted: false, missing: true, bound: false };
     if (row.mistake_id !== null) {
@@ -498,7 +648,8 @@ export class LearningRepository {
       deleted: true,
       missing: false,
       bound: false,
-      storageKey: row.storage_key
+      storageKey: row.storage_key,
+      storageKeys: [row.storage_key, row.crop_storage_key].filter(Boolean)
     };
   }
 
@@ -558,7 +709,11 @@ export class LearningRepository {
     const proposedIds = normalizeAttachmentIds(attachmentIds);
     const currentRows = this.db
       .prepare(
-        "SELECT id, storage_key FROM attachments WHERE mistake_id = ? ORDER BY id"
+        `SELECT a.id, a.storage_key, c.storage_key AS crop_storage_key
+         FROM attachments a
+         LEFT JOIN attachment_crops c ON c.attachment_id = a.id
+         WHERE a.mistake_id = ?
+         ORDER BY a.id`
       )
       .all(mistakeId);
     const currentIds = currentRows.map((row) => row.id);
@@ -575,13 +730,15 @@ export class LearningRepository {
         removed.length > 0 ||
         added.length > 0 ||
         proposedIds.length !== currentIds.length,
-      removedStorageKeys: removed.map((row) => row.storage_key)
+      removedStorageKeys: removed.flatMap((row) =>
+        [row.storage_key, row.crop_storage_key].filter(Boolean)
+      )
     };
   }
 
   removeAttachmentFiles(storageKeys) {
     if (!this.attachmentDirectory) return;
-    for (const storageKey of storageKeys || []) {
+    for (const storageKey of new Set(storageKeys || [])) {
       if (!/^[a-f0-9-]{36}\.(?:jpg|png|webp)$/.test(storageKey)) continue;
       try {
         fs.unlinkSync(path.join(this.attachmentDirectory, storageKey));
@@ -1832,9 +1989,14 @@ export class LearningRepository {
   deleteMistake(id) {
     assertToolWriteAllowed();
     const storageKeys = this.db
-      .prepare("SELECT storage_key FROM attachments WHERE mistake_id = ?")
+      .prepare(
+        `SELECT a.storage_key, c.storage_key AS crop_storage_key
+         FROM attachments a
+         LEFT JOIN attachment_crops c ON c.attachment_id = a.id
+         WHERE a.mistake_id = ?`
+      )
       .all(id)
-      .map((row) => row.storage_key);
+      .flatMap((row) => [row.storage_key, row.crop_storage_key].filter(Boolean));
     this.db.exec("BEGIN IMMEDIATE");
     let deleted = false;
     try {
@@ -2518,6 +2680,7 @@ export class LearningRepository {
   deleteAllLearningData() {
     const tables = [
       "attachment_extractions",
+      "attachment_crops",
       "attachments",
       "attempt_part_results",
       "attempt_evaluations",
@@ -2535,7 +2698,11 @@ export class LearningRepository {
       "agent_runs"
     ];
     const storageKeys = this.db
-      .prepare("SELECT storage_key FROM attachments")
+      .prepare(
+        `SELECT storage_key FROM attachments
+         UNION ALL
+         SELECT storage_key FROM attachment_crops`
+      )
       .all()
       .map((row) => row.storage_key);
     const deleted = {};
