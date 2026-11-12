@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   filterMistakes,
+  matchingMistakeParts,
   mistakeMatchesQuery,
   normalizeSearchTerms
 } from "../public/mistake-search.js";
@@ -112,4 +113,23 @@ test("纯图片错题可以用“图片”搜索到", () => {
     filterMistakes(imageOnly, { query: "图片" }).map((item) => item.id),
     [4]
   );
+});
+
+test("命中来自小问时返回对应小问供结果卡展示", () => {
+  assert.deepEqual(matchingMistakeParts(mistakes[0], "先求半径"), [
+    { label: "第一问", prompt: "先求半径" }
+  ]);
+  assert.deepEqual(matchingMistakeParts(mistakes[0], "第一问"), [
+    { label: "第一问", prompt: "先求半径" }
+  ]);
+  assert.deepEqual(
+    matchingMistakeParts(mistakes[0], "圆 先求半径").map((part) => part.label),
+    ["第一问"]
+  );
+});
+
+test("题干或知识点已覆盖全部关键词时不重复展示小问", () => {
+  assert.deepEqual(matchingMistakeParts(mistakes[0], "圆 面积"), []);
+  assert.deepEqual(matchingMistakeParts(mistakes[0], "花坛"), []);
+  assert.deepEqual(matchingMistakeParts(mistakes[0], ""), []);
 });

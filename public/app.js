@@ -7,6 +7,7 @@ import {
 } from "./pagination.js";
 import {
   filterMistakes,
+  matchingMistakeParts,
   normalizeSearchTerms
 } from "./mistake-search.js";
 
@@ -71,6 +72,37 @@ function createElement(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function appendHighlightedText(target, text, terms) {
+  const value = String(text || "");
+  if (!value) return;
+  const cleaned = terms
+    .map((term) => String(term).trim())
+    .filter(Boolean);
+  if (!cleaned.length) {
+    target.append(document.createTextNode(value));
+    return;
+  }
+  const pattern = new RegExp(
+    `(${cleaned.map(escapeRegExp).join("|")})`,
+    "gi"
+  );
+  let cursor = 0;
+  for (const match of value.matchAll(pattern)) {
+    if (match.index > cursor) {
+      target.append(document.createTextNode(value.slice(cursor, match.index)));
+    }
+    target.append(createElement("mark", "mistake-search-hit", match[0]));
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < value.length) {
+    target.append(document.createTextNode(value.slice(cursor)));
+  }
 }
 
 function readableText(value) {
@@ -1162,6 +1194,7 @@ function renderMistakes() {
     renderMistakePagination(0);
     const empty = createElement("div", "list-empty");
     const hasQuery = normalizeSearchTerms(state.mistakeQuery).length > 0;
+    const allMatchCount = hasQuery ? searchMatchedMistakes().length : 0;
     let title;
     let copy;
     if (hasQuery) {
@@ -1172,7 +1205,9 @@ function renderMistakes() {
       copy =
         state.filter === "all"
           ? "换个关键词，或清除搜索查看全部错题。"
-          : "清除搜索，或切换其他分类看看。";
+          : allMatchCount
+            ? `其他分类里还有 ${allMatchCount} 道匹配的错题。`
+            : "清除搜索，或切换其他分类看看。";
     } else {
       title = state.mistakes.length
         ? "这个分类里还没有错题"
@@ -1186,10 +1221,22 @@ function renderMistakes() {
       createElement("span", "", copy)
     );
     if (hasQuery) {
+      const actions = createElement("div", "list-empty-actions");
+      if (state.filter !== "all" && allMatchCount) {
+        const viewAll = createElement(
+          "button",
+          "primary-button",
+          `查看全部 ${allMatchCount} 道`
+        );
+        viewAll.type = "button";
+        viewAll.dataset.viewAllSearch = "true";
+        actions.append(viewAll);
+      }
       const button = createElement("button", "secondary-button", "清除搜索");
       button.type = "button";
       button.dataset.clearSearch = "true";
-      empty.append(button);
+      actions.append(button);
+      empty.append(actions);
     } else if (!state.mistakes.length) {
       const button = createElement("button", "primary-button", "录入第一道错题");
       button.type = "button";
@@ -1222,6 +1269,7 @@ function renderMistakes() {
       createElement("span", "tag", mistake.errorType)
     );
     const question = createElement("p", "mistake-question", displayQuestion(mistake));
+    const matchedParts = matchingMistakeParts(mistake, state.mistakeQuery);
     const detail = createElement("div", "mistake-detail");
     detail.append(
       createElement(
@@ -1239,6 +1287,31 @@ function renderMistakes() {
       createElement("span", "", formatRelativeDate(mistake.dueAt))
     );
     main.append(line, question);
+    if (matchedParts.length) {
+      const terms = normalizeSearchTerms(state.mistakeQuery);
+      const matchLine = createElement("p", "mistake-part-match");
+      matchLine.append(
+        createElement("span", "mistake-part-match-label", "匹配小问")
+      );
+      matchedParts.slice(0, 2).forEach((part, index) => {
+        if (index) matchLine.append(document.createTextNode("；"));
+        const piece = createElement("span", "mistake-part-match-text");
+        const label = readableText(part.label);
+        const prompt = readableText(part.prompt);
+        if (label) {
+          piece.append(
+            createElement(
+              "span",
+              "mistake-part-match-name",
+              prompt ? `${label} · ` : label
+            )
+          );
+        }
+        appendHighlightedText(piece, prompt, terms);
+        matchLine.append(piece);
+      });
+      main.append(matchLine);
+    }
     if (mistake.attachments?.length) {
       const images = createElement("div", "mistake-attachments");
       for (const attachment of mistake.attachments) {
@@ -2752,6 +2825,17 @@ function bindEvents() {
     const openAdd = event.target.closest("[data-open-add]");
     if (openAdd) {
       openAddDialog();
+      return;
+    }
+    const viewAllSearch = event.target.closest("[data-view-all-search]");
+    if (viewAllSearch) {
+      state.filter = "all";
+      state.mistakePage = 1;
+      $$(".filter-chip").forEach((chip) => {
+        chip.classList.toggle("is-active", chip.dataset.filter === "all");
+      });
+      refreshMistakeList();
+      focusFirstMistake();
       return;
     }
     const clearSearch = event.target.closest("[data-clear-search]");

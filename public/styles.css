@@ -1940,6 +1940,43 @@ svg {
   -webkit-line-clamp: 2;
 }
 
+.mistake-part-match {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0 0 8px;
+  color: #6f8277;
+  font-size: var(--text-meta);
+  line-height: 1.65;
+}
+
+.mistake-part-match-label {
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--green-dark);
+  background: var(--green-pale);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.mistake-part-match-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mistake-part-match-name {
+  color: #84958b;
+  font-weight: 600;
+}
+
+.mistake-search-hit {
+  padding: 0 2px;
+  border-radius: 3px;
+  color: var(--ink);
+  background: var(--gold-pale);
+}
+
 .mistake-detail {
   color: #89988f;
   font-size: var(--text-meta);
@@ -2013,6 +2050,21 @@ svg {
 
 .list-empty .primary-button {
   margin-top: 17px;
+}
+
+.list-empty-actions {
+  display: flex;
+  width: 100%;
+  max-width: 300px;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 17px;
+}
+
+.list-empty-actions .primary-button,
+.list-empty-actions .secondary-button {
+  width: 100%;
+  margin-top: 0;
 }
 
 .knowledge-summary {
