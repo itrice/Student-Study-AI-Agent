@@ -11,7 +11,7 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261111-2" />
+    <link rel="stylesheet" href="/styles.css?v=20261112-1" />
   </head>
   <body>
     <div class="app-shell">
@@ -404,6 +404,38 @@
           </div>
 
           <div id="mistake-list" class="mistake-list"></div>
+          <nav
+            id="mistake-pagination"
+            class="mistake-pagination"
+            aria-label="错题分页"
+            hidden
+          >
+            <button
+              id="mistake-page-prev"
+              class="pagination-button pagination-step"
+              type="button"
+              aria-disabled="true"
+              disabled
+            >
+              ‹ 上一页
+            </button>
+            <div id="mistake-page-numbers" class="pagination-pages"></div>
+            <span
+              id="mistake-pagination-status"
+              class="pagination-status"
+              aria-live="polite"
+              aria-atomic="true"
+            ></span>
+            <button
+              id="mistake-page-next"
+              class="pagination-button pagination-step"
+              type="button"
+              aria-disabled="true"
+              disabled
+            >
+              下一页 ›
+            </button>
+          </nav>
         </section>
 
         <section class="view" id="view-feedback" data-view-panel="feedback">
@@ -680,6 +712,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261111-2"></script>
+    <script type="module" src="/app.js?v=20261112-1"></script>
   </body>
 </html>

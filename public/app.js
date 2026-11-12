@@ -1,4 +1,10 @@
 import { createRequestKey } from "./request-key.js";
+import {
+  clampPage,
+  getPageSize,
+  pageForFirstItem,
+  paginationWindow
+} from "./pagination.js";
 
 const state = {
   student: null,
@@ -11,6 +17,8 @@ const state = {
   knowledgeSearch: null,
   knowledgeSearchRequest: 0,
   filter: "all",
+  mistakePage: 1,
+  mistakePageSize: getPageSize(window.innerWidth),
   review: null,
   reviewSessionId: null,
   reviewAttemptsThisSession: 0,
@@ -576,15 +584,69 @@ function renderMistakeCounts() {
   }
 }
 
+function getFilteredMistakes() {
+  return state.filter === "all"
+    ? state.mistakes
+    : state.mistakes.filter((item) => item.status === state.filter);
+}
+
+function setPaginationStep(button, disabled) {
+  button.disabled = disabled;
+  button.setAttribute("aria-disabled", String(disabled));
+}
+
+function focusFirstMistake() {
+  const card = $("#mistake-list .mistake-card");
+  if (card) card.focus({ preventScroll: true });
+}
+
+function renderMistakePagination(totalItems) {
+  const nav = $("#mistake-pagination");
+  const list = $("#mistake-list");
+  const pageCount = Math.max(1, Math.ceil(totalItems / state.mistakePageSize));
+  nav.hidden = totalItems === 0 || pageCount <= 1;
+  list.classList.toggle("has-pagination", !nav.hidden);
+  if (nav.hidden) {
+    $("#mistake-page-numbers").replaceChildren();
+    $("#mistake-pagination-status").textContent = "";
+    return;
+  }
+
+  const page = state.mistakePage;
+  const numbers = $("#mistake-page-numbers");
+  numbers.replaceChildren();
+  for (const value of paginationWindow(page, pageCount)) {
+    if (value === "gap") {
+      numbers.append(createElement("span", "pagination-ellipsis", "…"));
+      continue;
+    }
+    const button = createElement("button", "pagination-button", String(value));
+    button.type = "button";
+    button.dataset.page = String(value);
+    button.setAttribute("aria-label", `第 ${value} 页`);
+    if (value === page) button.setAttribute("aria-current", "page");
+    numbers.append(button);
+  }
+
+  $("#mistake-pagination-status").textContent =
+    `第 ${page} / ${pageCount} 页 · 共 ${totalItems} 道`;
+
+  const prev = $("#mistake-page-prev");
+  prev.dataset.page = String(page - 1);
+  setPaginationStep(prev, page <= 1);
+
+  const next = $("#mistake-page-next");
+  next.dataset.page = String(page + 1);
+  setPaginationStep(next, page >= pageCount);
+}
+
 function renderMistakes() {
   const target = $("#mistake-list");
   target.replaceChildren();
-  const items =
-    state.filter === "all"
-      ? state.mistakes
-      : state.mistakes.filter((item) => item.status === state.filter);
+  const items = getFilteredMistakes();
 
   if (!items.length) {
+    renderMistakePagination(0);
     const empty = createElement("div", "list-empty");
     empty.append(
       createElement(
@@ -612,12 +674,19 @@ function renderMistakes() {
     return;
   }
 
-  items.forEach((mistake, index) => {
+  const pageCount = Math.max(1, Math.ceil(items.length / state.mistakePageSize));
+  state.mistakePage = clampPage(state.mistakePage, pageCount);
+  const start = (state.mistakePage - 1) * state.mistakePageSize;
+  const pageItems = items.slice(start, start + state.mistakePageSize);
+
+  pageItems.forEach((mistake, index) => {
     const card = createElement("article", "mistake-card");
+    card.tabIndex = -1;
+    card.setAttribute("aria-label", `第 ${start + index + 1} 道错题`);
     const number = createElement(
       "div",
       "mistake-index",
-      String(state.mistakes.indexOf(mistake) + 1).padStart(2, "0")
+      String(start + index + 1).padStart(2, "0")
     );
     const main = createElement("div", "mistake-main");
     const line = createElement("div", "mistake-topline");
@@ -679,6 +748,8 @@ function renderMistakes() {
     card.append(number, main, actions);
     target.append(card);
   });
+
+  renderMistakePagination(items.length);
 }
 
 async function loadKnowledge() {
@@ -2262,9 +2333,38 @@ function bindEvents() {
   $$(".filter-chip").forEach((button) => {
     button.addEventListener("click", () => {
       state.filter = button.dataset.filter;
+      state.mistakePage = 1;
       $$(".filter-chip").forEach((chip) => {
         chip.classList.toggle("is-active", chip === button);
       });
+      renderMistakes();
+    });
+  });
+
+  $("#mistake-pagination").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-page]");
+    if (!button || button.disabled) return;
+    const nextPage = Number(button.dataset.page);
+    if (!Number.isInteger(nextPage) || nextPage === state.mistakePage) return;
+    state.mistakePage = nextPage;
+    renderMistakes();
+    focusFirstMistake();
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    $("#mistake-list").scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start"
+    });
+  });
+
+  ["(max-width: 560px)", "(max-width: 1100px)"].forEach((query) => {
+    window.matchMedia(query).addEventListener("change", () => {
+      const nextSize = getPageSize(window.innerWidth);
+      if (nextSize === state.mistakePageSize) return;
+      const firstIndex = (state.mistakePage - 1) * state.mistakePageSize;
+      state.mistakePageSize = nextSize;
+      state.mistakePage = pageForFirstItem(firstIndex, nextSize);
       renderMistakes();
     });
   });

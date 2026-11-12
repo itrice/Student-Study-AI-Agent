@@ -1700,6 +1700,90 @@ svg {
 .mistake-list {
   display: grid;
   gap: 12px;
+  scroll-margin-top: 92px;
+}
+
+.mistake-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.mistake-pagination[hidden] {
+  display: none;
+}
+
+.pagination-button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: #4c6154;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--text-label);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  touch-action: manipulation;
+}
+
+.pagination-button:hover:not(:disabled) {
+  background: #f2f6f3;
+}
+
+.pagination-button:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+.pagination-button:disabled {
+  color: #b5c1b9;
+  cursor: default;
+}
+
+.pagination-button[aria-disabled="true"] {
+  color: #b5c1b9;
+  cursor: default;
+}
+
+.pagination-button[aria-current="page"] {
+  border-color: #d5e6da;
+  color: var(--green-dark);
+  background: var(--green-pale);
+}
+
+.pagination-step {
+  padding-inline: 16px;
+}
+
+.pagination-pages {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pagination-ellipsis {
+  min-width: 20px;
+  color: #9aa69f;
+  text-align: center;
+}
+
+.pagination-status {
+  min-width: 136px;
+  padding-inline: 6px;
+  color: #7b8b81;
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .mistake-card {
@@ -1719,6 +1803,11 @@ svg {
 .mistake-card:hover {
   border-color: #bfd1c4;
   box-shadow: 0 12px 32px rgba(24, 50, 77, 0.06);
+}
+
+.mistake-card:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
 }
 
 .mistake-index {
@@ -3221,5 +3310,44 @@ svg {
     align-items: flex-start;
     flex-direction: column;
     gap: 4px;
+  }
+}
+
+@media (max-width: 900px), (max-height: 860px) {
+  .mistake-list.has-pagination {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mistake-pagination {
+    position: sticky;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    z-index: 15;
+    margin-top: 14px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 10px 30px rgba(24, 50, 77, 0.14);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+}
+
+@media (max-width: 560px) {
+  .mistake-list {
+    scroll-margin-top: 82px;
+  }
+
+  .pagination-pages {
+    display: none;
+  }
+
+  .pagination-step {
+    flex: 0 0 auto;
+    padding-inline: 10px;
+  }
+
+  .pagination-status {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-inline: 0;
+    font-size: 12px;
   }
 }
