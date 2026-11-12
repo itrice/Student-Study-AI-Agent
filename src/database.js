@@ -1979,8 +1979,25 @@ export class LearningRepository {
     );
     const rows =
       validStatus === "all" ? statement.all() : statement.all(validStatus);
+    const partsByMistake = new Map();
+    if (rows.length) {
+      const placeholders = rows.map(() => "?").join(",");
+      const partRows = this.db
+        .prepare(
+          `SELECT mistake_id, label, prompt FROM mistake_parts
+           WHERE active = 1 AND mistake_id IN (${placeholders})
+           ORDER BY mistake_id, part_no, id`
+        )
+        .all(...rows.map((row) => row.id));
+      for (const part of partRows) {
+        const list = partsByMistake.get(part.mistake_id) || [];
+        list.push({ label: part.label, prompt: part.prompt });
+        partsByMistake.set(part.mistake_id, list);
+      }
+    }
     return rows.map((row) => {
       const mistake = mapMistake(row);
+      mistake.parts = partsByMistake.get(row.id) || [];
       mistake.attachments = this.listMistakeAttachments(mistake.id);
       return mistake;
     });

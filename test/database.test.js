@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { LearningRepository } from "../src/database.js";
+import { filterMistakes } from "../public/mistake-search.js";
 
 function createMistake(repository, overrides = {}) {
   return repository.createMistake({
@@ -104,5 +105,48 @@ test("示例数据只会在空错题库中载入一次", () => {
   const first = repository.listMistakes()[0];
   assert.equal(repository.deleteMistake(first.id), true);
   assert.equal(repository.deleteMistake(first.id), false);
+  repository.close();
+});
+
+test("错题列表项包含小问摘要，可直接用于小问检索", () => {
+  const repository = new LearningRepository();
+  repository.createMistake({
+    question: "求组合图形的面积",
+    studentAnswer: "20",
+    correctAnswer: "24",
+    analysis: "分步计算。",
+    knowledgePoint: "组合图形",
+    errorType: "漏算",
+    parts: [
+      {
+        label: "第一问",
+        prompt: "先求表面积",
+        studentAnswer: "20",
+        answerType: "number",
+        acceptedAnswers: ["20"]
+      },
+      {
+        label: "第二问",
+        prompt: "再求体积",
+        studentAnswer: "4",
+        answerType: "number",
+        acceptedAnswers: ["4"]
+      }
+    ]
+  });
+
+  const listed = repository.listMistakes();
+  assert.deepEqual(listed[0].parts, [
+    { label: "第一问", prompt: "先求表面积" },
+    { label: "第二问", prompt: "再求体积" }
+  ]);
+  assert.equal(
+    filterMistakes(listed, { query: "第一问" }).length,
+    1
+  );
+  assert.equal(
+    filterMistakes(listed, { query: "先求表面积" }).length,
+    1
+  );
   repository.close();
 });
