@@ -404,6 +404,38 @@
           </div>
 
           <div id="mistake-list" class="mistake-list"></div>
+          <nav
+            id="mistake-pagination"
+            class="mistake-pagination"
+            aria-label="错题分页"
+            hidden
+          >
+            <button
+              id="mistake-page-prev"
+              class="pagination-button pagination-step"
+              type="button"
+              aria-disabled="true"
+              disabled
+            >
+              ‹ 上一页
+            </button>
+            <div id="mistake-page-numbers" class="pagination-pages"></div>
+            <span
+              id="mistake-pagination-status"
+              class="pagination-status"
+              aria-live="polite"
+              aria-atomic="true"
+            ></span>
+            <button
+              id="mistake-page-next"
+              class="pagination-button pagination-step"
+              type="button"
+              aria-disabled="true"
+              disabled
+            >
+              下一页 ›
+            </button>
+          </nav>
         </section>
 
         <section class="view" id="view-feedback" data-view-panel="feedback">
