@@ -5,6 +5,10 @@ import {
   pageForFirstItem,
   paginationWindow
 } from "./pagination.js";
+import {
+  filterMistakes,
+  normalizeSearchTerms
+} from "./mistake-search.js";
 
 const state = {
   student: null,
@@ -17,6 +21,8 @@ const state = {
   knowledgeSearch: null,
   knowledgeSearchRequest: 0,
   filter: "all",
+  mistakeQuery: "",
+  mistakeSearchTimer: null,
   mistakePage: 1,
   mistakePageSize: getPageSize(window.innerWidth),
   review: null,
@@ -1020,17 +1026,21 @@ function renderRecent(recent) {
 
 async function loadMistakes() {
   state.mistakes = await api("/api/mistakes");
-  renderMistakeCounts();
-  renderMistakes();
+  refreshMistakeList();
+}
+
+function searchMatchedMistakes() {
+  return filterMistakes(state.mistakes, { query: state.mistakeQuery });
 }
 
 function renderMistakeCounts() {
+  const matched = searchMatchedMistakes();
   const counts = {
-    all: state.mistakes.length,
-    new: state.mistakes.filter((item) => item.status === "new").length,
-    practicing: state.mistakes.filter((item) => item.status === "practicing").length,
-    relearning: state.mistakes.filter((item) => item.status === "relearning").length,
-    mastered: state.mistakes.filter((item) => item.status === "mastered").length
+    all: matched.length,
+    new: matched.filter((item) => item.status === "new").length,
+    practicing: matched.filter((item) => item.status === "practicing").length,
+    relearning: matched.filter((item) => item.status === "relearning").length,
+    mastered: matched.filter((item) => item.status === "mastered").length
   };
   for (const [status, count] of Object.entries(counts)) {
     $(`#filter-count-${status}`).textContent = count;
@@ -1038,9 +1048,59 @@ function renderMistakeCounts() {
 }
 
 function getFilteredMistakes() {
-  return state.filter === "all"
-    ? state.mistakes
-    : state.mistakes.filter((item) => item.status === state.filter);
+  return filterMistakes(state.mistakes, {
+    status: state.filter,
+    query: state.mistakeQuery
+  });
+}
+
+function updateMistakeSearchClear() {
+  const input = $("#mistake-search-input");
+  const clear = $("#mistake-search-clear");
+  if (!input || !clear) return;
+  clear.hidden = !input.value;
+}
+
+function updateMistakeSearchStatus() {
+  const status = $("#mistake-search-status");
+  if (!status) return;
+  if (!normalizeSearchTerms(state.mistakeQuery).length) {
+    status.hidden = true;
+    status.textContent = "";
+    return;
+  }
+  const count = getFilteredMistakes().length;
+  status.hidden = false;
+  if (count) {
+    status.textContent =
+      state.filter === "all"
+        ? `找到 ${count} 道错题`
+        : `在当前分类中找到 ${count} 道错题`;
+  } else {
+    status.textContent =
+      state.filter === "all"
+        ? "没有找到匹配的错题"
+        : "当前分类中没有找到匹配的错题";
+  }
+}
+
+function refreshMistakeList() {
+  renderMistakeCounts();
+  renderMistakes();
+  updateMistakeSearchStatus();
+  updateMistakeSearchClear();
+}
+
+function clearMistakeSearch({ focus = true } = {}) {
+  const input = $("#mistake-search-input");
+  window.clearTimeout(state.mistakeSearchTimer);
+  state.mistakeSearchTimer = null;
+  state.mistakeQuery = "";
+  state.mistakePage = 1;
+  if (input) input.value = "";
+  updateMistakeSearchClear();
+  refreshMistakeList();
+  if (focus) input?.focus();
 }
 
 function setPaginationStep(button, disabled) {
@@ -1101,23 +1161,36 @@ function renderMistakes() {
   if (!items.length) {
     renderMistakePagination(0);
     const empty = createElement("div", "list-empty");
+    const hasQuery = normalizeSearchTerms(state.mistakeQuery).length > 0;
+    let title;
+    let copy;
+    if (hasQuery) {
+      title =
+        state.filter === "all"
+          ? "没有找到匹配的错题"
+          : "这个分类里没有匹配的错题";
+      copy =
+        state.filter === "all"
+          ? "换个关键词，或清除搜索查看全部错题。"
+          : "清除搜索，或切换其他分类看看。";
+    } else {
+      title = state.mistakes.length
+        ? "这个分类里还没有错题"
+        : "错题库还是空的";
+      copy = state.mistakes.length
+        ? "切换其他状态看看，或继续录入新错题。"
+        : "从一道当前不会的题开始，先诊断知识点，再通过重做确认掌握。";
+    }
     empty.append(
-      createElement(
-        "strong",
-        "",
-        state.mistakes.length
-          ? "这个分类里还没有错题"
-          : "错题库还是空的"
-      ),
-      createElement(
-        "span",
-        "",
-        state.mistakes.length
-          ? "切换其他状态看看，或继续录入新错题。"
-          : "从一道当前不会的题开始，先诊断知识点，再通过重做确认掌握。"
-      )
+      createElement("strong", "", title),
+      createElement("span", "", copy)
     );
-    if (!state.mistakes.length) {
+    if (hasQuery) {
+      const button = createElement("button", "secondary-button", "清除搜索");
+      button.type = "button";
+      button.dataset.clearSearch = "true";
+      empty.append(button);
+    } else if (!state.mistakes.length) {
       const button = createElement("button", "primary-button", "录入第一道错题");
       button.type = "button";
       button.dataset.openAdd = "true";
@@ -2681,6 +2754,11 @@ function bindEvents() {
       openAddDialog();
       return;
     }
+    const clearSearch = event.target.closest("[data-clear-search]");
+    if (clearSearch) {
+      clearMistakeSearch();
+      return;
+    }
     const reviewButton = event.target.closest("[data-review-id]");
     if (reviewButton) {
       openReview(Number(reviewButton.dataset.reviewId));
@@ -2704,6 +2782,23 @@ function bindEvents() {
 
   $("#top-add-button").addEventListener("click", openAddDialog);
   $("#quick-add-button").addEventListener("click", openAddDialog);
+  $("#mistake-search-input").addEventListener("input", (event) => {
+    state.mistakeQuery = event.target.value;
+    updateMistakeSearchClear();
+    window.clearTimeout(state.mistakeSearchTimer);
+    state.mistakeSearchTimer = window.setTimeout(() => {
+      state.mistakePage = 1;
+      refreshMistakeList();
+    }, 120);
+  });
+  $("#mistake-search-input").addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !event.target.value) return;
+    event.preventDefault();
+    clearMistakeSearch();
+  });
+  $("#mistake-search-clear").addEventListener("click", () => {
+    clearMistakeSearch();
+  });
   $("#take-photo-button").addEventListener("click", () => {
     $("#take-photo-input").click();
   });
@@ -2814,12 +2909,14 @@ function bindEvents() {
 
   $$(".filter-chip").forEach((button) => {
     button.addEventListener("click", () => {
+      window.clearTimeout(state.mistakeSearchTimer);
+      state.mistakeSearchTimer = null;
       state.filter = button.dataset.filter;
       state.mistakePage = 1;
       $$(".filter-chip").forEach((chip) => {
         chip.classList.toggle("is-active", chip === button);
       });
-      renderMistakes();
+      refreshMistakeList();
     });
   });
 
