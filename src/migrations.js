@@ -1031,6 +1031,323 @@ const IMAGE_CROPS_REQUIRED_COLUMNS = {
   ]
 };
 
+const TEXTBOOK_SWITCHING_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS textbooks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    textbook_key TEXT NOT NULL UNIQUE,
+    edition_key TEXT NOT NULL,
+    publisher TEXT NOT NULL,
+    edition TEXT NOT NULL,
+    grade INTEGER NOT NULL,
+    semester TEXT NOT NULL CHECK (semester IN ('full', 'upper', 'lower')),
+    display_name TEXT NOT NULL,
+    selectable INTEGER NOT NULL DEFAULT 1 CHECK (selectable IN (0, 1)),
+    review_status TEXT NOT NULL DEFAULT 'unreviewed'
+      CHECK (review_status IN ('unreviewed', 'self_reviewed', 'teacher_reviewed')),
+    source_key TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(edition_key, grade, semester)
+  );
+
+  CREATE TABLE IF NOT EXISTS textbook_units (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    textbook_id INTEGER NOT NULL,
+    unit_no INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    review_status TEXT NOT NULL DEFAULT 'unreviewed'
+      CHECK (review_status IN ('unreviewed', 'self_reviewed', 'teacher_reviewed')),
+    source_key TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(textbook_id) REFERENCES textbooks(id) ON DELETE CASCADE,
+    UNIQUE(textbook_id, unit_no)
+  );
+
+  CREATE TABLE IF NOT EXISTS curriculum_points (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    textbook_id INTEGER NOT NULL,
+    unit_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    aliases_json TEXT NOT NULL DEFAULT '[]',
+    semantic_keys_json TEXT NOT NULL DEFAULT '[]',
+    source_knowledge_slug TEXT,
+    position INTEGER NOT NULL,
+    review_status TEXT NOT NULL DEFAULT 'unreviewed'
+      CHECK (review_status IN ('unreviewed', 'self_reviewed', 'teacher_reviewed')),
+    source_key TEXT NOT NULL DEFAULT '',
+    content_version TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(textbook_id) REFERENCES textbooks(id) ON DELETE CASCADE,
+    FOREIGN KEY(unit_id) REFERENCES textbook_units(id) ON DELETE CASCADE,
+    UNIQUE(textbook_id, name),
+    UNIQUE(textbook_id, slug)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_curriculum_points_textbook
+  ON curriculum_points(textbook_id, position, id);
+
+  CREATE TABLE IF NOT EXISTS curriculum_mappings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mapping_version TEXT NOT NULL,
+    source_textbook_id INTEGER NOT NULL,
+    target_textbook_id INTEGER NOT NULL,
+    source_point_id INTEGER NOT NULL,
+    target_point_id INTEGER,
+    status TEXT NOT NULL
+      CHECK (status IN ('exact', 'renamed', 'merged', 'split', 'uncovered')),
+    requires_confirmation INTEGER NOT NULL DEFAULT 0
+      CHECK (requires_confirmation IN (0, 1)),
+    confidence REAL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(source_textbook_id) REFERENCES textbooks(id) ON DELETE CASCADE,
+    FOREIGN KEY(target_textbook_id) REFERENCES textbooks(id) ON DELETE CASCADE,
+    FOREIGN KEY(source_point_id) REFERENCES curriculum_points(id) ON DELETE CASCADE,
+    FOREIGN KEY(target_point_id) REFERENCES curriculum_points(id) ON DELETE SET NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_curriculum_mappings_lookup
+  ON curriculum_mappings(
+    mapping_version, source_textbook_id, target_textbook_id, source_point_id
+  );
+
+  CREATE TABLE IF NOT EXISTS curriculum_switch_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    operation TEXT NOT NULL DEFAULT 'switch'
+      CHECK (operation IN ('switch', 'manual_resolve')),
+    from_textbook_id INTEGER,
+    to_textbook_id INTEGER NOT NULL,
+    from_grade INTEGER,
+    from_semester TEXT,
+    to_grade INTEGER NOT NULL,
+    to_semester TEXT NOT NULL,
+    mapping_version TEXT NOT NULL,
+    preview_hash TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    actor TEXT NOT NULL DEFAULT '',
+    confirmer TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL
+      CHECK (status IN ('confirmed', 'failed', 'rolled_back')),
+    affected_count INTEGER NOT NULL DEFAULT 0,
+    auto_count INTEGER NOT NULL DEFAULT 0,
+    manual_count INTEGER NOT NULL DEFAULT 0,
+    unmapped_count INTEGER NOT NULL DEFAULT 0,
+    conflict_count INTEGER NOT NULL DEFAULT 0,
+    result_json TEXT NOT NULL DEFAULT '{}',
+    rollback_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY(from_textbook_id) REFERENCES textbooks(id),
+    FOREIGN KEY(to_textbook_id) REFERENCES textbooks(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_curriculum_switch_logs_student
+  ON curriculum_switch_logs(student_id, created_at, id);
+
+  CREATE TABLE IF NOT EXISTS curriculum_switch_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    switch_log_id INTEGER NOT NULL,
+    mistake_id INTEGER NOT NULL,
+    before_textbook_id INTEGER,
+    after_textbook_id INTEGER NOT NULL,
+    before_curriculum_point_id INTEGER,
+    after_curriculum_point_id INTEGER,
+    before_knowledge_point TEXT NOT NULL DEFAULT '',
+    after_knowledge_point TEXT NOT NULL DEFAULT '',
+    mapping_status TEXT NOT NULL,
+    resolution_mode TEXT NOT NULL
+      CHECK (resolution_mode IN ('automatic', 'manual', 'unmapped', 'restored')),
+    conflict INTEGER NOT NULL DEFAULT 0 CHECK (conflict IN (0, 1)),
+    unmapped INTEGER NOT NULL DEFAULT 0 CHECK (unmapped IN (0, 1)),
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(switch_log_id) REFERENCES curriculum_switch_logs(id) ON DELETE CASCADE,
+    FOREIGN KEY(before_textbook_id) REFERENCES textbooks(id),
+    FOREIGN KEY(after_textbook_id) REFERENCES textbooks(id),
+    FOREIGN KEY(before_curriculum_point_id) REFERENCES curriculum_points(id),
+    FOREIGN KEY(after_curriculum_point_id) REFERENCES curriculum_points(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_curriculum_switch_items_log
+  ON curriculum_switch_items(switch_log_id, id);
+
+  CREATE INDEX IF NOT EXISTS idx_curriculum_switch_items_mistake
+  ON curriculum_switch_items(mistake_id, id);
+
+  CREATE TABLE IF NOT EXISTS report_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    report_type TEXT NOT NULL CHECK (report_type IN ('daily', 'weekly')),
+    period_key TEXT NOT NULL,
+    textbook_id INTEGER,
+    textbook_label TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL,
+    switch_log_id INTEGER,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY(textbook_id) REFERENCES textbooks(id),
+    FOREIGN KEY(switch_log_id) REFERENCES curriculum_switch_logs(id) ON DELETE SET NULL,
+    UNIQUE(student_id, report_type, period_key)
+  );
+
+  CREATE TRIGGER IF NOT EXISTS curriculum_switch_logs_immutable_update
+  BEFORE UPDATE ON curriculum_switch_logs
+  BEGIN
+    SELECT RAISE(ABORT, '教材切换审计日志不可修改');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS curriculum_switch_items_immutable_update
+  BEFORE UPDATE ON curriculum_switch_items
+  BEGIN
+    SELECT RAISE(ABORT, '教材切换明细不可修改');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS curriculum_switch_logs_immutable_delete
+  BEFORE DELETE ON curriculum_switch_logs
+  BEGIN
+    SELECT RAISE(ABORT, '教材切换审计日志不可删除');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS curriculum_switch_items_immutable_delete
+  BEFORE DELETE ON curriculum_switch_items
+  BEGIN
+    SELECT RAISE(ABORT, '教材切换明细不可删除');
+  END;
+
+  ALTER TABLE students ADD COLUMN textbook_id INTEGER
+    REFERENCES textbooks(id);
+  ALTER TABLE students ADD COLUMN textbook_selected_at TEXT;
+
+  ALTER TABLE mistakes ADD COLUMN textbook_id INTEGER
+    REFERENCES textbooks(id);
+  ALTER TABLE mistakes ADD COLUMN curriculum_point_id INTEGER
+    REFERENCES curriculum_points(id);
+  ALTER TABLE mistakes ADD COLUMN curriculum_status TEXT NOT NULL DEFAULT 'legacy'
+    CHECK (curriculum_status IN ('legacy', 'mapped', 'unmapped', 'needs_confirmation'));
+
+  CREATE INDEX IF NOT EXISTS idx_mistakes_curriculum
+  ON mistakes(student_id, textbook_id, curriculum_point_id);
+`;
+
+const TEXTBOOK_SWITCHING_REQUIRED_COLUMNS = {
+  textbooks: [
+    "id",
+    "textbook_key",
+    "edition_key",
+    "publisher",
+    "edition",
+    "grade",
+    "semester",
+    "display_name",
+    "selectable",
+    "review_status",
+    "source_key",
+    "created_at",
+    "updated_at"
+  ],
+  textbook_units: [
+    "id",
+    "textbook_id",
+    "unit_no",
+    "title",
+    "position",
+    "review_status",
+    "source_key",
+    "created_at",
+    "updated_at"
+  ],
+  curriculum_points: [
+    "id",
+    "textbook_id",
+    "unit_id",
+    "name",
+    "slug",
+    "aliases_json",
+    "semantic_keys_json",
+    "source_knowledge_slug",
+    "position",
+    "review_status",
+    "source_key",
+    "content_version",
+    "created_at",
+    "updated_at"
+  ],
+  curriculum_mappings: [
+    "id",
+    "mapping_version",
+    "source_textbook_id",
+    "target_textbook_id",
+    "source_point_id",
+    "target_point_id",
+    "status",
+    "requires_confirmation",
+    "confidence",
+    "note",
+    "created_at"
+  ],
+  curriculum_switch_logs: [
+    "id",
+    "student_id",
+    "operation",
+    "from_textbook_id",
+    "to_textbook_id",
+    "from_grade",
+    "from_semester",
+    "to_grade",
+    "to_semester",
+    "mapping_version",
+    "preview_hash",
+    "idempotency_key",
+    "actor",
+    "confirmer",
+    "status",
+    "affected_count",
+    "auto_count",
+    "manual_count",
+    "unmapped_count",
+    "conflict_count",
+    "result_json",
+    "rollback_json",
+    "created_at"
+  ],
+  curriculum_switch_items: [
+    "id",
+    "switch_log_id",
+    "mistake_id",
+    "before_textbook_id",
+    "after_textbook_id",
+    "before_curriculum_point_id",
+    "after_curriculum_point_id",
+    "before_knowledge_point",
+    "after_knowledge_point",
+    "mapping_status",
+    "resolution_mode",
+    "conflict",
+    "unmapped",
+    "detail_json",
+    "created_at"
+  ],
+  report_snapshots: [
+    "id",
+    "student_id",
+    "report_type",
+    "period_key",
+    "textbook_id",
+    "textbook_label",
+    "payload_json",
+    "switch_log_id",
+    "created_at"
+  ],
+  students: ["textbook_id", "textbook_selected_at"],
+  mistakes: ["textbook_id", "curriculum_point_id", "curriculum_status"]
+};
+
 function assertRequiredColumns(db, table, requiredColumns) {
   const rows = db.prepare(`PRAGMA table_info("${table}")`).all();
   if (!rows.length) {
@@ -1114,6 +1431,10 @@ const IMAGE_ATTACHMENTS_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
 
 const IMAGE_CROPS_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: IMAGE_CROPS_SCHEMA_SQL
+});
+
+const TEXTBOOK_SWITCHING_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: TEXTBOOK_SWITCHING_SCHEMA_SQL
 });
 
 export const SCHEMA_MIGRATIONS = [
@@ -1257,6 +1578,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(IMAGE_CROPS_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         IMAGE_CROPS_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 12,
+    name: "textbook_switching",
+    checksumSource: TEXTBOOK_SWITCHING_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(TEXTBOOK_SWITCHING_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        TEXTBOOK_SWITCHING_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

@@ -18,6 +18,15 @@ const state = {
   mistakes: [],
   knowledge: [],
   knowledgeBase: null,
+  curriculum: null,
+  curriculumUnmapped: null,
+  curriculumPreview: null,
+  curriculumChoices: {},
+  curriculumConfirmSplits: false,
+  curriculumConfirmUnmapped: false,
+  curriculumStage: "preview",
+  curriculumHistory: [],
+  curriculumHistoryMistake: null,
   feedback: null,
   knowledgeSearch: null,
   knowledgeSearchRequest: 0,
@@ -909,8 +918,22 @@ async function loadBootstrap() {
   state.student = data.student;
   state.knowledgePoints = data.knowledgePoints;
   $("#student-name").textContent = data.student.name;
+  if (data.currentTextbook) {
+    state.curriculum = {
+      ...(state.curriculum || {}),
+      student: data.student,
+      currentTextbook: data.currentTextbook,
+      textbooks: data.textbooks || [],
+      mappingVersion: data.mappingVersion
+    };
+    $("#student-textbook-label").textContent = `小学数学 · ${data.currentTextbook.displayName}`;
+    $("#current-textbook-label").textContent = data.currentTextbook.displayName;
+  }
 
   const select = $("#knowledge-point-select");
+  while (select.options.length > 1) {
+    select.remove(1);
+  }
   for (const point of data.knowledgePoints) {
     const option = createElement("option", "", point.name);
     option.value = point.name;
@@ -1352,9 +1375,12 @@ function renderMistakes() {
 }
 
 async function loadKnowledge() {
-  const [summaryResult, baseResult] = await Promise.allSettled([
+  const [summaryResult, baseResult, curriculumResult, unmappedResult, historyResult] = await Promise.allSettled([
     api("/api/knowledge-points"),
-    api("/api/knowledge-base")
+    api("/api/knowledge-base"),
+    api("/api/curriculum"),
+    api("/api/curriculum/unmapped"),
+    api("/api/curriculum/switches?limit=10")
   ]);
   if (summaryResult.status === "fulfilled") {
     state.knowledge = summaryResult.value;
@@ -1362,8 +1388,24 @@ async function loadKnowledge() {
   if (baseResult.status === "fulfilled") {
     state.knowledgeBase = baseResult.value;
   }
+  if (curriculumResult.status === "fulfilled") {
+    state.curriculum = curriculumResult.value;
+    $("#current-textbook-label").textContent =
+      curriculumResult.value.currentTextbook?.displayName || "未设置";
+    $("#student-textbook-label").textContent = curriculumResult.value.currentTextbook
+      ? `小学数学 · ${curriculumResult.value.currentTextbook.displayName}`
+      : "小学数学";
+  }
+  if (unmappedResult.status === "fulfilled") {
+    state.curriculumUnmapped = unmappedResult.value;
+  }
+  if (historyResult.status === "fulfilled") {
+    state.curriculumHistory = historyResult.value;
+  }
   renderKnowledge();
   renderKnowledgeBase();
+  renderCurriculumUnmapped();
+  renderCurriculumHistory();
   renderWeakness();
   const failures = [
     summaryResult.status === "rejected"
@@ -1371,6 +1413,15 @@ async function loadKnowledge() {
       : null,
     baseResult.status === "rejected"
       ? `知识库：${baseResult.reason?.message || "加载失败"}`
+      : null,
+    curriculumResult.status === "rejected"
+      ? `教材目录：${curriculumResult.reason?.message || "加载失败"}`
+      : null,
+    unmappedResult.status === "rejected"
+      ? `未映射处理：${unmappedResult.reason?.message || "加载失败"}`
+      : null,
+    historyResult.status === "rejected"
+      ? `切换审计：${historyResult.reason?.message || "加载失败"}`
       : null
   ].filter(Boolean);
   if (failures.length) {
@@ -1393,7 +1444,9 @@ function renderKnowledge() {
     {
       label: "已覆盖知识点",
       value: studied.length,
-      note: `共 ${state.knowledge.length} 个六年级重点知识点`
+      note: `共 ${state.knowledge.length} 个知识点 · ${
+        state.curriculum?.currentTextbook?.displayName || "当前教材"
+      }`
     },
     {
       label: "需要重点巩固",
@@ -1418,19 +1471,42 @@ function renderKnowledge() {
   }
 
   const sorted = [...state.knowledge].sort((a, b) => {
+    const unitA = a.unitNo ?? Number.MAX_SAFE_INTEGER;
+    const unitB = b.unitNo ?? Number.MAX_SAFE_INTEGER;
+    if (unitA !== unitB) return unitA - unitB;
     if (a.mastery === null && b.mastery === null) return a.id - b.id;
     if (a.mastery === null) return 1;
     if (b.mastery === null) return -1;
     return a.mastery - b.mastery || b.total - a.total;
   });
 
+  let currentUnit = null;
   for (const point of sorted) {
+    const unitLabel = point.unitNo
+      ? `第 ${point.unitNo} 单元 · ${point.unitTitle}`
+      : "当前教材未覆盖/待归类";
+    if (unitLabel !== currentUnit) {
+      currentUnit = unitLabel;
+      const heading = createElement("div", "knowledge-unit-heading");
+      heading.append(
+        createElement("span", "", unitLabel),
+        createElement(
+          "small",
+          "",
+          point.textbookLabel || state.curriculum?.currentTextbook?.displayName || ""
+        )
+      );
+      grid.append(heading);
+    }
     const card = createElement(
       "article",
       `knowledge-card${point.mastery === null ? " is-empty" : point.mastery < 70 ? " is-weak" : ""}`
     );
     const head = createElement("div", "knowledge-card-head");
     head.append(createElement("h3", "", point.name));
+    if (!point.mapped) {
+      card.classList.add("is-unmapped");
+    }
     const score = createElement("div", "knowledge-score");
     if (point.mastery === null) {
       score.append(document.createTextNode("--"));
@@ -1449,6 +1525,11 @@ function renderKnowledge() {
 
     const meta = createElement("div", "knowledge-meta");
     meta.append(
+      createElement(
+        "span",
+        "",
+        point.mapped ? point.unitTitle || "当前教材知识点" : "需要归类"
+      ),
       createElement("span", "", point.total ? `${point.total} 道错题` : "暂无题目"),
       createElement(
         "span",
@@ -1584,6 +1665,660 @@ function renderKnowledgeBase() {
   }
 }
 
+const curriculumStatusLabels = {
+  exact: "精确",
+  renamed: "改名",
+  merged: "合并",
+  split: "拆分",
+  uncovered: "未覆盖",
+  restored: "历史还原",
+  manual: "人工确认",
+  unmapped: "待归类",
+  conflict: "冲突"
+};
+
+function curriculumStatusBadge(status) {
+  return createElement(
+    "span",
+    `curriculum-status curriculum-status-${status}`,
+    curriculumStatusLabels[status] || status || "待处理"
+  );
+}
+
+function curriculumPointOptions(points, selectedId = null) {
+  const fragment = document.createDocumentFragment();
+  let currentUnit = null;
+  for (const point of points) {
+    const unit = `第 ${point.unitNo} 单元 · ${point.unitTitle}`;
+    if (unit !== currentUnit) {
+      currentUnit = unit;
+      const group = document.createElement("optgroup");
+      group.label = unit;
+      fragment.append(group);
+    }
+    const option = createElement("option", "", point.name);
+    option.value = String(point.id);
+    option.selected = Number(selectedId) === point.id;
+    fragment.lastElementChild.append(option);
+  }
+  return fragment;
+}
+
+function renderCurriculumUnmapped() {
+  const panel = $("#curriculum-unmapped");
+  const list = $("#curriculum-unmapped-list");
+  const count = $("#curriculum-unmapped-count");
+  if (!panel || !list) return;
+  const data = state.curriculumUnmapped;
+  const items = data?.items || [];
+  panel.hidden = items.length === 0;
+  if (!items.length) {
+    list.replaceChildren();
+    return;
+  }
+  count.textContent = `${items.length} 道待处理`;
+  list.replaceChildren();
+  for (const item of items) {
+    const row = createElement("article", "curriculum-unmapped-item");
+    const main = createElement("div", "curriculum-unmapped-main");
+    const head = createElement("div", "curriculum-unmapped-head");
+    head.append(
+      createElement("strong", "", displayQuestion(item) || `错题 #${item.id}`),
+      curriculumStatusBadge(item.curriculumStatus)
+    );
+    main.append(
+      head,
+      createElement(
+        "span",
+        "curriculum-unmapped-meta",
+        `当前记录：${item.knowledgePoint || "待归类"}`
+      )
+    );
+    const controls = createElement("div", "curriculum-unmapped-controls");
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", `为错题 ${item.id} 选择当前教材知识点`);
+    const placeholder = createElement("option", "", "请选择当前教材知识点");
+    placeholder.value = "";
+    select.append(placeholder);
+    select.append(curriculumPointOptions(data.targetPoints || []));
+    const button = createElement("button", "secondary-button compact", "归类");
+    button.type = "button";
+    button.addEventListener("click", async () => {
+      if (!select.value) {
+        showToast("请选择一个当前教材知识点", true);
+        return;
+      }
+      setBusy(button, true, "归类中…");
+      try {
+        await api(`/api/curriculum/mistakes/${item.id}/resolve`, {
+          method: "POST",
+          headers: { "Idempotency-Key": createRequestKey() },
+          body: JSON.stringify({
+            targetCurriculumPointId: Number(select.value)
+          })
+        });
+        showToast("已归类到当前教材知识点");
+        await Promise.allSettled([
+          loadKnowledge(),
+          loadMistakes(),
+          loadDashboard()
+        ]);
+      } catch (error) {
+        showToast(error.message, true);
+      } finally {
+        setBusy(button, false);
+      }
+    });
+    controls.append(select, button);
+    row.append(main, controls);
+    list.append(row);
+  }
+}
+
+async function loadCurriculumHistory(mistakeId = null) {
+  const query = mistakeId
+    ? `?mistakeId=${encodeURIComponent(mistakeId)}&limit=20`
+    : "?limit=10";
+  try {
+    state.curriculumHistory = await api(`/api/curriculum/switches${query}`);
+    state.curriculumHistoryMistake = mistakeId || null;
+    renderCurriculumHistory();
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+function renderCurriculumHistory() {
+  const list = $("#curriculum-history-list");
+  if (!list) return;
+  const logs = state.curriculumHistory || [];
+  list.replaceChildren();
+  if (!logs.length) {
+    list.append(
+      createElement(
+        "p",
+        "curriculum-history-empty",
+        state.curriculumHistoryMistake
+          ? `没有找到错题 #${state.curriculumHistoryMistake} 的切换记录。`
+          : "还没有教材切换记录。"
+      )
+    );
+    return;
+  }
+  for (const log of logs) {
+    const item = createElement("article", "curriculum-history-item");
+    const isManualResolve = log.operation === "manual_resolve";
+    const head = createElement("div", "curriculum-history-head");
+    head.append(
+      createElement(
+        "strong",
+        "",
+        isManualResolve
+          ? `${log.toTextbook?.displayName || "未知教材"} · 人工归类`
+          : `${log.fromTextbook?.displayName || "未知教材"} → ${
+              log.toTextbook?.displayName || "未知教材"
+            }`
+      ),
+      createElement("span", "curriculum-history-time", formatDate(log.createdAt))
+    );
+    item.append(head);
+    item.append(
+      createElement(
+        "p",
+        "curriculum-history-meta",
+        `#${log.id} · ${isManualResolve ? "未映射归类" : "教材切换"} · 操作人 ${
+          log.actor || "未记录"
+        } · 确认人 ${
+          log.confirmer || "未记录"
+        } · 映射版本 ${log.mappingVersion}`
+      ),
+      createElement(
+        "p",
+        "curriculum-history-meta",
+        `影响 ${log.affectedCount} 道 · 自动 ${log.autoCount} · 人工 ${log.manualCount} · 待归类 ${log.unmappedCount} · 冲突 ${log.conflictCount}`
+      )
+    );
+    if (log.items?.length) {
+      const details = document.createElement("details");
+      details.className = "curriculum-history-details";
+      details.append(
+        createElement("summary", "", `逐题追溯（${log.items.length}）`)
+      );
+      for (const row of log.items) {
+        const line = createElement("div", "curriculum-history-row");
+        line.append(
+          createElement("span", "", `错题 #${row.mistakeId}`),
+          createElement(
+            "span",
+            "",
+            `${row.beforeKnowledgePoint || "未分类"} → ${
+              row.afterKnowledgePoint || "待归类"
+            }`
+          ),
+          createElement(
+            "span",
+            "curriculum-history-mode",
+            `${row.mappingStatus} · ${
+              row.resolutionMode === "automatic"
+                ? "自动"
+                : row.resolutionMode === "manual"
+                  ? "人工"
+                  : row.resolutionMode === "restored"
+                    ? "历史还原"
+                    : "待归类"
+            }`
+          )
+        );
+        details.append(line);
+      }
+      item.append(details);
+    }
+    list.append(item);
+  }
+}
+
+function resetCurriculumDialog() {
+  state.curriculumPreview = null;
+  state.curriculumChoices = {};
+  state.curriculumConfirmSplits = false;
+  state.curriculumConfirmUnmapped = false;
+  $("#curriculum-preview").hidden = true;
+  $("#curriculum-preview").replaceChildren();
+  $("#curriculum-step-confirm").hidden = true;
+  $("#curriculum-step-confirm").replaceChildren();
+  $("#curriculum-step-result").hidden = true;
+  $("#curriculum-step-result").replaceChildren();
+  $("#curriculum-step-preview").hidden = false;
+  $("#curriculum-preview").hidden = false;
+  $("#curriculum-dialog-title").textContent = "预演切换影响";
+  $("#curriculum-dialog-footnote").textContent = "预演不会修改任何数据。";
+  $("#curriculum-preview-button").hidden = false;
+  $("#curriculum-confirm-button").hidden = true;
+  $("#curriculum-execute-button").hidden = true;
+  $("#curriculum-done-button").hidden = true;
+  state.curriculumStage = "preview";
+}
+
+function populateCurriculumTargets() {
+  const select = $("#curriculum-target-select");
+  select.replaceChildren();
+  const textbooks = state.curriculum?.textbooks || [];
+  const currentId = state.curriculum?.currentTextbook?.id;
+  for (const textbook of textbooks) {
+    if (textbook.id === currentId) continue;
+    const option = createElement("option", "", textbook.displayName);
+    option.value = String(textbook.id);
+    select.append(option);
+  }
+  if (!select.options.length) {
+    const option = createElement("option", "", "没有可切换的教材");
+    option.value = "";
+    select.append(option);
+  }
+}
+
+async function openCurriculumDialog() {
+  try {
+    if (!state.curriculum) {
+      state.curriculum = await api("/api/curriculum");
+    }
+    populateCurriculumTargets();
+    resetCurriculumDialog();
+    $("#curriculum-dialog").showModal();
+    $("#curriculum-target-select").focus();
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+function closeCurriculumDialog() {
+  const dialog = $("#curriculum-dialog");
+  if (dialog.open) dialog.close();
+  resetCurriculumDialog();
+}
+
+function curriculumMetric(label, value, note = "") {
+  const card = createElement("div", "curriculum-metric");
+  card.append(
+    createElement("small", "", label),
+    createElement("strong", "", String(value))
+  );
+  if (note) card.append(createElement("span", "", note));
+  return card;
+}
+
+function curriculumMappingGroupKey(item) {
+  return item.resolutionKey || `mistake:${item.mistakeId}`;
+}
+
+function renderCurriculumMappingTable(preview) {
+  const section = createElement("section", "curriculum-section");
+  section.append(createElement("h3", "", "12 个知识点映射"));
+  const list = createElement("div", "curriculum-mapping-list");
+  for (const group of preview.mappingTable || []) {
+    const row = createElement("div", "curriculum-mapping-row");
+    row.append(
+      createElement("strong", "", group.sourcePointName),
+      curriculumStatusBadge(group.status),
+      createElement(
+        "span",
+        "curriculum-mapping-target",
+        group.mappings.length
+          ? group.mappings.map((mapping) => mapping.targetPointName).join("、")
+          : "当前教材未覆盖/待归类"
+      )
+    );
+    list.append(row);
+  }
+  section.append(list);
+  return section;
+}
+
+function renderCurriculumChoices(preview) {
+  const groups = new Map();
+  for (const item of preview.items) {
+    if (!item.requiresConfirmation && !item.conflict && !item.unmapped) continue;
+    const key = curriculumMappingGroupKey(item);
+    if (!groups.has(key)) groups.set(key, item);
+  }
+  if (!groups.size) return null;
+  const section = createElement("section", "curriculum-section");
+  section.append(
+    createElement("h3", "", "需要人工确认的映射"),
+    createElement(
+      "p",
+      "curriculum-note",
+      "拆分或冲突项必须逐组选择；未覆盖项可保留为待归类，不会被删除。"
+    )
+  );
+  for (const [key, item] of groups) {
+    const row = createElement("div", "curriculum-choice");
+    const title = createElement("div", "curriculum-choice-title");
+    title.append(
+      createElement("strong", "", item.beforeKnowledgePoint || "未分类"),
+      curriculumStatusBadge(item.mappingStatus)
+    );
+    const select = document.createElement("select");
+    select.setAttribute(
+      "aria-label",
+      `为 ${item.beforeKnowledgePoint || "未分类"} 选择目标知识点`
+    );
+    const option = createElement("option", "", "保留为当前教材未覆盖/待归类");
+    option.value = "";
+    select.append(option);
+    select.append(
+      curriculumPointOptions(
+        preview.targetPoints,
+        item.targetPointId || preview.targetPoints[0]?.id
+      )
+    );
+    state.curriculumChoices[key] = item.targetPointId || null;
+    select.value = item.targetPointId ? String(item.targetPointId) : "";
+    select.addEventListener("change", () => {
+      state.curriculumChoices[key] = select.value
+        ? Number(select.value)
+        : null;
+    });
+    row.append(title, select);
+    section.append(row);
+  }
+  const confirm = createElement("label", "curriculum-confirm-unmapped");
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.id = "curriculum-confirm-splits";
+  checkbox.addEventListener("change", () => {
+    state.curriculumConfirmSplits = checkbox.checked;
+  });
+  confirm.append(
+    checkbox,
+    createElement("span", "", "我已核对以上拆分/冲突映射，并确认所选目标知识点。")
+  );
+  section.append(confirm);
+  return section;
+}
+
+function renderCurriculumPreview(preview) {
+  const target = $("#curriculum-preview");
+  target.replaceChildren();
+  target.hidden = false;
+  const summary = preview.summary;
+  const heading = createElement("div", "curriculum-preview-heading");
+  heading.append(
+    createElement("strong", "", `${preview.fromTextbook.displayName} → ${preview.targetTextbook.displayName}`),
+    createElement(
+      "span",
+      "curriculum-note",
+      `映射版本 ${preview.mappingVersion} · 预演不会改数据`
+    )
+  );
+  target.append(heading);
+  const metrics = createElement("div", "curriculum-metrics");
+  metrics.append(
+    curriculumMetric("受影响错题", summary.affectedMistakes, "全部保留题目与答案"),
+    curriculumMetric("自动映射", summary.autoMapped, "精确/改名/合并"),
+    curriculumMetric("历史还原", summary.restored, "按切换审计还原"),
+    curriculumMetric("需人工确认", summary.needsConfirmation, "拆分/冲突/未覆盖"),
+    curriculumMetric("未覆盖", summary.unmapped, "默认保留为待归类"),
+    curriculumMetric("附件", summary.attachments, "原图与文件不动"),
+    curriculumMetric("作答历史", summary.attempts, "不重算"),
+    curriculumMetric("掌握证据", summary.masteryEvidence, "掌握状态不清零"),
+    curriculumMetric("复习队列", summary.activeReviews, "到期时间保留"),
+    curriculumMetric("历史报告", summary.historicalReportDays, "按当时教材快照")
+  );
+  target.append(metrics);
+
+  if (preview.affectedKnowledgePoints.length) {
+    const affected = createElement("section", "curriculum-section");
+    affected.append(createElement("h3", "", "受影响知识点"));
+    const tags = createElement("div", "curriculum-tags");
+    for (const item of preview.affectedKnowledgePoints) {
+      tags.append(
+        createElement(
+          "span",
+          "tag",
+          `${item.knowledgePoint} · ${item.count} 道 → ${item.targetPoints.join("、")}`
+        )
+      );
+    }
+    affected.append(tags);
+    target.append(affected);
+  }
+
+  target.append(renderCurriculumMappingTable(preview));
+  const choices = renderCurriculumChoices(preview);
+  if (choices) target.append(choices);
+
+  if (summary.unmapped > 0 || preview.items.some((item) => item.unmapped)) {
+    const confirm = createElement("label", "curriculum-confirm-unmapped");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.id = "curriculum-confirm-unmapped";
+    checkbox.addEventListener("change", () => {
+      state.curriculumConfirmUnmapped = checkbox.checked;
+    });
+    confirm.append(
+      checkbox,
+      createElement(
+        "span",
+        "",
+        "我确认将未覆盖项保留为“当前教材未覆盖/待归类”，不删除错题，也不强行塞入错误知识点。"
+      )
+    );
+    target.append(confirm);
+  }
+  const impacts = createElement("section", "curriculum-section");
+  impacts.append(createElement("h3", "", "数据影响"));
+  const impactList = createElement("ul", "curriculum-impact-list");
+  for (const value of Object.values(preview.impacts)) {
+    impactList.append(createElement("li", "", value));
+  }
+  impacts.append(impactList);
+  target.append(impacts);
+}
+
+function renderCurriculumConfirm(preview) {
+  const target = $("#curriculum-step-confirm");
+  target.replaceChildren();
+  const summary = preview.summary;
+  target.append(
+    createElement("h3", "", "请确认切换"),
+    createElement(
+      "p",
+      "curriculum-confirm-copy",
+      `即将把 ${preview.fromTextbook.displayName} 切换为 ${preview.targetTextbook.displayName}。确认后会在一个事务中完成重映射、审计写入和历史报告快照；任一步失败都会完整回滚。`
+    )
+  );
+  const metrics = createElement("div", "curriculum-metrics");
+  metrics.append(
+    curriculumMetric("自动/历史还原", summary.autoMapped + summary.restored),
+    curriculumMetric("人工选择", summary.manualSelections),
+    curriculumMetric("待归类", summary.unmapped),
+    curriculumMetric("受影响错题", summary.affectedMistakes)
+  );
+  target.append(metrics);
+  const list = createElement("div", "curriculum-confirm-list");
+  for (const item of preview.items) {
+    const row = createElement("div", "curriculum-confirm-row");
+    row.append(
+      createElement("span", "", item.beforeKnowledgePoint || "未分类"),
+      createElement("span", "curriculum-arrow", "→"),
+      createElement("strong", "", item.targetKnowledgePoint || "待归类"),
+      curriculumStatusBadge(item.mappingStatus)
+    );
+    list.append(row);
+  }
+  target.append(list);
+}
+
+function renderCurriculumResult(result) {
+  const target = $("#curriculum-step-result");
+  target.replaceChildren();
+  const summary = result.result?.summary || {};
+  target.append(
+    createElement("h3", "", "教材切换已完成"),
+    createElement(
+      "p",
+      "curriculum-confirm-copy",
+      `${result.fromTextbook?.displayName || ""} → ${result.toTextbook?.displayName || ""} 已在一个事务中完成，审计日志 #${result.id} 已写入。`
+    )
+  );
+  const metrics = createElement("div", "curriculum-metrics");
+  metrics.append(
+    curriculumMetric("重映射错题", summary.affectedMistakes || 0),
+    curriculumMetric("自动", summary.autoMapped || 0),
+    curriculumMetric("人工", summary.manualMapped || 0),
+    curriculumMetric("待归类", summary.unmapped || 0),
+    curriculumMetric("报告快照", summary.reportSnapshots || 0)
+  );
+  target.append(metrics);
+  if (summary.unmapped) {
+    target.append(
+      createElement(
+        "p",
+        "curriculum-note",
+        "未覆盖项已保留为“待归类”。可返回知识地图，在未映射处理区逐题归类。"
+      )
+    );
+  }
+}
+
+function setCurriculumStage(stage) {
+  state.curriculumStage = stage;
+  $("#curriculum-step-preview").hidden = stage !== "preview";
+  $("#curriculum-step-confirm").hidden = stage !== "confirm";
+  $("#curriculum-step-result").hidden = stage !== "result";
+  $("#curriculum-preview-button").hidden =
+    stage !== "preview" || Boolean(state.curriculumPreview);
+  $("#curriculum-confirm-button").hidden =
+    stage !== "preview" || !state.curriculumPreview;
+  $("#curriculum-execute-button").hidden = stage !== "confirm";
+  $("#curriculum-done-button").hidden = stage !== "result";
+  if (stage === "preview") {
+    $("#curriculum-dialog-title").textContent = "预演切换影响";
+    $("#curriculum-dialog-footnote").textContent = "预演不会修改任何数据。";
+  } else if (stage === "confirm") {
+    $("#curriculum-dialog-title").textContent = "确认切换";
+    $("#curriculum-dialog-footnote").textContent =
+      "点击“确认执行切换”后才会写数据库；失败会完整回滚。";
+  } else {
+    $("#curriculum-dialog-title").textContent = "切换结果";
+    $("#curriculum-dialog-footnote").textContent =
+      "切换已完成，历史报告已按当时教材保存。";
+  }
+}
+
+function curriculumSplitChoicesComplete(preview) {
+  const groups = new Map();
+  for (const item of preview.items) {
+    if (item.mappingStatus === "split" && item.requiresConfirmation) {
+      groups.set(curriculumMappingGroupKey(item), item);
+    }
+  }
+  for (const key of groups.keys()) {
+    if (state.curriculumChoices[key] === undefined) {
+      return false;
+    }
+  }
+  return groups.size === 0 || state.curriculumConfirmSplits;
+}
+
+async function previewCurriculumSwitch() {
+  const select = $("#curriculum-target-select");
+  const targetTextbookId = Number(select.value);
+  if (!targetTextbookId) {
+    showToast("请选择目标教材", true);
+    return;
+  }
+  const button = $("#curriculum-preview-button");
+  setBusy(button, true, "预演中…");
+  try {
+    const preview = await api("/api/curriculum/switch/preview", {
+      method: "POST",
+      body: JSON.stringify({ targetTextbookId })
+    });
+    state.curriculumPreview = preview;
+    state.curriculumChoices = {};
+    state.curriculumConfirmSplits = false;
+    state.curriculumConfirmUnmapped = false;
+    renderCurriculumPreview(preview);
+    if (preview.alreadyCurrent) {
+      showToast("当前已经是这本教材");
+      return;
+    }
+    setCurriculumStage("preview");
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+function continueCurriculumConfirm() {
+  const preview = state.curriculumPreview;
+  if (!preview) {
+    showToast("请先预演切换影响", true);
+    return;
+  }
+  if (!curriculumSplitChoicesComplete(preview)) {
+    showToast("请先确认每个拆分映射的目标知识点", true);
+    return;
+  }
+  const needsUnmappedConfirm = preview.items.some((item) => item.unmapped);
+  if (needsUnmappedConfirm && !state.curriculumConfirmUnmapped) {
+    showToast("请确认未覆盖项保留为待归类", true);
+    return;
+  }
+  renderCurriculumConfirm(preview);
+  setCurriculumStage("confirm");
+}
+
+async function executeCurriculumSwitch() {
+  const preview = state.curriculumPreview;
+  if (!preview) return;
+  const button = $("#curriculum-execute-button");
+  setBusy(button, true, "切换中…");
+  try {
+    const result = await api("/api/curriculum/switch/execute", {
+      method: "POST",
+      headers: { "Idempotency-Key": createRequestKey() },
+      body: JSON.stringify({
+        targetTextbookId: preview.targetTextbook.id,
+        previewToken: preview.previewToken,
+        mappingChoices: state.curriculumChoices,
+        confirmUnmapped: state.curriculumConfirmUnmapped
+      })
+    });
+    renderCurriculumResult(result);
+    setCurriculumStage("result");
+    showToast("教材切换完成");
+  } catch (error) {
+    if (error.code === "PREVIEW_STALE") {
+      showToast("预演已过期，请重新预演", true);
+      setCurriculumStage("preview");
+      state.curriculumPreview = null;
+      return;
+    }
+    showToast(error.message, true);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+async function finishCurriculumSwitch() {
+  closeCurriculumDialog();
+  try {
+    await loadBootstrap();
+    const refresh = await refreshAll();
+    if (!refresh.ok) {
+      showToast("切换已完成，但部分页面刷新失败，请手动刷新", true);
+    } else {
+      showToast("教材已切换，知识地图与搜索已更新");
+    }
+  } catch (error) {
+    showToast(`切换已完成，但页面刷新失败：${error.message}`, true);
+  }
+}
+
 function resetKnowledgeSearch() {
   state.knowledgeSearch = null;
   state.knowledgeSearchRequest += 1;
@@ -1686,6 +2421,19 @@ function feedbackMetric(label, value, note = "") {
   return card;
 }
 
+function renderFeedbackScope(selector, report) {
+  const target = $(selector);
+  if (!target) return;
+  const scope = report?.textbookScope;
+  if (!scope?.label) {
+    target.hidden = true;
+    target.textContent = "";
+    return;
+  }
+  target.hidden = false;
+  target.textContent = `${scope.label} · ${scope.note || "按当时教材"}`;
+}
+
 function renderFeedbackMetrics(target, items) {
   const container = $(target);
   if (!container) return;
@@ -1746,6 +2494,7 @@ function renderFeedback() {
     ]
       .filter(Boolean)
       .join(" ");
+    renderFeedbackScope("#daily-scope", daily);
     renderFeedbackMetrics("#daily-metrics", [
       {
         label: "今日作答",
@@ -1782,6 +2531,7 @@ function renderFeedback() {
     $("#weekly-copy").textContent =
       weekly.parentReport?.summaryText ||
       "本周还没有作答记录，无法判断掌握变化。";
+    renderFeedbackScope("#weekly-scope", weekly);
     renderFeedbackMetrics("#weekly-metrics", [
       {
         label: "本周作答",
@@ -2866,6 +3616,26 @@ function bindEvents() {
 
   $("#top-add-button").addEventListener("click", openAddDialog);
   $("#quick-add-button").addEventListener("click", openAddDialog);
+  $("#curriculum-switch-button").addEventListener("click", openCurriculumDialog);
+  $("#curriculum-close-button").addEventListener("click", closeCurriculumDialog);
+  $("#curriculum-cancel-button").addEventListener("click", closeCurriculumDialog);
+  $("#curriculum-preview-button").addEventListener("click", previewCurriculumSwitch);
+  $("#curriculum-confirm-button").addEventListener("click", continueCurriculumConfirm);
+  $("#curriculum-execute-button").addEventListener("click", executeCurriculumSwitch);
+  $("#curriculum-done-button").addEventListener("click", finishCurriculumSwitch);
+  $("#curriculum-dialog").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeCurriculumDialog();
+  });
+  $("#curriculum-history-filter").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const value = Number($("#curriculum-history-mistake").value);
+    loadCurriculumHistory(Number.isInteger(value) && value > 0 ? value : null);
+  });
+  $("#curriculum-history-reset").addEventListener("click", () => {
+    $("#curriculum-history-mistake").value = "";
+    loadCurriculumHistory(null);
+  });
   $("#mistake-search-input").addEventListener("input", (event) => {
     state.mistakeQuery = event.target.value;
     updateMistakeSearchClear();

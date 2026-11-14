@@ -435,10 +435,107 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/bootstrap") {
+    const curriculum = repository.getCurriculumBaseData();
     return sendJson(response, 200, {
-      student: repository.getStudent(),
-      knowledgePoints: repository.getKnowledgePoints()
+      student: curriculum.student,
+      knowledgePoints: curriculum.knowledgePoints,
+      currentTextbook: curriculum.currentTextbook,
+      textbooks: curriculum.textbooks,
+      mappingVersion: curriculum.mappingVersion
     });
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/curriculum") {
+    return sendJson(response, 200, repository.getCurriculumBaseData());
+  }
+
+  if (
+    request.method === "GET" &&
+    url.pathname === "/api/curriculum/unmapped"
+  ) {
+    const student = repository.getStudent();
+    const items = repository.getUnmappedCurriculumMistakes();
+    return sendJson(response, 200, {
+      items,
+      targetPoints: student?.textbook
+        ? repository.getCurriculumPoints(student.textbook.id)
+        : []
+    });
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/curriculum/switch/preview"
+  ) {
+    const body = await readJson(request);
+    const targetTextbookId = parseId(body.targetTextbookId);
+    return sendJson(
+      response,
+      200,
+      repository.buildCurriculumSwitchPreview({ targetTextbookId })
+    );
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/curriculum/switch/execute"
+  ) {
+    const body = await readJson(request);
+    const idempotencyKey = request.headers["idempotency-key"];
+    if (!idempotencyKey) {
+      throw new HttpError(400, "切换教材请求缺少幂等键");
+    }
+    const mappingChoices =
+      body.mappingChoices && typeof body.mappingChoices === "object"
+        ? body.mappingChoices
+        : {};
+    return sendJson(
+      response,
+      200,
+      repository.executeCurriculumSwitch({
+        targetTextbookId: parseId(body.targetTextbookId),
+        previewToken: requireText(body.previewToken, "预演凭证", 128),
+        mappingChoices,
+        confirmUnmapped: body.confirmUnmapped === true,
+        idempotencyKey,
+        actor: optionalText(body.actor, 100),
+        confirmer: optionalText(body.confirmer, 100)
+      })
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/curriculum/switches") {
+    const mistakeId = url.searchParams.get("mistakeId");
+    return sendJson(
+      response,
+      200,
+      repository.getCurriculumSwitchLogs({
+        mistakeId: mistakeId ? parseId(mistakeId) : null,
+        limit: Number(url.searchParams.get("limit") || 20)
+      })
+    );
+  }
+
+  const curriculumResolveMatch = url.pathname.match(
+    /^\/api\/curriculum\/mistakes\/(\d+)\/resolve$/
+  );
+  if (curriculumResolveMatch && request.method === "POST") {
+    const body = await readJson(request);
+    const idempotencyKey = request.headers["idempotency-key"];
+    if (!idempotencyKey) {
+      throw new HttpError(400, "未映射处理请求缺少幂等键");
+    }
+    return sendJson(
+      response,
+      200,
+      repository.assignMistakeCurriculum({
+        mistakeId: parseId(curriculumResolveMatch[1]),
+        targetCurriculumPointId: parseId(body.targetCurriculumPointId),
+        idempotencyKey,
+        actor: optionalText(body.actor, 100),
+        confirmer: optionalText(body.confirmer, 100)
+      })
+    );
   }
 
   if (request.method === "POST" && url.pathname === "/api/attachments") {
@@ -598,6 +695,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/feedback/daily") {
     const date = parseCalendarDate(url.searchParams.get("date"));
     const bounds = dayBounds(date);
+    const student = repository.getStudent();
     return sendJson(
       response,
       200,
@@ -606,7 +704,8 @@ async function handleApi(request, response, url) {
         knowledgePoint: optionalKnowledgePoint(
           url.searchParams.get("knowledgePoint")
         ),
-        at: new Date().toISOString()
+        at: new Date().toISOString(),
+        studentId: student?.id || null
       })
     );
   }
@@ -617,6 +716,7 @@ async function handleApi(request, response, url) {
     startDate.setDate(startDate.getDate() - 6);
     const startBounds = dayBounds(startDate);
     const endBounds = dayBounds(endDate);
+    const student = repository.getStudent();
     return sendJson(
       response,
       200,
@@ -626,16 +726,35 @@ async function handleApi(request, response, url) {
         knowledgePoint: optionalKnowledgePoint(
           url.searchParams.get("knowledgePoint")
         ),
-        at: new Date().toISOString()
+        at: new Date().toISOString(),
+        studentId: student?.id || null
       })
     );
   }
 
   if (request.method === "GET" && url.pathname === "/api/knowledge-points") {
-    return sendJson(response, 200, repository.getKnowledgeSummary());
+    const student = repository.getStudent();
+    return sendJson(
+      response,
+      200,
+      student?.textbook
+        ? repository.getCurriculumKnowledgeSummary(
+            student.textbook.id,
+            student.id
+          )
+        : repository.getKnowledgeSummary()
+    );
   }
 
   if (request.method === "GET" && url.pathname === "/api/knowledge-base") {
+    const student = repository.getStudent();
+    if (student?.textbook) {
+      return sendJson(
+        response,
+        200,
+        repository.getCurriculumKnowledgeBaseData(student.textbook.id)
+      );
+    }
     return sendJson(response, 200, {
       stats: repository.getKnowledgeBaseStats(),
       cards: repository.getKnowledgeCards()
@@ -654,10 +773,15 @@ async function handleApi(request, response, url) {
       1,
       Math.min(5, Number(url.searchParams.get("limit") || 3))
     );
+    const student = repository.getStudent();
     return sendJson(
       response,
       200,
-      repository.searchKnowledge({ query, limit })
+      repository.searchKnowledge({
+        query,
+        limit,
+        textbookId: student?.textbook?.id || null
+      })
     );
   }
 
@@ -665,7 +789,17 @@ async function handleApi(request, response, url) {
     /^\/api\/knowledge-base\/([A-Za-z0-9-]+|\d+)$/
   );
   if (knowledgeCardMatch && request.method === "GET") {
-    const card = repository.getKnowledgeCard(knowledgeCardMatch[1]);
+    const student = repository.getStudent();
+    const card = student?.textbook
+      ? repository
+          .getCurriculumKnowledgeCards(student.textbook.id)
+          .find(
+            (item) =>
+              String(item.id) === knowledgeCardMatch[1] ||
+              item.slug === knowledgeCardMatch[1] ||
+              item.name === knowledgeCardMatch[1]
+          ) || null
+      : repository.getKnowledgeCard(knowledgeCardMatch[1]);
     if (!card) throw new HttpError(404, "没有找到这张知识卡片");
     return sendJson(response, 200, card);
   }

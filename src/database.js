@@ -34,6 +34,13 @@ import {
   MAX_ATTACHMENTS_PER_MISTAKE,
   MAX_ATTACHMENTS_TOTAL_BYTES
 } from "./attachments.js";
+import {
+  CURRICULUM_MAPPING_VERSION,
+  CURRICULUM_POINTS,
+  CURRICULUM_SOURCES,
+  TEXTBOOK_BY_KEY,
+  TEXTBOOK_CATALOGS
+} from "./curriculum/catalog.js";
 
 const nowIso = () => new Date().toISOString();
 const toolWriteLeaseStorage = new AsyncLocalStorage();
@@ -306,6 +313,9 @@ function mapMistake(row, { includeSolution = false } = {}) {
     question: row.question,
     studentAnswer: row.student_answer,
     knowledgePoint: row.knowledge_point,
+    textbookId: row.textbook_id ?? null,
+    curriculumPointId: row.curriculum_point_id ?? null,
+    curriculumStatus: row.curriculum_status || "legacy",
     errorType: row.error_type,
     revision: row.revision,
     status: row.status,
@@ -327,6 +337,123 @@ function mapMistake(row, { includeSolution = false } = {}) {
     });
   }
   return mistake;
+}
+
+function mapTextbook(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    textbookKey: row.textbook_key,
+    editionKey: row.edition_key,
+    publisher: row.publisher,
+    edition: row.edition,
+    grade: row.grade,
+    semester: row.semester,
+    displayName: row.display_name,
+    selectable: row.selectable === 1,
+    reviewStatus: row.review_status,
+    sourceKey: row.source_key,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapCurriculumPoint(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    textbookId: row.textbook_id,
+    unitId: row.unit_id,
+    unitNo: row.unit_no,
+    unitTitle: row.unit_title,
+    name: row.name,
+    slug: row.slug,
+    aliases: parseJson(row.aliases_json),
+    semanticKeys: parseJson(row.semantic_keys_json),
+    sourceKnowledgeSlug: row.source_knowledge_slug,
+    position: row.position,
+    reviewStatus: row.review_status,
+    sourceKey: row.source_key,
+    contentVersion: row.content_version,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapCurriculumMapping(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    mappingVersion: row.mapping_version,
+    sourceTextbookId: row.source_textbook_id,
+    targetTextbookId: row.target_textbook_id,
+    sourcePointId: row.source_point_id,
+    targetPointId: row.target_point_id,
+    status: row.status,
+    requiresConfirmation: row.requires_confirmation === 1,
+    confidence: row.confidence,
+    note: row.note,
+    sourcePointName: row.source_point_name || "",
+    targetPointName: row.target_point_name || "",
+    targetUnitTitle: row.target_unit_title || ""
+  };
+}
+
+function slugToken(value) {
+  const normalized = String(value || "")
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || createHash("sha1").update(String(value || "")).digest("hex").slice(0, 12);
+}
+
+function localDateKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dayRangeForKey(key) {
+  const [year, month, day] = key.split("-").map(Number);
+  const start = new Date(year, month - 1, day);
+  const end = new Date(year, month - 1, day + 1);
+  return { from: start.toISOString(), to: end.toISOString() };
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function withTextbookScope(report, textbook) {
+  if (!textbook) return report;
+  return {
+    ...report,
+    textbookScope: {
+      textbookId: textbook.id,
+      label: textbook.displayName,
+      semester: textbook.semester,
+      grade: textbook.grade,
+      note: "按当时教材"
+    }
+  };
+}
+
+function curriculumValidationError(code, message, status = 400) {
+  const error = new LearningValidationError(code, message);
+  error.status = status;
+  return error;
 }
 
 export class LearningRepository {
@@ -362,6 +489,7 @@ export class LearningRepository {
         }
       });
       this.syncKnowledgeBase();
+      this.syncCurriculum();
     } catch (error) {
       this.db.close();
       throw error;
@@ -399,10 +527,30 @@ export class LearningRepository {
     return getSchemaVersion(this.db);
   }
 
-  getStudent() {
-    return this.db
-      .prepare("SELECT id, name, grade FROM students ORDER BY id LIMIT 1")
-      .get();
+  getStudent(studentId = null) {
+    const row = studentId
+      ? this.db
+          .prepare(
+            `SELECT id, name, grade, textbook_id, textbook_selected_at
+             FROM students WHERE id = ?`
+          )
+          .get(studentId)
+      : this.db
+          .prepare(
+            `SELECT id, name, grade, textbook_id, textbook_selected_at
+             FROM students ORDER BY id LIMIT 1`
+          )
+          .get();
+    if (!row) return null;
+    const textbook = this.getTextbook(row.textbook_id);
+    return {
+      id: row.id,
+      name: row.name,
+      grade: row.grade,
+      textbookId: row.textbook_id,
+      textbookSelectedAt: row.textbook_selected_at,
+      textbook
+    };
   }
 
   getKnowledgePoints() {
@@ -976,6 +1124,1395 @@ export class LearningRepository {
     }
   }
 
+  syncCurriculum() {
+    const timestamp = nowIso();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const insertSource = this.db.prepare(`
+        INSERT INTO knowledge_sources (
+          source_key, kind, title, publisher, edition, locator, note,
+          verified_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source_key) DO UPDATE SET
+          kind = excluded.kind,
+          title = excluded.title,
+          publisher = excluded.publisher,
+          edition = excluded.edition,
+          locator = excluded.locator,
+          note = excluded.note,
+          verified_at = excluded.verified_at,
+          updated_at = excluded.updated_at
+      `);
+      for (const source of CURRICULUM_SOURCES) {
+        insertSource.run(
+          source.key,
+          source.kind,
+          source.title,
+          source.publisher,
+          source.edition,
+          source.locator,
+          source.note,
+          source.verifiedAt,
+          timestamp,
+          timestamp
+        );
+      }
+
+      const upsertTextbook = this.db.prepare(`
+        INSERT INTO textbooks (
+          textbook_key, edition_key, publisher, edition, grade, semester,
+          display_name, selectable, review_status, source_key,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(textbook_key) DO UPDATE SET
+          edition_key = excluded.edition_key,
+          publisher = excluded.publisher,
+          edition = excluded.edition,
+          grade = excluded.grade,
+          semester = excluded.semester,
+          display_name = excluded.display_name,
+          selectable = excluded.selectable,
+          review_status = excluded.review_status,
+          source_key = excluded.source_key,
+          updated_at = excluded.updated_at
+      `);
+      const upsertUnit = this.db.prepare(`
+        INSERT INTO textbook_units (
+          textbook_id, unit_no, title, position, review_status, source_key,
+          note, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)
+        ON CONFLICT(textbook_id, unit_no) DO UPDATE SET
+          title = excluded.title,
+          position = excluded.position,
+          review_status = excluded.review_status,
+          source_key = excluded.source_key,
+          updated_at = excluded.updated_at
+      `);
+      const upsertPoint = this.db.prepare(`
+        INSERT INTO curriculum_points (
+          textbook_id, unit_id, name, slug, aliases_json, semantic_keys_json,
+          source_knowledge_slug, position, review_status, source_key,
+          content_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(textbook_id, name) DO UPDATE SET
+          unit_id = excluded.unit_id,
+          slug = excluded.slug,
+          aliases_json = excluded.aliases_json,
+          semantic_keys_json = excluded.semantic_keys_json,
+          source_knowledge_slug = excluded.source_knowledge_slug,
+          position = excluded.position,
+          review_status = excluded.review_status,
+          source_key = excluded.source_key,
+          content_version = excluded.content_version,
+          updated_at = excluded.updated_at
+      `);
+
+      for (const textbook of TEXTBOOK_CATALOGS) {
+        upsertTextbook.run(
+          textbook.key,
+          textbook.editionKey,
+          textbook.publisher,
+          textbook.edition,
+          textbook.grade,
+          textbook.semester,
+          textbook.displayName,
+          textbook.selectable ? 1 : 0,
+          textbook.reviewStatus,
+          textbook.sourceKey,
+          timestamp,
+          timestamp
+        );
+        const textbookRow = this.db
+          .prepare("SELECT id FROM textbooks WHERE textbook_key = ?")
+          .get(textbook.key);
+        for (const entry of textbook.units) {
+          upsertUnit.run(
+            textbookRow.id,
+            entry.unitNo,
+            entry.title,
+            entry.unitNo,
+            textbook.reviewStatus,
+            textbook.sourceKey,
+            timestamp,
+            timestamp
+          );
+          const unitRow = this.db
+            .prepare(
+              "SELECT id FROM textbook_units WHERE textbook_id = ? AND unit_no = ?"
+            )
+            .get(textbookRow.id, entry.unitNo);
+          entry.points.forEach((point, index) => {
+            const slug = `${textbook.key}-${slugToken(point.sourceKnowledgeSlug || point.name)}-${entry.unitNo}-${index + 1}`;
+            upsertPoint.run(
+              textbookRow.id,
+              unitRow.id,
+              point.name,
+              slug,
+              JSON.stringify(point.aliases || []),
+              JSON.stringify(point.semanticKeys || []),
+              point.sourceKnowledgeSlug || null,
+              entry.unitNo * 100 + index + 1,
+              textbook.reviewStatus,
+              textbook.sourceKey,
+              KNOWLEDGE_CONTENT_VERSION,
+              timestamp,
+              timestamp
+            );
+          });
+        }
+      }
+
+      const legacyTextbook = this.db
+        .prepare("SELECT id FROM textbooks WHERE textbook_key = ?")
+        .get("renjiao-6-all");
+      this.db
+        .prepare(
+          `UPDATE students
+           SET textbook_id = COALESCE(textbook_id, ?),
+               textbook_selected_at = COALESCE(textbook_selected_at, ?)`
+        )
+        .run(legacyTextbook.id, timestamp);
+      this.db
+        .prepare(
+          `UPDATE mistakes
+           SET textbook_id = (
+             SELECT s.textbook_id FROM students s WHERE s.id = mistakes.student_id
+           )
+           WHERE textbook_id IS NULL`
+        )
+        .run();
+
+      const pendingMistakes = this.db
+        .prepare(
+          `SELECT m.id, m.textbook_id, m.knowledge_point
+           FROM mistakes m
+           WHERE m.textbook_id IS NOT NULL
+             AND (m.curriculum_point_id IS NULL OR m.curriculum_status = 'legacy')`
+        )
+        .all();
+      const pointByName = this.db.prepare(
+        "SELECT id FROM curriculum_points WHERE textbook_id = ? AND name = ?"
+      );
+      const updateMistakeCurriculum = this.db.prepare(
+        `UPDATE mistakes
+         SET curriculum_point_id = ?, curriculum_status = ?, updated_at = updated_at
+         WHERE id = ?`
+      );
+      for (const mistake of pendingMistakes) {
+        const point = pointByName.get(
+          mistake.textbook_id,
+          mistake.knowledge_point
+        );
+        updateMistakeCurriculum.run(
+          point?.id ?? null,
+          point ? "mapped" : "unmapped",
+          mistake.id
+        );
+      }
+
+      this.generateCurriculumMappings(timestamp);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  generateCurriculumMappings(timestamp = nowIso()) {
+    this.db
+      .prepare("DELETE FROM curriculum_mappings WHERE mapping_version = ?")
+      .run(CURRICULUM_MAPPING_VERSION);
+    const textbooks = this.db
+      .prepare("SELECT * FROM textbooks ORDER BY id")
+      .all();
+    const rows = this.db
+      .prepare(
+        `SELECT p.*, u.unit_no, u.title AS unit_title
+         FROM curriculum_points p
+         JOIN textbook_units u ON u.id = p.unit_id
+         ORDER BY p.textbook_id, p.position, p.id`
+      )
+      .all();
+    const pointsByTextbook = new Map();
+    for (const row of rows) {
+      const list = pointsByTextbook.get(row.textbook_id) || [];
+      list.push({
+        ...row,
+        semanticKeys: new Set(parseJson(row.semantic_keys_json))
+      });
+      pointsByTextbook.set(row.textbook_id, list);
+    }
+    const insertMapping = this.db.prepare(`
+      INSERT INTO curriculum_mappings (
+        mapping_version, source_textbook_id, target_textbook_id,
+        source_point_id, target_point_id, status, requires_confirmation,
+        confidence, note, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const sourceTextbook of textbooks) {
+      for (const targetTextbook of textbooks) {
+        if (sourceTextbook.id === targetTextbook.id) continue;
+        const sourcePoints = pointsByTextbook.get(sourceTextbook.id) || [];
+        const targetPoints = pointsByTextbook.get(targetTextbook.id) || [];
+        const matchesBySource = new Map();
+        const incomingCount = new Map();
+        for (const sourcePoint of sourcePoints) {
+          const matches = targetPoints.filter((targetPoint) =>
+            [...sourcePoint.semanticKeys].some((key) =>
+              targetPoint.semanticKeys.has(key)
+            )
+          );
+          matchesBySource.set(sourcePoint.id, matches);
+          for (const match of matches) {
+            incomingCount.set(match.id, (incomingCount.get(match.id) || 0) + 1);
+          }
+        }
+
+        for (const sourcePoint of sourcePoints) {
+          const matches = matchesBySource.get(sourcePoint.id) || [];
+          if (!matches.length) {
+            insertMapping.run(
+              CURRICULUM_MAPPING_VERSION,
+              sourceTextbook.id,
+              targetTextbook.id,
+              sourcePoint.id,
+              null,
+              "uncovered",
+              0,
+              0,
+              "目标教材没有对应知识点，切换后标记为当前教材未覆盖/待归类。",
+              timestamp
+            );
+            continue;
+          }
+
+          const coveredKeys = new Set(
+            matches.flatMap((match) => [...match.semanticKeys])
+          );
+          const allSourceKeysCovered = [...sourcePoint.semanticKeys].every(
+            (key) => coveredKeys.has(key)
+          );
+          for (const match of matches) {
+            let status;
+            if (matches.length > 1 || !allSourceKeysCovered) {
+              status = "split";
+            } else if ((incomingCount.get(match.id) || 0) > 1) {
+              status = "merged";
+            } else if (match.name === sourcePoint.name) {
+              status = "exact";
+            } else {
+              status = "renamed";
+            }
+            const confidence =
+              status === "exact"
+                ? 1
+                : status === "renamed"
+                  ? 0.95
+                  : status === "merged"
+                    ? 0.9
+                    : 0.7;
+            const note =
+              status === "split"
+                ? "知识点在目标教材中拆分或跨单元，需要本次人工确认。"
+                : status === "merged"
+                  ? "多个来源知识点合并到目标教材同一知识点。"
+                  : status === "renamed"
+                    ? "目标教材使用不同名称，按映射表自动对应。"
+                    : "目标教材知识点名称一致，自动对应。";
+            insertMapping.run(
+              CURRICULUM_MAPPING_VERSION,
+              sourceTextbook.id,
+              targetTextbook.id,
+              sourcePoint.id,
+              match.id,
+              status,
+              status === "split" ? 1 : 0,
+              confidence,
+              note,
+              timestamp
+            );
+          }
+        }
+      }
+    }
+  }
+
+  getTextbooks({ selectable = false } = {}) {
+    const where = selectable ? "WHERE selectable = 1" : "";
+    return this.db
+      .prepare(`SELECT * FROM textbooks ${where} ORDER BY id`)
+      .all()
+      .map(mapTextbook);
+  }
+
+  getTextbook(identifier) {
+    if (identifier === null || identifier === undefined || identifier === "") {
+      return null;
+    }
+    const row = /^\d+$/.test(String(identifier))
+      ? this.db.prepare("SELECT * FROM textbooks WHERE id = ?").get(Number(identifier))
+      : this.db
+          .prepare("SELECT * FROM textbooks WHERE textbook_key = ?")
+          .get(String(identifier));
+    return mapTextbook(row);
+  }
+
+  getCurriculumPoints(textbookId) {
+    return this.db
+      .prepare(
+        `SELECT p.*, u.unit_no, u.title AS unit_title
+         FROM curriculum_points p
+         JOIN textbook_units u ON u.id = p.unit_id
+         WHERE p.textbook_id = ?
+         ORDER BY p.position, p.id`
+      )
+      .all(textbookId)
+      .map(mapCurriculumPoint);
+  }
+
+  getCurriculumPoint(textbookId, identifier) {
+    if (identifier === null || identifier === undefined || identifier === "") {
+      return null;
+    }
+    const value = String(identifier);
+    const row = this.db
+      .prepare(
+        `SELECT p.*, u.unit_no, u.title AS unit_title
+         FROM curriculum_points p
+         JOIN textbook_units u ON u.id = p.unit_id
+         WHERE p.textbook_id = ?
+           AND (p.id = ? OR p.slug = ? OR p.name = ?)
+         ORDER BY p.id
+         LIMIT 1`
+      )
+      .get(
+        textbookId,
+        /^\d+$/.test(value) ? Number(value) : -1,
+        value,
+        value
+      );
+    return mapCurriculumPoint(row);
+  }
+
+  resolveCurriculumPointByName(textbookId, name) {
+    const value = String(name || "").trim();
+    if (!value) return null;
+    const exact = this.getCurriculumPoint(textbookId, value);
+    if (exact) return exact;
+    return (
+      this.getCurriculumPoints(textbookId).find((point) =>
+        point.aliases.includes(value)
+      ) || null
+    );
+  }
+
+  getCurriculumUnits(textbookId) {
+    return this.db
+      .prepare(
+        `SELECT id, unit_no, title, position, review_status, source_key
+         FROM textbook_units
+         WHERE textbook_id = ?
+         ORDER BY position, id`
+      )
+      .all(textbookId)
+      .map((row) => ({
+        id: row.id,
+        unitNo: row.unit_no,
+        title: row.title,
+        position: row.position,
+        reviewStatus: row.review_status,
+        sourceKey: row.source_key
+      }));
+  }
+
+  getCurriculumMappingRows(sourceTextbookId, targetTextbookId) {
+    return this.db
+      .prepare(
+        `SELECT m.*, sp.name AS source_point_name,
+                tp.name AS target_point_name,
+                tu.title AS target_unit_title
+         FROM curriculum_mappings m
+         JOIN curriculum_points sp ON sp.id = m.source_point_id
+         LEFT JOIN curriculum_points tp ON tp.id = m.target_point_id
+         LEFT JOIN textbook_units tu ON tu.id = tp.unit_id
+         WHERE m.mapping_version = ?
+           AND m.source_textbook_id = ?
+           AND m.target_textbook_id = ?
+         ORDER BY sp.position, m.id`
+      )
+      .all(
+        CURRICULUM_MAPPING_VERSION,
+        sourceTextbookId,
+        targetTextbookId
+      )
+      .map(mapCurriculumMapping);
+  }
+
+  getCurriculumMappingTable(sourceTextbookId, targetTextbookId) {
+    const rows = this.getCurriculumMappingRows(
+      sourceTextbookId,
+      targetTextbookId
+    );
+    const grouped = new Map();
+    for (const row of rows) {
+      const key = row.sourcePointId;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          sourcePointId: row.sourcePointId,
+          sourcePointName: row.sourcePointName,
+          status: row.status,
+          requiresConfirmation: row.requiresConfirmation,
+          mappings: []
+        });
+      }
+      const group = grouped.get(key);
+      if (row.targetPointId) {
+        group.mappings.push({
+          id: row.id,
+          targetPointId: row.targetPointId,
+          targetPointName: row.targetPointName,
+          targetUnitTitle: row.targetUnitTitle,
+          status: row.status,
+          requiresConfirmation: row.requiresConfirmation,
+          confidence: row.confidence,
+          note: row.note
+        });
+      }
+    }
+    return [...grouped.values()];
+  }
+
+  getCurriculumBaseData(studentId = null) {
+    const student = this.getStudent(studentId);
+    const textbook = student?.textbook;
+    return {
+      student,
+      currentTextbook: textbook,
+      textbooks: this.getTextbooks({ selectable: true }),
+      mappingVersion: CURRICULUM_MAPPING_VERSION,
+      units: textbook ? this.getCurriculumUnits(textbook.id) : [],
+      knowledgePoints: textbook
+        ? this.getCurriculumPoints(textbook.id)
+        : this.getKnowledgePoints()
+    };
+  }
+
+  getUnmappedCurriculumMistakes(studentId = null) {
+    const student = this.getStudent(studentId);
+    if (!student) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM mistakes
+         WHERE student_id = ?
+           AND curriculum_status IN ('unmapped', 'needs_confirmation')
+         ORDER BY id DESC`
+      )
+      .all(student.id);
+    return rows
+      .map((row) => this.getMistake(row.id))
+      .filter(Boolean)
+      .map((mistake) => ({
+        id: mistake.id,
+        question: mistake.question,
+        knowledgePoint: mistake.knowledgePoint,
+        curriculumStatus: mistake.curriculumStatus,
+        attachments: mistake.attachments
+      }));
+  }
+
+  getCurriculumPointById(id) {
+    if (!id) return null;
+    const row = this.db
+      .prepare(
+        `SELECT p.*, u.unit_no, u.title AS unit_title
+         FROM curriculum_points p
+         JOIN textbook_units u ON u.id = p.unit_id
+         WHERE p.id = ?`
+      )
+      .get(id);
+    return mapCurriculumPoint(row);
+  }
+
+  getLatestCurriculumRestoration({
+    mistakeId,
+    currentTextbookId,
+    targetTextbookId,
+    currentPointId
+  }) {
+    const row = this.db
+      .prepare(
+        `SELECT i.before_curriculum_point_id, i.before_knowledge_point
+         FROM curriculum_switch_items i
+         JOIN curriculum_switch_logs l ON l.id = i.switch_log_id
+         WHERE i.mistake_id = ?
+           AND i.after_textbook_id = ?
+           AND i.before_textbook_id = ?
+           AND i.after_curriculum_point_id IS ?
+         ORDER BY i.id DESC
+         LIMIT 1`
+      )
+      .get(
+        mistakeId,
+        currentTextbookId,
+        targetTextbookId,
+        currentPointId
+      );
+    return row || null;
+  }
+
+  getHistoricalReportDayCount(studentId) {
+    const student = this.getStudent(studentId);
+    if (!student) return 0;
+    const rows = this.db
+      .prepare(
+        `SELECT m.created_at AS created_at FROM mistakes m WHERE m.student_id = ?
+         UNION ALL
+         SELECT a.created_at FROM attempts a
+           JOIN mistakes m ON m.id = a.mistake_id WHERE m.student_id = ?
+         UNION ALL
+         SELECT h.created_at FROM hint_events h
+           JOIN mistakes m ON m.id = h.mistake_id WHERE m.student_id = ?
+         UNION ALL
+         SELECT e.created_at FROM mastery_evidence e
+           JOIN mistakes m ON m.id = e.mistake_id WHERE m.student_id = ?`
+      )
+      .all(student.id, student.id, student.id, student.id);
+    return new Set(
+      rows
+        .map((row) => row.created_at)
+        .filter(Boolean)
+        .map((value) => localDateKey(value))
+    ).size;
+  }
+
+  getMistakeImpactCounts(mistakeIds) {
+    if (!mistakeIds.length) {
+      return {
+        attachments: 0,
+        attempts: 0,
+        hintEvents: 0,
+        masteryEvidence: 0,
+        activeReviews: 0
+      };
+    }
+    const placeholders = mistakeIds.map(() => "?").join(",");
+    const scalar = (sql) =>
+      Number(this.db.prepare(sql).get(...mistakeIds).count || 0);
+    return {
+      attachments: scalar(
+        `SELECT COUNT(*) AS count FROM attachments WHERE mistake_id IN (${placeholders})`
+      ),
+      attempts: scalar(
+        `SELECT COUNT(*) AS count FROM attempts WHERE mistake_id IN (${placeholders})`
+      ),
+      hintEvents: scalar(
+        `SELECT COUNT(*) AS count FROM hint_events WHERE mistake_id IN (${placeholders})`
+      ),
+      masteryEvidence: scalar(
+        `SELECT COUNT(*) AS count FROM mastery_evidence WHERE mistake_id IN (${placeholders})`
+      ),
+      activeReviews: scalar(
+        `SELECT COUNT(*) AS count FROM review_schedule WHERE active = 1 AND mistake_id IN (${placeholders})`
+      )
+    };
+  }
+
+  buildCurriculumSwitchPreview({
+    studentId = null,
+    targetTextbookId,
+    mappingChoices = {}
+  } = {}) {
+    const student = this.getStudent(studentId);
+    if (!student) {
+      throw curriculumValidationError("STUDENT_NOT_FOUND", "没有找到当前学生", 404);
+    }
+    const fromTextbook = student.textbook;
+    const targetTextbook = this.getTextbook(targetTextbookId);
+    if (!targetTextbook) {
+      throw curriculumValidationError(
+        "TEXTBOOK_NOT_FOUND",
+        "没有找到目标教材",
+        404
+      );
+    }
+    if (!fromTextbook) {
+      throw curriculumValidationError(
+        "CURRENT_TEXTBOOK_MISSING",
+        "当前学生还没有教材记录，请先完成数据迁移",
+        409
+      );
+    }
+    const mistakes = this.db
+      .prepare(
+        `SELECT * FROM mistakes WHERE student_id = ? ORDER BY id`
+      )
+      .all(student.id);
+    const fromPoints = this.getCurriculumPoints(fromTextbook.id);
+    const fromById = new Map(fromPoints.map((point) => [point.id, point]));
+    const fromByName = new Map(fromPoints.map((point) => [point.name, point]));
+    const targetPoints = this.getCurriculumPoints(targetTextbook.id);
+    const targetById = new Map(targetPoints.map((point) => [point.id, point]));
+    const mappingTable = this.getCurriculumMappingTable(
+      fromTextbook.id,
+      targetTextbook.id
+    );
+    const mappingBySource = new Map(
+      mappingTable.map((group) => [group.sourcePointId, group])
+    );
+
+    const items = mistakes.map((mistake) => {
+      let sourcePoint = mistake.curriculum_point_id
+        ? fromById.get(mistake.curriculum_point_id)
+        : null;
+      if (!sourcePoint) {
+        sourcePoint = fromByName.get(mistake.knowledge_point) || null;
+      }
+      const mapping = sourcePoint
+        ? mappingBySource.get(sourcePoint.id)
+        : null;
+      const mappingTargets = mapping?.mappings || [];
+      const restoration = this.getLatestCurriculumRestoration({
+        mistakeId: mistake.id,
+        currentTextbookId: fromTextbook.id,
+        targetTextbookId: targetTextbook.id,
+        currentPointId: sourcePoint?.id || null
+      });
+      const restoredPoint = restoration?.before_curriculum_point_id
+        ? targetById.get(restoration.before_curriculum_point_id)
+        : null;
+      const resolutionKey = sourcePoint
+        ? String(sourcePoint.id)
+        : `mistake:${mistake.id}`;
+      const explicitChoice = Object.hasOwn(mappingChoices, resolutionKey)
+        ? mappingChoices[resolutionKey]
+        : undefined;
+      const candidateTarget = restoredPoint || mappingTargets[0]?.targetPointId
+        ? targetById.get(
+            restoredPoint?.id || mappingTargets[0]?.targetPointId
+          )
+        : null;
+      const chosenTarget =
+        explicitChoice !== undefined
+          ? explicitChoice === null || explicitChoice === "unmapped"
+            ? null
+            : targetById.get(Number(explicitChoice)) || null
+          : candidateTarget;
+
+      let mappingStatus = restoredPoint
+        ? "restored"
+        : mapping?.status || (sourcePoint ? "uncovered" : "conflict");
+      let resolutionMode = restoredPoint
+        ? "restored"
+        : mappingTargets.length && !mapping?.requiresConfirmation
+          ? "automatic"
+          : candidateTarget
+            ? "manual"
+            : "unmapped";
+      if (explicitChoice !== undefined) {
+        resolutionMode = chosenTarget ? "manual" : "unmapped";
+        mappingStatus = chosenTarget
+          ? mapping?.status === "uncovered"
+            ? "manual"
+            : mapping?.status || "manual"
+          : "unmapped";
+      }
+      const conflict = !sourcePoint && !restoredPoint;
+      const unmapped = !chosenTarget;
+      const needsConfirmation = restoredPoint
+        ? false
+        : Boolean(mapping?.requiresConfirmation) || conflict || unmapped;
+      return {
+        mistakeId: mistake.id,
+        question: String(mistake.question || "").slice(0, 120),
+        hasAttachments: Boolean(
+          this.db
+            .prepare("SELECT 1 AS found FROM attachments WHERE mistake_id = ? LIMIT 1")
+            .get(mistake.id)
+        ),
+        beforeTextbookId: fromTextbook.id,
+        beforeCurriculumPointId: sourcePoint?.id || null,
+        beforeKnowledgePoint: mistake.knowledge_point,
+        mappingStatus,
+        resolutionMode,
+        requiresConfirmation: needsConfirmation,
+        conflict,
+        unmapped,
+        resolutionKey,
+        candidateTargetPointIds: mappingTargets.map(
+          (target) => target.targetPointId
+        ),
+        targetPointId: chosenTarget?.id || null,
+        targetKnowledgePoint: chosenTarget?.name || "待归类",
+        targetUnit: chosenTarget
+          ? `${targetTextbook.displayName} 第${chosenTarget.unitNo}单元 ${chosenTarget.unitTitle}`
+          : `${targetTextbook.displayName} · 当前教材未覆盖/待归类`,
+        preservedStatus: mistake.status,
+        preservedDueAt:
+          this.db
+            .prepare(
+              `SELECT next_review_at FROM review_schedule
+               WHERE mistake_id = ? AND active = 1`
+            )
+            .get(mistake.id)?.next_review_at ||
+          mistake.due_at ||
+          null,
+        note:
+          restoredPoint
+            ? "按历史切换记录还原到之前的教材知识点。"
+            : mapping?.mappings?.[0]?.note || ""
+      };
+    });
+
+    const summary = {
+      totalMistakes: mistakes.length,
+      affectedMistakes: items.length,
+      autoMapped: items.filter((item) => item.resolutionMode === "automatic")
+        .length,
+      restored: items.filter((item) => item.resolutionMode === "restored")
+        .length,
+      needsConfirmation: items.filter((item) => item.requiresConfirmation)
+        .length,
+      unmapped: items.filter((item) => item.unmapped).length,
+      conflicts: items.filter((item) => item.conflict).length,
+      manualSelections: items.filter((item) => item.resolutionMode === "manual")
+        .length
+    };
+    const impact = this.getMistakeImpactCounts(
+      items.map((item) => item.mistakeId)
+    );
+    const affectedGroups = new Map();
+    for (const item of items) {
+      const key = item.beforeKnowledgePoint || "未分类";
+      const group = affectedGroups.get(key) || {
+        knowledgePoint: key,
+        count: 0,
+        statuses: new Set(),
+        targetPoints: new Set()
+      };
+      group.count += 1;
+      group.statuses.add(item.mappingStatus);
+      group.targetPoints.add(item.targetKnowledgePoint);
+      affectedGroups.set(key, group);
+    }
+    const previewCore = {
+      studentId: student.id,
+      fromTextbookId: fromTextbook.id,
+      targetTextbookId: targetTextbook.id,
+      mappingVersion: CURRICULUM_MAPPING_VERSION,
+      items: items.map((item) => ({
+        mistakeId: item.mistakeId,
+        beforeCurriculumPointId: item.beforeCurriculumPointId,
+        beforeKnowledgePoint: item.beforeKnowledgePoint,
+        targetPointId: item.targetPointId,
+        mappingStatus: item.mappingStatus
+      }))
+    };
+    const previewToken = createHash("sha256")
+      .update(stableJson(previewCore))
+      .digest("hex");
+    return {
+      previewToken,
+      alreadyCurrent: fromTextbook.id === targetTextbook.id,
+      mappingVersion: CURRICULUM_MAPPING_VERSION,
+      student: {
+        id: student.id,
+        name: student.name,
+        grade: student.grade
+      },
+      fromTextbook,
+      targetTextbook,
+      mappingTable,
+      targetPoints,
+      items,
+      summary: {
+        ...summary,
+        ...impact,
+        historicalReportDays: this.getHistoricalReportDayCount(student.id)
+      },
+      affectedKnowledgePoints: [...affectedGroups.values()].map((group) => ({
+        knowledgePoint: group.knowledgePoint,
+        count: group.count,
+        statuses: [...group.statuses],
+        targetPoints: [...group.targetPoints]
+      })),
+      impacts: {
+        mistakes: "仅更新当前教材关系；题目、答案和附件保留。",
+        attempts: "作答历史保留，不重算。",
+        hints: "提示记录保留，不重算。",
+        mastery: "掌握状态、连续答对次数和掌握证据保留，不清零。",
+        review: "复习队列和到期时间保留。",
+        reports: "历史日/周报按切换前教材快照保留，并标注“按当时教材”。",
+        search: "切换后按目标教材知识点和别名检索；未覆盖项不会伪造结果。"
+      }
+    };
+  }
+
+  executeCurriculumSwitch({
+    studentId = null,
+    targetTextbookId,
+    previewToken,
+    mappingChoices = {},
+    confirmUnmapped = false,
+    idempotencyKey,
+    actor = "",
+    confirmer = ""
+  } = {}) {
+    const student = this.getStudent(studentId);
+    if (!student) {
+      throw curriculumValidationError("STUDENT_NOT_FOUND", "没有找到当前学生", 404);
+    }
+    const key = String(idempotencyKey || "").trim();
+    if (!key) {
+      throw curriculumValidationError(
+        "IDEMPOTENCY_KEY_REQUIRED",
+        "切换教材请求缺少幂等键"
+      );
+    }
+    const existing = this.db
+      .prepare("SELECT * FROM curriculum_switch_logs WHERE idempotency_key = ?")
+      .get(key);
+    if (existing) {
+      if (existing.student_id !== student.id) {
+        throw curriculumValidationError(
+          "IDEMPOTENCY_KEY_CONFLICT",
+          "幂等键已被其他学生使用",
+          409
+        );
+      }
+      return {
+        ...this.mapCurriculumSwitchLog(existing),
+        idempotentReplay: true
+      };
+    }
+    const preview = this.buildCurriculumSwitchPreview({
+      studentId: student.id,
+      targetTextbookId
+    });
+    if (preview.alreadyCurrent) {
+      return {
+        alreadyCurrent: true,
+        student,
+        textbook: preview.targetTextbook,
+        previewToken: preview.previewToken,
+        mappingVersion: CURRICULUM_MAPPING_VERSION,
+        affected: 0
+      };
+    }
+    if (!previewToken || previewToken !== preview.previewToken) {
+      throw curriculumValidationError(
+        "PREVIEW_STALE",
+        "预演结果已过期，请重新预演后再确认",
+        409
+      );
+    }
+
+    const targetById = new Map(
+      preview.targetPoints.map((point) => [point.id, point])
+    );
+    const blocking = [];
+    const resolvedItems = preview.items.map((item) => {
+      const rawChoice = Object.hasOwn(mappingChoices, item.resolutionKey)
+        ? mappingChoices[item.resolutionKey]
+        : Object.hasOwn(mappingChoices, String(item.mistakeId))
+          ? mappingChoices[item.mistakeId]
+          : undefined;
+      let targetPoint = item.targetPointId
+        ? targetById.get(item.targetPointId)
+        : null;
+      let resolutionMode = item.resolutionMode;
+
+      if (resolutionMode === "restored" || resolutionMode === "automatic") {
+        if (!targetPoint) {
+          blocking.push({
+            mistakeId: item.mistakeId,
+            reason: "自动映射目标缺失"
+          });
+        }
+      } else if (rawChoice === undefined) {
+        if (item.mappingStatus === "split") {
+          blocking.push({
+            mistakeId: item.mistakeId,
+            reason: "拆分映射需要人工确认"
+          });
+        } else if (item.unmapped) {
+          if (!confirmUnmapped) {
+            blocking.push({
+              mistakeId: item.mistakeId,
+              reason: "未覆盖项需要确认保留为待归类"
+            });
+          }
+          targetPoint = null;
+          resolutionMode = "unmapped";
+        } else {
+          blocking.push({
+            mistakeId: item.mistakeId,
+            reason: "映射冲突需要人工选择目标知识点"
+          });
+        }
+      } else if (rawChoice === null || rawChoice === "unmapped") {
+        if (!confirmUnmapped) {
+          blocking.push({
+            mistakeId: item.mistakeId,
+            reason: "标记待归类需要明确确认"
+          });
+        }
+        targetPoint = null;
+        resolutionMode = "unmapped";
+      } else {
+        targetPoint = targetById.get(Number(rawChoice)) || null;
+        if (!targetPoint) {
+          blocking.push({
+            mistakeId: item.mistakeId,
+            reason: "选择的目标知识点不属于当前目标教材"
+          });
+        }
+        resolutionMode = targetPoint ? "manual" : "unmapped";
+      }
+
+      const mapped = Boolean(targetPoint);
+      return {
+        mistakeId: item.mistakeId,
+        beforeKnowledgePoint: item.beforeKnowledgePoint,
+        beforeCurriculumPointId: item.beforeCurriculumPointId,
+        afterCurriculumPointId: targetPoint?.id || null,
+        afterKnowledgePoint: targetPoint?.name || "待归类",
+        mappingStatus: mapped
+          ? resolutionMode === "manual" && item.mappingStatus === "uncovered"
+            ? "manual"
+            : item.mappingStatus
+          : "unmapped",
+        resolutionMode,
+        conflict: item.conflict ? 1 : 0,
+        unmapped: mapped ? 0 : 1,
+        curriculumStatus: mapped ? "mapped" : "unmapped",
+        detail: {
+          targetUnit: targetPoint
+            ? `${preview.targetTextbook.displayName} 第${targetPoint.unitNo}单元 ${targetPoint.unitTitle}`
+            : "当前教材未覆盖/待归类",
+          note: item.note
+        }
+      };
+    });
+    if (blocking.length) {
+      const error = curriculumValidationError(
+        "MAPPING_CONFIRMATION_REQUIRED",
+        `还有 ${blocking.length} 道题需要人工确认或处理未映射项`,
+        409
+      );
+      error.details = { blocking };
+      throw error;
+    }
+
+    const rollbackPlan = {
+      strategy: "single_transaction",
+      student: {
+        id: student.id,
+        textbookId: preview.fromTextbook.id
+      },
+      mistakes: preview.items.map((item) => ({
+        mistakeId: item.mistakeId,
+        textbookId: item.beforeTextbookId,
+        curriculumPointId: item.beforeCurriculumPointId,
+        knowledgePoint: item.beforeKnowledgePoint,
+        status: item.preservedStatus,
+        dueAt: item.preservedDueAt
+      }))
+    };
+    const snapshots = this.collectHistoricalReportSnapshots({
+      studentId: student.id,
+      textbook: preview.fromTextbook
+    });
+    const timestamp = nowIso();
+    const autoCount = resolvedItems.filter((item) =>
+      ["automatic", "restored"].includes(item.resolutionMode)
+    ).length;
+    const manualCount = resolvedItems.filter(
+      (item) => item.resolutionMode === "manual"
+    ).length;
+    const unmappedCount = resolvedItems.filter(
+      (item) => item.resolutionMode === "unmapped"
+    ).length;
+    const conflictCount = resolvedItems.filter((item) => item.conflict).length;
+    const resultPayload = {
+      mappingVersion: CURRICULUM_MAPPING_VERSION,
+      previewHash: preview.previewToken,
+      fromTextbook: preview.fromTextbook,
+      targetTextbook: preview.targetTextbook,
+      summary: {
+        affectedMistakes: resolvedItems.length,
+        autoMapped: autoCount,
+        manualMapped: manualCount,
+        unmapped: unmappedCount,
+        conflicts: conflictCount,
+        reportSnapshots: snapshots.length,
+        preserved: {
+          attachments: preview.summary.attachments,
+          attempts: preview.summary.attempts,
+          hintEvents: preview.summary.hintEvents,
+          masteryEvidence: preview.summary.masteryEvidence,
+          activeReviews: preview.summary.activeReviews
+        }
+      },
+      items: resolvedItems,
+      rollbackPlan
+    };
+
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const updateMistake = this.db.prepare(
+        `UPDATE mistakes
+         SET textbook_id = ?, curriculum_point_id = ?, knowledge_point = ?,
+             curriculum_status = ?, updated_at = ?
+         WHERE id = ? AND student_id = ?`
+      );
+      for (const item of resolvedItems) {
+        const result = updateMistake.run(
+          preview.targetTextbook.id,
+          item.afterCurriculumPointId,
+          item.afterKnowledgePoint,
+          item.curriculumStatus,
+          timestamp,
+          item.mistakeId,
+          student.id
+        );
+        if (!result.changes) {
+          throw new Error(`错题 ${item.mistakeId} 不属于当前学生，切换已回滚`);
+        }
+      }
+      const logResult = this.db
+        .prepare(
+          `INSERT INTO curriculum_switch_logs (
+            student_id, operation, from_textbook_id, to_textbook_id,
+            from_grade, from_semester, to_grade, to_semester,
+            mapping_version, preview_hash, idempotency_key, actor, confirmer,
+            status, affected_count, auto_count, manual_count, unmapped_count,
+            conflict_count, result_json, rollback_json, created_at
+          ) VALUES (?, 'switch', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed',
+                    ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          student.id,
+          preview.fromTextbook.id,
+          preview.targetTextbook.id,
+          preview.fromTextbook.grade,
+          preview.fromTextbook.semester,
+          preview.targetTextbook.grade,
+          preview.targetTextbook.semester,
+          CURRICULUM_MAPPING_VERSION,
+          preview.previewToken,
+          key,
+          String(actor || student.name || "当前用户"),
+          String(confirmer || actor || student.name || "当前用户"),
+          resolvedItems.length,
+          autoCount,
+          manualCount,
+          unmappedCount,
+          conflictCount,
+          JSON.stringify(resultPayload),
+          JSON.stringify(rollbackPlan),
+          timestamp
+        );
+      const switchLogId = Number(logResult.lastInsertRowid);
+      const insertItem = this.db.prepare(
+        `INSERT INTO curriculum_switch_items (
+          switch_log_id, mistake_id, before_textbook_id, after_textbook_id,
+          before_curriculum_point_id, after_curriculum_point_id,
+          before_knowledge_point, after_knowledge_point, mapping_status,
+          resolution_mode, conflict, unmapped, detail_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const item of resolvedItems) {
+        insertItem.run(
+          switchLogId,
+          item.mistakeId,
+          preview.fromTextbook.id,
+          preview.targetTextbook.id,
+          item.beforeCurriculumPointId,
+          item.afterCurriculumPointId,
+          item.beforeKnowledgePoint,
+          item.afterKnowledgePoint,
+          item.mappingStatus,
+          item.resolutionMode,
+          item.conflict,
+          item.unmapped,
+          JSON.stringify(item.detail),
+          timestamp
+        );
+      }
+      this.insertReportSnapshots(snapshots, {
+        studentId: student.id,
+        textbook: preview.fromTextbook,
+        switchLogId
+      });
+      this.db
+        .prepare(
+          `UPDATE students
+           SET textbook_id = ?, textbook_selected_at = ?
+           WHERE id = ?`
+        )
+        .run(preview.targetTextbook.id, timestamp, student.id);
+      this.db.exec("COMMIT");
+      return this.getCurriculumSwitchLog(switchLogId);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  mapCurriculumSwitchLog(row) {
+    if (!row) return null;
+    const items = this.db
+      .prepare(
+        `SELECT * FROM curriculum_switch_items
+         WHERE switch_log_id = ?
+         ORDER BY id`
+      )
+      .all(row.id)
+      .map((item) => ({
+        id: item.id,
+        mistakeId: item.mistake_id,
+        beforeTextbookId: item.before_textbook_id,
+        afterTextbookId: item.after_textbook_id,
+        beforeCurriculumPointId: item.before_curriculum_point_id,
+        afterCurriculumPointId: item.after_curriculum_point_id,
+        beforeKnowledgePoint: item.before_knowledge_point,
+        afterKnowledgePoint: item.after_knowledge_point,
+        mappingStatus: item.mapping_status,
+        resolutionMode: item.resolution_mode,
+        conflict: item.conflict === 1,
+        unmapped: item.unmapped === 1,
+        detail: parseJsonObject(item.detail_json),
+        createdAt: item.created_at
+      }));
+    return {
+      id: row.id,
+      studentId: row.student_id,
+      operation: row.operation,
+      fromTextbook: this.getTextbook(row.from_textbook_id),
+      toTextbook: this.getTextbook(row.to_textbook_id),
+      fromGrade: row.from_grade,
+      fromSemester: row.from_semester,
+      toGrade: row.to_grade,
+      toSemester: row.to_semester,
+      mappingVersion: row.mapping_version,
+      previewHash: row.preview_hash,
+      idempotencyKey: row.idempotency_key,
+      actor: row.actor,
+      confirmer: row.confirmer,
+      status: row.status,
+      affectedCount: row.affected_count,
+      autoCount: row.auto_count,
+      manualCount: row.manual_count,
+      unmappedCount: row.unmapped_count,
+      conflictCount: row.conflict_count,
+      result: parseJsonObject(row.result_json),
+      rollback: parseJsonObject(row.rollback_json),
+      items,
+      createdAt: row.created_at
+    };
+  }
+
+  getCurriculumSwitchLog(id) {
+    return this.mapCurriculumSwitchLog(
+      this.db
+        .prepare("SELECT * FROM curriculum_switch_logs WHERE id = ?")
+        .get(id)
+    );
+  }
+
+  getCurriculumSwitchLogs({ studentId = null, mistakeId = null, limit = 20 } = {}) {
+    const student = this.getStudent(studentId);
+    if (!student) return [];
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
+    const rows = mistakeId
+      ? this.db
+          .prepare(
+            `SELECT DISTINCT l.*
+             FROM curriculum_switch_logs l
+             JOIN curriculum_switch_items i ON i.switch_log_id = l.id
+             WHERE l.student_id = ? AND i.mistake_id = ?
+             ORDER BY l.id DESC
+             LIMIT ?`
+          )
+          .all(student.id, mistakeId, safeLimit)
+      : this.db
+          .prepare(
+            `SELECT * FROM curriculum_switch_logs
+             WHERE student_id = ?
+             ORDER BY id DESC
+             LIMIT ?`
+          )
+          .all(student.id, safeLimit);
+    return rows.map((row) => this.mapCurriculumSwitchLog(row));
+  }
+
+  assignMistakeCurriculum({
+    studentId = null,
+    mistakeId,
+    targetCurriculumPointId,
+    idempotencyKey,
+    actor = "",
+    confirmer = ""
+  } = {}) {
+    const student = this.getStudent(studentId);
+    if (!student) {
+      throw curriculumValidationError("STUDENT_NOT_FOUND", "没有找到当前学生", 404);
+    }
+    const key = String(idempotencyKey || "").trim();
+    if (!key) {
+      throw curriculumValidationError(
+        "IDEMPOTENCY_KEY_REQUIRED",
+        "未映射处理请求缺少幂等键"
+      );
+    }
+    const existing = this.db
+      .prepare("SELECT * FROM curriculum_switch_logs WHERE idempotency_key = ?")
+      .get(key);
+    if (existing) {
+      if (existing.student_id !== student.id) {
+        throw curriculumValidationError(
+          "IDEMPOTENCY_KEY_CONFLICT",
+          "幂等键已被其他学生使用",
+          409
+        );
+      }
+      return {
+        ...this.mapCurriculumSwitchLog(existing),
+        idempotentReplay: true
+      };
+    }
+    const mistake = this.db
+      .prepare("SELECT * FROM mistakes WHERE id = ? AND student_id = ?")
+      .get(mistakeId, student.id);
+    if (!mistake) {
+      throw curriculumValidationError("MISTAKE_NOT_FOUND", "没有找到这道错题", 404);
+    }
+    const textbook = student.textbook;
+    const targetPoint = this.getCurriculumPoint(
+      textbook.id,
+      targetCurriculumPointId
+    );
+    if (!targetPoint) {
+      throw curriculumValidationError(
+        "TARGET_POINT_NOT_FOUND",
+        "目标知识点不属于当前教材",
+        400
+      );
+    }
+    if (
+      mistake.textbook_id === textbook.id &&
+      mistake.curriculum_point_id === targetPoint.id
+    ) {
+      return {
+        alreadyResolved: true,
+        mistake: this.getMistake(mistake.id, { includeSolution: true })
+      };
+    }
+    const timestamp = nowIso();
+    const previewHash = createHash("sha256")
+      .update(
+        stableJson({
+          operation: "manual_resolve",
+          studentId: student.id,
+          mistakeId: mistake.id,
+          textbookId: textbook.id,
+          beforePointId: mistake.curriculum_point_id,
+          targetPointId: targetPoint.id
+        })
+      )
+      .digest("hex");
+    const rollbackPlan = {
+      strategy: "single_transaction",
+      mistakeId: mistake.id,
+      textbookId: mistake.textbook_id,
+      curriculumPointId: mistake.curriculum_point_id,
+      knowledgePoint: mistake.knowledge_point
+    };
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db
+        .prepare(
+          `UPDATE mistakes
+           SET textbook_id = ?, curriculum_point_id = ?, knowledge_point = ?,
+               curriculum_status = 'mapped', updated_at = ?
+           WHERE id = ? AND student_id = ?`
+        )
+        .run(
+          textbook.id,
+          targetPoint.id,
+          targetPoint.name,
+          timestamp,
+          mistake.id,
+          student.id
+        );
+      const logResult = this.db
+        .prepare(
+          `INSERT INTO curriculum_switch_logs (
+            student_id, operation, from_textbook_id, to_textbook_id,
+            from_grade, from_semester, to_grade, to_semester,
+            mapping_version, preview_hash, idempotency_key, actor, confirmer,
+            status, affected_count, auto_count, manual_count, unmapped_count,
+            conflict_count, result_json, rollback_json, created_at
+          ) VALUES (?, 'manual_resolve', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    'confirmed', 1, 0, 1, 0, 0, ?, ?, ?)`
+        )
+        .run(
+          student.id,
+          textbook.id,
+          textbook.id,
+          textbook.grade,
+          textbook.semester,
+          textbook.grade,
+          textbook.semester,
+          CURRICULUM_MAPPING_VERSION,
+          previewHash,
+          key,
+          String(actor || student.name || "当前用户"),
+          String(confirmer || actor || student.name || "当前用户"),
+          JSON.stringify({
+            mappingVersion: CURRICULUM_MAPPING_VERSION,
+            operation: "manual_resolve",
+            mistakeId: mistake.id,
+            beforeKnowledgePoint: mistake.knowledge_point,
+            afterKnowledgePoint: targetPoint.name,
+            targetPoint
+          }),
+          JSON.stringify(rollbackPlan),
+          timestamp
+        );
+      const switchLogId = Number(logResult.lastInsertRowid);
+      this.db
+        .prepare(
+          `INSERT INTO curriculum_switch_items (
+            switch_log_id, mistake_id, before_textbook_id, after_textbook_id,
+            before_curriculum_point_id, after_curriculum_point_id,
+            before_knowledge_point, after_knowledge_point, mapping_status,
+            resolution_mode, conflict, unmapped, detail_json, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'manual', 0, 0, ?, ?)`
+        )
+        .run(
+          switchLogId,
+          mistake.id,
+          mistake.textbook_id,
+          textbook.id,
+          mistake.curriculum_point_id,
+          targetPoint.id,
+          mistake.knowledge_point,
+          targetPoint.name,
+          JSON.stringify({
+            targetUnit: `${textbook.displayName} 第${targetPoint.unitNo}单元 ${targetPoint.unitTitle}`
+          }),
+          timestamp
+        );
+      this.db.exec("COMMIT");
+      return this.getCurriculumSwitchLog(switchLogId);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   getKnowledgeCards() {
     const points = this.db
       .prepare(`
@@ -1082,8 +2619,144 @@ export class LearningRepository {
     );
   }
 
-  searchKnowledge({ query, knowledgePoint = null, limit = 3, includeCard = false }) {
+  getCurriculumKnowledgeCards(textbookId) {
+    const textbook = this.getTextbook(textbookId);
+    if (!textbook) return [];
     const cards = this.getKnowledgeCards();
+    const cardsBySlug = new Map(cards.map((card) => [card.slug, card]));
+    const sources = this.db
+      .prepare("SELECT * FROM knowledge_sources ORDER BY id")
+      .all();
+    const sourceByKey = new Map(
+      sources.map((source) => [source.source_key, source])
+    );
+    const mapSource = (source) => ({
+      key: source.source_key,
+      kind: source.kind,
+      title: source.title,
+      publisher: source.publisher,
+      edition: source.edition,
+      locator: source.locator,
+      note: source.note,
+      verifiedAt: source.verified_at,
+      citation: `${source.title}（${source.edition}）· ${source.locator} [${source.source_key}]`
+    });
+
+    return this.getCurriculumPoints(textbook.id)
+      .map((point) => {
+        const base = cardsBySlug.get(point.sourceKnowledgeSlug);
+        const summarySourceRow = sourceByKey.get(point.sourceKey);
+        const outlineSourceRow = sourceByKey.get(
+          textbook.editionKey === "beishida"
+            ? "beishida-outline-v1"
+            : "renjiao-outline-v1"
+        );
+        const summarySource = summarySourceRow
+          ? mapSource(summarySourceRow)
+          : null;
+        const outlineSource = outlineSourceRow
+          ? mapSource(outlineSourceRow)
+          : null;
+        const targetSources = [summarySource, outlineSource].filter(Boolean);
+        if (!base) {
+          return {
+            id: point.id,
+            sourceCardId: null,
+            curriculumPointId: point.id,
+            name: point.name,
+            slug: point.slug,
+            unit: `${textbook.displayName} 第${point.unitNo}单元 ${point.unitTitle}`,
+            unitNo: point.unitNo,
+            unitTitle: point.unitTitle,
+            textbookVersion: textbook.displayName,
+            textbookId: textbook.id,
+            aliases: point.aliases,
+            prerequisites: [],
+            keywords: point.semanticKeys,
+            summary:
+              "该知识点属于北师大版新增编排内容，教材摘要尚未通过任课教师审核，暂不提供自动知识讲解。",
+            hint: "",
+            steps: [],
+            commonErrors: [],
+            contentVersion: point.contentVersion,
+            reviewStatus: "unreviewed",
+            updatedAt: point.updatedAt,
+            position: point.position,
+            chunks: [],
+            sources: targetSources
+          };
+        }
+        const chunks = base.chunks.map((chunk) => ({
+          ...chunk,
+          citation: summarySource
+            ? `${summarySource.title} · ${point.name} / ${chunk.title} [${summarySource.key}]`
+            : `${point.name} / ${chunk.title}`,
+          source: summarySource
+        }));
+        return {
+          ...base,
+          id: point.id,
+          sourceCardId: base.id,
+          curriculumPointId: point.id,
+          name: point.name,
+          slug: point.slug,
+          unit: `${textbook.displayName} 第${point.unitNo}单元 ${point.unitTitle}`,
+          unitNo: point.unitNo,
+          unitTitle: point.unitTitle,
+          textbookVersion: textbook.displayName,
+          textbookId: textbook.id,
+          aliases: [
+            ...new Set([
+              ...point.aliases,
+              ...base.aliases,
+              ...(base.name !== point.name ? [base.name] : [])
+            ])
+          ],
+          reviewStatus: point.reviewStatus,
+          contentVersion: point.contentVersion,
+          chunks,
+          sources: targetSources
+        };
+      })
+      .filter(Boolean);
+  }
+
+  getCurriculumKnowledgeBaseData(textbookId) {
+    const cards = this.getCurriculumKnowledgeCards(textbookId);
+    const textbook = this.getTextbook(textbookId);
+    const reviewCounts = {};
+    for (const card of cards) {
+      reviewCounts[card.reviewStatus] =
+        (reviewCounts[card.reviewStatus] || 0) + 1;
+    }
+    const sourceKeys = new Set(
+      cards.flatMap((card) => card.sources.map((source) => source.key))
+    );
+    return {
+      stats: {
+        knowledgePoints: cards.length,
+        units: new Set(cards.map((card) => card.unitNo)).size,
+        chunks: cards.reduce((total, card) => total + card.chunks.length, 0),
+        sources: sourceKeys.size,
+        reviewCounts,
+        textbookVersion: textbook?.displayName || "",
+        textbookId: textbook?.id || null,
+        contentVersion: KNOWLEDGE_CONTENT_VERSION
+      },
+      cards
+    };
+  }
+
+  searchKnowledge({
+    query,
+    knowledgePoint = null,
+    limit = 3,
+    includeCard = false,
+    textbookId = null
+  }) {
+    const cards = textbookId
+      ? this.getCurriculumKnowledgeCards(textbookId)
+      : this.getKnowledgeCards();
     const ftsHits = new Map();
     const ftsQuery = buildKnowledgeFtsQuery(query);
     if (ftsQuery) {
@@ -1117,7 +2790,10 @@ export class LearningRepository {
     });
   }
 
-  getKnowledgeBaseStats() {
+  getKnowledgeBaseStats({ textbookId = null } = {}) {
+    if (textbookId) {
+      return this.getCurriculumKnowledgeBaseData(textbookId).stats;
+    }
     const cards = this.getKnowledgeCards();
     const reviewCounts = {};
     for (const card of cards) {
@@ -1225,6 +2901,10 @@ export class LearningRepository {
       correctAnswer: draft.correctAnswer,
       knowledgePoint: draft.knowledgePoint
     });
+    const curriculum = this.resolveMistakeCurriculum(
+      draft.knowledgePoint,
+      this.getStudent(draft.studentId)
+    );
     const timestamp = nowIso();
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -1232,9 +2912,10 @@ export class LearningRepository {
         .prepare(
           `INSERT INTO mistakes (
             student_id, question, student_answer, correct_answer, analysis,
-            knowledge_point, error_type, hint, method_steps, common_errors,
+            knowledge_point, textbook_id, curriculum_point_id,
+            curriculum_status, error_type, hint, method_steps, common_errors,
             diagnosis, status, due_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`
         )
         .run(
           draft.studentId,
@@ -1242,7 +2923,10 @@ export class LearningRepository {
           draft.studentAnswer,
           draft.correctAnswer,
           draft.analysis,
-          draft.knowledgePoint,
+          curriculum.knowledgePoint,
+          curriculum.textbookId,
+          curriculum.curriculumPointId,
+          curriculum.curriculumStatus,
           draft.errorType,
           diagnosis.hint || "",
           JSON.stringify(diagnosis.methodSteps || []),
@@ -1257,7 +2941,7 @@ export class LearningRepository {
         mistakeId,
         parts,
         timestamp,
-        diagnosis.knowledgePoint
+        curriculum.knowledgePoint
       );
       this.insertDiagnosis(mistakeId, diagnosis, timestamp);
       const reviewScheduleId = this.insertReviewSchedule({
@@ -1298,6 +2982,67 @@ export class LearningRepository {
     }
   }
 
+  resolveMistakeCurriculum(knowledgePoint, student = this.getStudent()) {
+    const sourceName = String(knowledgePoint || "").trim();
+    const textbook = student?.textbook;
+    if (!textbook) {
+      return {
+        textbookId: null,
+        curriculumPointId: null,
+        curriculumStatus: "legacy",
+        knowledgePoint: sourceName
+      };
+    }
+    const direct = this.resolveCurriculumPointByName(textbook.id, sourceName);
+    if (direct) {
+      return {
+        textbookId: textbook.id,
+        curriculumPointId: direct.id,
+        curriculumStatus: "mapped",
+        knowledgePoint: direct.name
+      };
+    }
+
+    const legacy = this.getTextbook("renjiao-6-all");
+    const sourcePoint =
+      legacy && this.resolveCurriculumPointByName(legacy.id, sourceName);
+    if (sourcePoint && legacy.id !== textbook.id) {
+      const rows = this.getCurriculumMappingRows(legacy.id, textbook.id).filter(
+        (row) => row.sourcePointId === sourcePoint.id
+      );
+      const targets = [
+        ...new Map(
+          rows
+            .filter((row) => row.targetPointId)
+            .map((row) => [row.targetPointId, row])
+        ).values()
+      ];
+      if (targets.length === 1 && !targets[0].requiresConfirmation) {
+        return {
+          textbookId: textbook.id,
+          curriculumPointId: targets[0].targetPointId,
+          curriculumStatus: "mapped",
+          knowledgePoint: targets[0].targetPointName
+        };
+      }
+      if (targets.length) {
+        return {
+          textbookId: textbook.id,
+          curriculumPointId: null,
+          curriculumStatus: "needs_confirmation",
+          knowledgePoint: "待归类"
+        };
+      }
+    }
+
+    return {
+      textbookId: textbook.id,
+      curriculumPointId: null,
+      curriculumStatus: "unmapped",
+      knowledgePoint: "待归类"
+    };
+  }
+
   createMistake(input) {
     assertToolWriteAllowed();
     const student = this.getStudent();
@@ -1321,6 +3066,10 @@ export class LearningRepository {
       studentAnswer: input.studentAnswer || combinedStudentAnswer,
       correctAnswer: input.correctAnswer || combinedCorrectAnswer
     });
+    const curriculum = this.resolveMistakeCurriculum(
+      diagnosis.knowledgePoint,
+      student
+    );
     const timestamp = nowIso();
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -1328,9 +3077,10 @@ export class LearningRepository {
         .prepare(
           `INSERT INTO mistakes (
             student_id, question, student_answer, correct_answer, analysis,
-            knowledge_point, error_type, hint, method_steps, common_errors,
+            knowledge_point, textbook_id, curriculum_point_id,
+            curriculum_status, error_type, hint, method_steps, common_errors,
             diagnosis, status, due_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`
         )
         .run(
           student.id,
@@ -1338,7 +3088,10 @@ export class LearningRepository {
           combinedStudentAnswer,
           combinedCorrectAnswer,
           input.analysis || "",
-          diagnosis.knowledgePoint,
+          curriculum.knowledgePoint,
+          curriculum.textbookId,
+          curriculum.curriculumPointId,
+          curriculum.curriculumStatus,
           diagnosis.errorType,
           diagnosis.hint,
           JSON.stringify(diagnosis.methodSteps),
@@ -1387,9 +3140,9 @@ export class LearningRepository {
   getMistake(id, { includeSolution = false } = {}) {
     const row = this.db
       .prepare(
-        `SELECT m.*, k.name AS knowledge_point
+        `SELECT m.*, COALESCE(k.name, m.knowledge_point) AS knowledge_point
          FROM mistakes m
-         JOIN knowledge_points k ON k.name = m.knowledge_point
+         LEFT JOIN knowledge_points k ON k.name = m.knowledge_point
          WHERE m.id = ?`
       )
       .get(id);
@@ -1715,6 +3468,14 @@ export class LearningRepository {
       knowledgePoint: diagnosis.knowledgePoint,
       errorType: diagnosis.errorType
     };
+    const curriculum = this.resolveMistakeCurriculum(
+      finalFields.knowledgePoint,
+      this.getStudent()
+    );
+    finalFields.knowledgePoint = curriculum.knowledgePoint;
+    finalFields.textbookId = curriculum.textbookId;
+    finalFields.curriculumPointId = curriculum.curriculumPointId;
+    finalFields.curriculumStatus = curriculum.curriculumStatus;
     const changedFields = Object.keys(finalFields).filter(
       (field) => finalFields[field] !== current[field]
     );
@@ -1819,7 +3580,8 @@ export class LearningRepository {
         .prepare(
           `UPDATE mistakes SET
              question = ?, student_answer = ?, correct_answer = ?, analysis = ?,
-             knowledge_point = ?, error_type = ?, hint = ?, method_steps = ?,
+             knowledge_point = ?, textbook_id = ?, curriculum_point_id = ?,
+             curriculum_status = ?, error_type = ?, hint = ?, method_steps = ?,
              common_errors = ?, diagnosis = ?, revision = ?, status = ?,
              consecutive_correct = ?, attempt_count = ?, due_at = ?,
              last_reviewed_at = ?, updated_at = ?
@@ -1831,6 +3593,9 @@ export class LearningRepository {
           finalFields.correctAnswer,
           finalFields.analysis,
           finalFields.knowledgePoint,
+          finalFields.textbookId,
+          finalFields.curriculumPointId,
+          finalFields.curriculumStatus,
           finalFields.errorType,
           diagnosis.hint,
           JSON.stringify(diagnosis.methodSteps),
@@ -1963,9 +3728,9 @@ export class LearningRepository {
       : "all";
     const where = validStatus === "all" ? "" : "WHERE m.status = ?";
     const statement = this.db.prepare(
-      `SELECT m.*, k.name AS knowledge_point
+      `SELECT m.*, COALESCE(k.name, m.knowledge_point) AS knowledge_point
        FROM mistakes m
-       JOIN knowledge_points k ON k.name = m.knowledge_point
+       LEFT JOIN knowledge_points k ON k.name = m.knowledge_point
        ${where}
        ORDER BY
          CASE m.status
@@ -2032,12 +3797,12 @@ export class LearningRepository {
     const timestamp = nowIso();
     const row = this.db
       .prepare(
-        `SELECT m.*, k.name AS knowledge_point,
+        `SELECT m.*, COALESCE(k.name, m.knowledge_point) AS knowledge_point,
                 rs.next_review_at AS scheduled_review_at,
                 rs.interval_days AS review_interval_days,
                 rs.reason AS review_reason
          FROM mistakes m
-         JOIN knowledge_points k ON k.name = m.knowledge_point
+         LEFT JOIN knowledge_points k ON k.name = m.knowledge_point
          LEFT JOIN review_schedule rs
            ON rs.mistake_id = m.id AND rs.active = 1
          WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
@@ -2068,12 +3833,12 @@ export class LearningRepository {
     const safeLimit = Math.max(1, Math.min(Number(limit) || 5, 20));
     return this.db
       .prepare(
-        `SELECT m.*, k.name AS knowledge_point,
+        `SELECT m.*, COALESCE(k.name, m.knowledge_point) AS knowledge_point,
                 rs.next_review_at AS scheduled_review_at,
                 rs.interval_days AS review_interval_days,
                 rs.reason AS review_reason
          FROM mistakes m
-         JOIN knowledge_points k ON k.name = m.knowledge_point
+         LEFT JOIN knowledge_points k ON k.name = m.knowledge_point
          LEFT JOIN review_schedule rs
            ON rs.mistake_id = m.id AND rs.active = 1
          WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
@@ -2841,6 +4606,95 @@ export class LearningRepository {
     });
   }
 
+  getCurriculumKnowledgeSummary(textbookId, studentId = null) {
+    const textbook = this.getTextbook(textbookId);
+    if (!textbook) return [];
+    const points = this.getCurriculumPoints(textbook.id);
+    const clauses = ["m.textbook_id = ?"];
+    const parameters = [textbook.id];
+    if (studentId) {
+      clauses.push("m.student_id = ?");
+      parameters.push(studentId);
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT m.curriculum_point_id, m.knowledge_point, m.status,
+                m.consecutive_correct, m.attempt_count
+         FROM mistakes m
+         WHERE ${clauses.join(" AND ")}`
+      )
+      .all(...parameters);
+    const grouped = new Map();
+    for (const row of rows) {
+      const key = row.curriculum_point_id ?? "unmapped";
+      const list = grouped.get(key) || [];
+      list.push(row);
+      grouped.set(key, list);
+    }
+
+    const summarize = (items) => {
+      const mastered = items.filter((item) => item.status === "mastered").length;
+      const practicing = items.filter(
+        (item) => item.status === "practicing"
+      ).length;
+      const relearning = items.filter(
+        (item) => item.status === "relearning"
+      ).length;
+      const newCount = items.filter((item) => item.status === "new").length;
+      const mastery = items.length
+        ? Math.round(
+            items.reduce((total, item) => {
+              if (item.status === "mastered") return total + 100;
+              if (item.status === "practicing") {
+                return total + Math.min(80, 25 + item.consecutive_correct * 25);
+              }
+              if (item.status === "relearning") {
+                return total + Math.min(60, 10 + item.consecutive_correct * 20);
+              }
+              return total + 10;
+            }, 0) / items.length
+          )
+        : null;
+      return {
+        total: items.length,
+        new: newCount,
+        practicing,
+        relearning,
+        mastered,
+        mastery
+      };
+    };
+
+    const result = points.map((point) => ({
+      id: point.id,
+      name: point.name,
+      unitNo: point.unitNo,
+      unitTitle: point.unitTitle,
+      unit: `${textbook.displayName} 第${point.unitNo}单元 ${point.unitTitle}`,
+      textbookId: textbook.id,
+      textbookLabel: textbook.displayName,
+      reviewStatus: point.reviewStatus,
+      mapped: true,
+      ...summarize(grouped.get(point.id) || [])
+    }));
+    const unmapped = grouped.get("unmapped") || [];
+    if (unmapped.length) {
+      result.push({
+        id: "unmapped",
+        name: "待归类",
+        unitNo: null,
+        unitTitle: "当前教材未覆盖/待归类",
+        unit: `${textbook.displayName} · 当前教材未覆盖/待归类`,
+        textbookId: textbook.id,
+        textbookLabel: textbook.displayName,
+        reviewStatus: textbook.reviewStatus,
+        mapped: false,
+        ...summarize(unmapped)
+      });
+    }
+    return result;
+  }
+
   buildLearningSummary({ from, to, knowledgePoint = null }) {
     const mistakeClauses = ["m.created_at >= ?", "m.created_at <= ?"];
     const mistakeParameters = [from, to];
@@ -3108,7 +4962,135 @@ export class LearningRepository {
     );
   }
 
-  buildDailySummary({ from, to, knowledgePoint = null, at = null }) {
+  getReportSnapshot(reportType, periodKey, studentId = null) {
+    const student = this.getStudent(studentId);
+    if (!student) return null;
+    const row = this.db
+      .prepare(
+        `SELECT payload_json FROM report_snapshots
+         WHERE student_id = ? AND report_type = ? AND period_key = ?`
+      )
+      .get(student.id, reportType, periodKey);
+    if (!row) return null;
+    try {
+      return JSON.parse(row.payload_json);
+    } catch {
+      return null;
+    }
+  }
+
+  collectHistoricalReportSnapshots({ studentId = null, textbook = null } = {}) {
+    const student = this.getStudent(studentId);
+    if (!student) return [];
+    const currentTextbook = textbook || student.textbook;
+    const activityRows = this.db
+      .prepare(
+        `SELECT m.created_at AS created_at FROM mistakes m WHERE m.student_id = ?
+         UNION ALL
+         SELECT a.created_at FROM attempts a
+           JOIN mistakes m ON m.id = a.mistake_id WHERE m.student_id = ?
+         UNION ALL
+         SELECT h.created_at FROM hint_events h
+           JOIN mistakes m ON m.id = h.mistake_id WHERE m.student_id = ?
+         UNION ALL
+         SELECT e.created_at FROM mastery_evidence e
+           JOIN mistakes m ON m.id = e.mistake_id WHERE m.student_id = ?`
+      )
+      .all(student.id, student.id, student.id, student.id);
+    const dateKeys = [
+      ...new Set(
+        activityRows
+          .map((row) => row.created_at)
+          .filter(Boolean)
+          .map((value) => localDateKey(value))
+      )
+    ].sort();
+    const existing = new Set(
+      this.db
+        .prepare(
+          `SELECT report_type, period_key FROM report_snapshots
+           WHERE student_id = ?`
+        )
+        .all(student.id)
+        .map((row) => `${row.report_type}:${row.period_key}`)
+    );
+    const snapshots = [];
+    for (const dateKey of dateKeys) {
+      const [year, month, day] = dateKey.split("-").map(Number);
+      const dayStart = new Date(year, month - 1, day);
+      const dayEnd = new Date(year, month - 1, day + 1);
+      if (!existing.has(`daily:${dateKey}`)) {
+        const payload = this.buildDailySummary({
+          from: dayStart.toISOString(),
+          to: dayEnd.toISOString(),
+          at: dayEnd.toISOString(),
+          studentId: student.id,
+          useSnapshot: false
+        });
+        snapshots.push({
+          reportType: "daily",
+          periodKey: dateKey,
+          payload: withTextbookScope(payload, currentTextbook)
+        });
+      }
+      if (!existing.has(`weekly:${dateKey}`)) {
+        const weeklyStart = new Date(year, month - 1, day - 6);
+        const payload = this.buildWeeklyReport({
+          from: weeklyStart.toISOString(),
+          to: dayEnd.toISOString(),
+          at: dayEnd.toISOString(),
+          studentId: student.id,
+          useSnapshot: false
+        });
+        snapshots.push({
+          reportType: "weekly",
+          periodKey: dateKey,
+          payload: withTextbookScope(payload, currentTextbook)
+        });
+      }
+    }
+    return snapshots;
+  }
+
+  insertReportSnapshots(snapshots, { studentId, textbook, switchLogId }) {
+    const insert = this.db.prepare(
+      `INSERT OR IGNORE INTO report_snapshots (
+        student_id, report_type, period_key, textbook_id, textbook_label,
+        payload_json, switch_log_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const timestamp = nowIso();
+    for (const snapshot of snapshots) {
+      insert.run(
+        studentId,
+        snapshot.reportType,
+        snapshot.periodKey,
+        textbook?.id ?? null,
+        textbook?.displayName || "",
+        JSON.stringify(snapshot.payload),
+        switchLogId,
+        timestamp
+      );
+    }
+    return snapshots.length;
+  }
+
+  buildDailySummary({
+    from,
+    to,
+    knowledgePoint = null,
+    at = null,
+    studentId = null,
+    useSnapshot = true
+  }) {
+    if (useSnapshot) {
+      const snapshot = this.getReportSnapshot(
+        "daily",
+        localDateKey(to),
+        studentId
+      );
+      if (snapshot) return snapshot;
+    }
     const summary = this.buildLearningSummary({ from, to, knowledgePoint });
     const dueCount = this.countDueReviews({ at: at || to });
     const attempts = summary.totals.attempts;
@@ -3177,7 +5159,22 @@ export class LearningRepository {
     };
   }
 
-  buildWeeklyReport({ from, to, knowledgePoint = null, at = null }) {
+  buildWeeklyReport({
+    from,
+    to,
+    knowledgePoint = null,
+    at = null,
+    studentId = null,
+    useSnapshot = true
+  }) {
+    if (useSnapshot) {
+      const snapshot = this.getReportSnapshot(
+        "weekly",
+        localDateKey(to),
+        studentId
+      );
+      if (snapshot) return snapshot;
+    }
     const summary = this.buildLearningSummary({ from, to, knowledgePoint });
     const dueCount = this.countDueReviews({ at: at || to });
     const statements = [];
