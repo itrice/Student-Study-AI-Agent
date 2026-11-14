@@ -17,7 +17,7 @@
   --purple-pale: #f2eef8;
   --shadow: 0 18px 45px rgba(24, 50, 77, 0.08);
   --radius: 22px;
-  --text-meta: 12px;
+  --text-meta: 14px;
   --text-label: 14px;
   --text-body: 16px;
   font-family:
@@ -124,9 +124,13 @@ svg {
   min-width: 0;
 }
 
-.brand-copy strong,
-.brand-copy small {
+.brand-copy strong {
   white-space: nowrap;
+}
+
+.brand-copy small {
+  overflow-wrap: anywhere;
+  line-height: 1.45;
 }
 
 .brand strong,
@@ -140,7 +144,7 @@ svg {
 .profile small {
   display: block;
   margin-top: 4px;
-  color: rgba(255, 255, 255, 0.58);
+  color: rgba(255, 255, 255, 0.72);
   font-size: var(--text-meta);
 }
 
@@ -222,7 +226,7 @@ svg {
   border: 1px solid rgba(255, 255, 255, 0.32);
   border-radius: 50%;
   font-family: Georgia, serif;
-  font-size: 12px;
+  font-size: var(--text-meta);
   font-style: italic;
 }
 
@@ -282,7 +286,7 @@ svg {
   align-items: center;
   gap: 9px;
   color: #8292a0;
-  font-size: 12px;
+  font-size: var(--text-meta);
 }
 
 .breadcrumb b {
@@ -303,7 +307,7 @@ svg {
 
 .today-chip {
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--text-meta);
 }
 
 .menu-button {
@@ -853,7 +857,7 @@ svg {
 
 .priority-footer span {
   color: #8a9a92;
-  font-size: 13px;
+  font-size: var(--text-meta);
 }
 
 .priority-empty,
@@ -1008,7 +1012,7 @@ svg {
   display: block;
   margin-bottom: 9px;
   color: #7f9086;
-  font-size: 13px;
+  font-size: var(--text-meta);
   text-align: right;
 }
 
@@ -3649,7 +3653,7 @@ svg {
     flex: 1 1 auto;
     min-width: 0;
     padding-inline: 0;
-    font-size: 12px;
+    font-size: var(--text-meta);
   }
 }
 
