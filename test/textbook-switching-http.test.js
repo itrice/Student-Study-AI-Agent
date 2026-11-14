@@ -210,11 +210,38 @@ test(
       assert.equal(trace[0].items[0].beforeKnowledgePoint, "圆");
       assert.equal(trace[0].items[0].afterKnowledgePoint, "圆");
 
+      const editResponse = await fetch(
+        `${baseUrl}/api/mistakes/${mistake.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": randomUUID()
+          },
+          body: JSON.stringify({ knowledgePoint: "数学好玩" })
+        }
+      );
+      assert.equal(editResponse.status, 200);
+      const edited = await jsonBody(editResponse);
+      assert.equal(edited.mistake.knowledgePoint, "数学好玩");
+      assert.ok(edited.mistake.curriculumPointId);
+
+      const attemptResponse = await fetch(
+        `${baseUrl}/api/mistakes/${mistake.id}/attempts`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ answer: "12.56", independent: true })
+        }
+      );
+      assert.equal(attemptResponse.status, 200);
+
       const daily = await jsonBody(
         await fetch(`${baseUrl}/api/feedback/daily?date=${localDateKey()}`)
       );
-      assert.equal(daily.textbookScope.note, "按当时教材");
-      assert.equal(daily.textbookScope.label, "人教版六年级（上册/下册）");
+      assert.equal(daily.textbookScope.note, "当前教材");
+      assert.equal(daily.textbookScope.label, "北师大版六年级上册");
+      assert.equal(daily.totals.attempts, 1);
 
       const unmapped = await jsonBody(
         await fetch(`${baseUrl}/api/curriculum/unmapped`)

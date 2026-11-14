@@ -2028,6 +2028,7 @@ function renderCurriculumChoices(preview) {
   checkbox.id = "curriculum-confirm-splits";
   checkbox.addEventListener("change", () => {
     state.curriculumConfirmSplits = checkbox.checked;
+    updateCurriculumConfirmButton();
   });
   confirm.append(
     checkbox,
@@ -2095,6 +2096,7 @@ function renderCurriculumPreview(preview) {
     checkbox.id = "curriculum-confirm-unmapped";
     checkbox.addEventListener("change", () => {
       state.curriculumConfirmUnmapped = checkbox.checked;
+      updateCurriculumConfirmButton();
     });
     confirm.append(
       checkbox,
@@ -2114,6 +2116,7 @@ function renderCurriculumPreview(preview) {
   }
   impacts.append(impactList);
   target.append(impacts);
+  updateCurriculumConfirmButton();
 }
 
 function renderCurriculumConfirm(preview) {
@@ -2194,6 +2197,9 @@ function setCurriculumStage(stage) {
   $("#curriculum-execute-button").hidden = stage !== "confirm";
   $("#curriculum-done-button").hidden = stage !== "result";
   if (stage === "preview") {
+    updateCurriculumConfirmButton();
+  }
+  if (stage === "preview") {
     $("#curriculum-dialog-title").textContent = "预演切换影响";
     $("#curriculum-dialog-footnote").textContent = "预演不会修改任何数据。";
   } else if (stage === "confirm") {
@@ -2220,6 +2226,25 @@ function curriculumSplitChoicesComplete(preview) {
     }
   }
   return groups.size === 0 || state.curriculumConfirmSplits;
+}
+
+function curriculumPreviewConfirmationReady(preview) {
+  if (!preview) return false;
+  const hasUnmapped = preview.items.some((item) => item.unmapped);
+  return (
+    curriculumSplitChoicesComplete(preview) &&
+    (!hasUnmapped || state.curriculumConfirmUnmapped)
+  );
+}
+
+function updateCurriculumConfirmButton() {
+  const button = $("#curriculum-confirm-button");
+  const ready = curriculumPreviewConfirmationReady(state.curriculumPreview);
+  button.disabled = !ready;
+  button.setAttribute("aria-disabled", String(!ready));
+  button.title = ready
+    ? ""
+    : "请先完成拆分映射选择，并确认未覆盖项保留为待归类";
 }
 
 async function previewCurriculumSwitch() {

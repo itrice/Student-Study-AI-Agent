@@ -163,6 +163,14 @@ function dayBounds(date) {
   return { from: start.toISOString(), to: end.toISOString() };
 }
 
+function localDateKeyForTest(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
 test("教材目录同时保留两套教材，12 个知识点映射与北师大新增内容可追溯", () => {
   const repository = new LearningRepository();
   try {
@@ -333,7 +341,7 @@ test("执行切换保留 15 条现有数据、附件和全部学习证据，并�
 test("切换只影响当前学生，另一个学生的教材和错题完全不变", () => {
   const repository = new LearningRepository();
   try {
-    createMistake(repository, "圆");
+    const studentOneMistake = createMistake(repository, "圆");
     const from = repository.getTextbook("renjiao-6-all");
     const target = repository.getTextbook("beishida-6-upper");
     const studentOne = repository.getStudent();
@@ -372,6 +380,7 @@ test("切换只影响当前学生，另一个学生的教材和错题完全不�
       .get(studentTwoMistakeId);
 
     switchTextbook(repository, "beishida-6-upper");
+    repository.recordAttempt(studentOneMistake.id, "2");
 
     assert.equal(repository.getStudent().id, studentOne.id);
     assert.equal(repository.getStudent().textbookId, target.id);
@@ -389,6 +398,19 @@ test("切换只影响当前学生，另一个学生的教材和错题完全不�
         .get(studentTwoId).count,
       0
     );
+    const bounds = dayBounds(new Date());
+    const studentOneDaily = repository.buildDailySummary({
+      ...bounds,
+      studentId: studentOne.id
+    });
+    const studentTwoDaily = repository.buildDailySummary({
+      ...bounds,
+      studentId: studentTwoId
+    });
+    assert.equal(studentOneDaily.totals.attempts, 1);
+    assert.equal(studentTwoDaily.totals.attempts, 0);
+    assert.equal(studentTwoDaily.totals.hints, 0);
+    assert.equal(studentTwoDaily.totals.mistakes, 0);
   } finally {
     repository.close();
   }
@@ -433,6 +455,41 @@ test("A→B→A 可按审计明细还原，并可逐题追溯", () => {
   }
 });
 
+test("切换后可按北师大知识点编辑和新增错题，重复保存不改变数据", () => {
+  const repository = new LearningRepository();
+  try {
+    const mistake = createMistake(repository, "圆");
+    switchTextbook(repository, "beishida-6-upper");
+    const target = repository.getTextbook("beishida-6-upper");
+    const mathFun = repository
+      .getCurriculumPoints(target.id)
+      .find((point) => point.name === "数学好玩");
+
+    const updated = repository.updateMistake(mistake.id, {
+      knowledgePoint: "数学好玩"
+    });
+    assert.equal(updated.mistake.knowledgePoint, "数学好玩");
+    assert.equal(updated.mistake.curriculumPointId, mathFun.id);
+    assert.equal(updated.mistake.curriculumStatus, "mapped");
+    const noop = repository.updateMistake(mistake.id, {
+      knowledgePoint: "数学好玩"
+    });
+    assert.deepEqual(noop.changedFields, []);
+    const alias = repository.updateMistake(mistake.id, {
+      knowledgePoint: "看图找关系"
+    });
+    assert.equal(alias.mistake.knowledgePoint, "数学好玩");
+
+    const created = createMistake(repository, "整理与复习");
+    assert.equal(created.knowledgePoint, "整理与复习");
+    assert.equal(created.textbookId, target.id);
+    assert.equal(created.curriculumStatus, "mapped");
+    assert.ok(created.curriculumPointId);
+  } finally {
+    repository.close();
+  }
+});
+
 test("未映射项保留待归类，人工归类写入审计且审计不可编辑或删除", () => {
   const repository = new LearningRepository();
   try {
@@ -471,6 +528,11 @@ test("未映射项保留待归类，人工归类写入审计且审计不可编�
     const trace = repository.getCurriculumSwitchLogs({ mistakeId: mistake.id });
     assert.equal(trace.length, 2);
     assert.equal(trace[0].operation, "manual_resolve");
+
+    switchTextbook(repository, "renjiao-6-all");
+    const restored = repository.getMistake(mistake.id);
+    assert.equal(restored.textbookId, repository.getTextbook("renjiao-6-all").id);
+    assert.equal(restored.knowledgePoint, "负数");
 
     assert.throws(
       () => repository.db.prepare("UPDATE curriculum_switch_logs SET actor = ? WHERE id = ?").run("篡改", result.id),
@@ -550,7 +612,17 @@ test("历史日/周报在切换前生成快照并标注按当时教材，不追�
   try {
     const mistake = createMistake(repository, "百分数");
     repository.recordAttempt(mistake.id, "1");
-    const date = new Date();
+    const date = new Date(Date.now() - 2 * 86400000);
+    const pastIso = date.toISOString();
+    repository.db
+      .prepare("UPDATE mistakes SET created_at = ?, updated_at = ? WHERE id = ?")
+      .run(pastIso, pastIso, mistake.id);
+    repository.db
+      .prepare("UPDATE attempts SET created_at = ? WHERE mistake_id = ?")
+      .run(pastIso, mistake.id);
+    repository.db
+      .prepare("UPDATE mastery_evidence SET created_at = ? WHERE mistake_id = ?")
+      .run(pastIso, mistake.id);
     const bounds = dayBounds(date);
     switchTextbook(repository, "beishida-6-upper");
 
@@ -561,7 +633,7 @@ test("历史日/周报在切换前生成快照并标注按当时教材，不追�
     assert.equal(daily.textbookScope.label, "人教版六年级（上册/下册）");
     assert.equal(daily.textbookScope.note, "按当时教材");
     const weekly = repository.buildWeeklyReport({
-      from: new Date(Date.now() - 6 * 86400000).toISOString(),
+      from: new Date(date.getTime() - 6 * 86400000).toISOString(),
       to: bounds.to,
       studentId: repository.getStudent().id
     });
@@ -569,6 +641,44 @@ test("历史日/周报在切换前生成快照并标注按当时教材，不追�
     assert.equal(weekly.textbookScope.note, "按当时教材");
     assert.ok(
       repository.db.prepare("SELECT COUNT(*) AS count FROM report_snapshots").get().count >= 2
+    );
+  } finally {
+    repository.close();
+  }
+});
+
+test("切换当天和当周反馈保持实时，不用切换快照冻结新作答", () => {
+  const repository = new LearningRepository();
+  try {
+    const mistake = createMistake(repository, "圆");
+    const bounds = dayBounds(new Date());
+    switchTextbook(repository, "beishida-6-upper");
+    const result = repository.recordAttempt(mistake.id, "2");
+    assert.equal(result.outcome, "correct");
+
+    const daily = repository.buildDailySummary({
+      ...bounds,
+      studentId: repository.getStudent().id
+    });
+    assert.equal(daily.totals.attempts, 1);
+    assert.equal(daily.textbookScope.note, "当前教材");
+    assert.equal(daily.textbookScope.label, "北师大版六年级上册");
+    const today = localDateKeyForTest(new Date());
+    assert.equal(
+      repository.db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM report_snapshots WHERE report_type = 'daily' AND period_key = ?"
+        )
+        .get(today).count,
+      0
+    );
+    assert.equal(
+      repository.db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM report_snapshots WHERE report_type = 'weekly' AND period_key = ?"
+        )
+        .get(today).count,
+      0
     );
   } finally {
     repository.close();
@@ -784,4 +894,6 @@ test("教材切换 UI 提供预演/确认/结果、审计追溯和移动端无�
   assert.match(css, /\.knowledge-unit-heading\s*\{[^}]*grid-column:\s*1 \/ -1/s);
   assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.curriculum-dialog/);
   assert.match(css, /\.curriculum-mapping-row[\s\S]*min-width:\s*0/);
+  assert.match(app, /function updateCurriculumConfirmButton\(\)/);
+  assert.match(app, /button\.disabled = !ready/);
 });

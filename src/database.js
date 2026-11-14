@@ -436,7 +436,7 @@ function stableJson(value) {
   return JSON.stringify(value);
 }
 
-function withTextbookScope(report, textbook) {
+function withTextbookScope(report, textbook, note = "按当时教材") {
   if (!textbook) return report;
   return {
     ...report,
@@ -445,7 +445,7 @@ function withTextbookScope(report, textbook) {
       label: textbook.displayName,
       semester: textbook.semester,
       grade: textbook.grade,
-      note: "按当时教材"
+      note
     }
   };
 }
@@ -559,7 +559,21 @@ export class LearningRepository {
       .all();
   }
 
-  getKnowledgePoint(name) {
+  getKnowledgePoint(name, studentId = null) {
+    const student = this.getStudent(studentId);
+    const textbook = student?.textbook;
+    if (textbook) {
+      const point = this.resolveCurriculumPointByName(textbook.id, name);
+      if (point) {
+        return {
+          id: point.id,
+          name: point.name,
+          position: point.position,
+          curriculumPointId: point.id,
+          textbookId: textbook.id
+        };
+      }
+    }
     return (
       this.db
         .prepare(
@@ -1507,6 +1521,46 @@ export class LearningRepository {
     );
   }
 
+  resolveDiagnosisKnowledgePoint(knowledgePoint, student = this.getStudent()) {
+    const textbook = student?.textbook;
+    const requested = String(knowledgePoint || "").trim();
+    if (!textbook || !requested) return null;
+    const point = this.resolveCurriculumPointByName(textbook.id, requested);
+    if (!point) return null;
+    const source = point.sourceKnowledgeSlug
+      ? CURRICULUM_POINTS.find(
+          (candidate) =>
+            candidate.textbookKey === "renjiao-6-all" &&
+            candidate.slug === point.sourceKnowledgeSlug
+        )
+      : null;
+    return { point, diagnosisName: source?.name || point.name };
+  }
+
+  buildCurriculumAwareDiagnosis(input, student = this.getStudent()) {
+    const resolved = this.resolveDiagnosisKnowledgePoint(
+      input.knowledgePoint,
+      student
+    );
+    const diagnosis = buildMistakeDiagnosis({
+      ...input,
+      knowledgePoint: resolved?.diagnosisName || input.knowledgePoint
+    });
+    if (!resolved) return { diagnosis, resolvedPoint: null };
+    diagnosis.knowledgePoint = resolved.point.name;
+    if (!resolved.point.sourceKnowledgeSlug) {
+      diagnosis.hint = `这个知识点（${resolved.point.name}）的讲解内容还在教师审核中。先回到教材例题，标出已知条件和要求，再独立写出第一步。`;
+      diagnosis.methodSteps = [
+        "读题并标出已知条件",
+        "对照教材例题确定第一步",
+        "完成后检查单位与答案是否合理"
+      ];
+      diagnosis.commonErrors = ["没有先梳理已知条件", "跳步计算"];
+      diagnosis.diagnosis = `初步归因：${diagnosis.errorType}。该知识点属于教材新增编排，知识讲解待教师审核；先按教材例题梳理条件与第一步。`;
+    }
+    return { diagnosis, resolvedPoint: resolved.point };
+  }
+
   getCurriculumUnits(textbookId) {
     return this.db
       .prepare(
@@ -1636,29 +1690,47 @@ export class LearningRepository {
 
   getLatestCurriculumRestoration({
     mistakeId,
+    studentId = null,
     currentTextbookId,
     targetTextbookId,
     currentPointId
   }) {
-    const row = this.db
+    const clauses = ["i.mistake_id = ?"];
+    const parameters = [mistakeId];
+    if (studentId) {
+      clauses.push("l.student_id = ?");
+      parameters.push(studentId);
+    }
+    const rows = this.db
       .prepare(
-        `SELECT i.before_curriculum_point_id, i.before_knowledge_point
+        `SELECT i.before_textbook_id, i.before_curriculum_point_id,
+                i.before_knowledge_point, i.after_textbook_id,
+                i.after_curriculum_point_id
          FROM curriculum_switch_items i
          JOIN curriculum_switch_logs l ON l.id = i.switch_log_id
-         WHERE i.mistake_id = ?
-           AND i.after_textbook_id = ?
-           AND i.before_textbook_id = ?
-           AND i.after_curriculum_point_id IS ?
-         ORDER BY i.id DESC
-         LIMIT 1`
+         WHERE ${clauses.join(" AND ")}
+         ORDER BY i.id DESC`
       )
-      .get(
-        mistakeId,
-        currentTextbookId,
-        targetTextbookId,
-        currentPointId
-      );
-    return row || null;
+      .all(...parameters);
+    let textbookId = currentTextbookId;
+    let pointId = currentPointId ?? null;
+    for (const row of rows) {
+      if (
+        row.after_textbook_id !== textbookId ||
+        (row.after_curriculum_point_id ?? null) !== pointId
+      ) {
+        continue;
+      }
+      textbookId = row.before_textbook_id;
+      pointId = row.before_curriculum_point_id ?? null;
+      if (textbookId === targetTextbookId) {
+        return {
+          before_curriculum_point_id: pointId,
+          before_knowledge_point: row.before_knowledge_point
+        };
+      }
+    }
+    return null;
   }
 
   getHistoricalReportDayCount(studentId) {
@@ -1774,6 +1846,7 @@ export class LearningRepository {
       const mappingTargets = mapping?.mappings || [];
       const restoration = this.getLatestCurriculumRestoration({
         mistakeId: mistake.id,
+        studentId: student.id,
         currentTextbookId: fromTextbook.id,
         targetTextbookId: targetTextbook.id,
         currentPointId: sourcePoint?.id || null
@@ -2828,6 +2901,14 @@ export class LearningRepository {
     assertToolWriteAllowed();
     const student = this.getStudent();
     const parts = normalizeParts(input);
+    for (const part of parts) {
+      if (!part.knowledgePoint) continue;
+      const resolvedPart = this.resolveDiagnosisKnowledgePoint(
+        part.knowledgePoint,
+        student
+      );
+      if (resolvedPart) part.knowledgePoint = resolvedPart.point.name;
+    }
     const diagnosisInput = {
       ...input,
       studentAnswer:
@@ -2835,7 +2916,10 @@ export class LearningRepository {
       correctAnswer:
         input.correctAnswer || parts[0]?.acceptedAnswers[0] || ""
     };
-    const diagnosis = buildMistakeDiagnosis(diagnosisInput);
+    const { diagnosis } = this.buildCurriculumAwareDiagnosis(
+      diagnosisInput,
+      student
+    );
     const id = randomUUID();
     const timestamp = nowIso();
     const expiresAt = toIsoAfterDays(1);
@@ -2901,9 +2985,18 @@ export class LearningRepository {
       correctAnswer: draft.correctAnswer,
       knowledgePoint: draft.knowledgePoint
     });
+    const draftStudent = this.getStudent(draft.studentId);
+    for (const part of parts) {
+      if (!part.knowledgePoint) continue;
+      const resolvedPart = this.resolveDiagnosisKnowledgePoint(
+        part.knowledgePoint,
+        draftStudent
+      );
+      if (resolvedPart) part.knowledgePoint = resolvedPart.point.name;
+    }
     const curriculum = this.resolveMistakeCurriculum(
       draft.knowledgePoint,
-      this.getStudent(draft.studentId)
+      draftStudent
     );
     const timestamp = nowIso();
     this.db.exec("BEGIN IMMEDIATE");
@@ -3055,17 +3148,28 @@ export class LearningRepository {
       );
     }
     const parts = normalizeParts(input);
+    for (const part of parts) {
+      if (!part.knowledgePoint) continue;
+      const resolvedPart = this.resolveDiagnosisKnowledgePoint(
+        part.knowledgePoint,
+        student
+      );
+      if (resolvedPart) part.knowledgePoint = resolvedPart.point.name;
+    }
     const combinedStudentAnswer = parts
       .map((part) => part.studentAnswer)
       .join("；");
     const combinedCorrectAnswer = parts
       .map((part) => part.acceptedAnswers[0] || "")
       .join("；");
-    const diagnosis = buildMistakeDiagnosis({
-      ...input,
-      studentAnswer: input.studentAnswer || combinedStudentAnswer,
-      correctAnswer: input.correctAnswer || combinedCorrectAnswer
-    });
+    const { diagnosis } = this.buildCurriculumAwareDiagnosis(
+      {
+        ...input,
+        studentAnswer: input.studentAnswer || combinedStudentAnswer,
+        correctAnswer: input.correctAnswer || combinedCorrectAnswer
+      },
+      student
+    );
     const curriculum = this.resolveMistakeCurriculum(
       diagnosis.knowledgePoint,
       student
@@ -3456,13 +3560,24 @@ export class LearningRepository {
       knowledgePoint: input.knowledgePoint ?? current.knowledgePoint,
       errorType: input.errorType ?? current.errorType
     };
+    for (const part of proposedParts) {
+      if (!part.knowledgePoint) continue;
+      const resolvedPart = this.resolveDiagnosisKnowledgePoint(
+        part.knowledgePoint,
+        this.getStudent()
+      );
+      if (resolvedPart) part.knowledgePoint = resolvedPart.point.name;
+    }
     if (!String(proposed.question || "").trim() && !proposedAttachmentIds.length) {
       throw new LearningValidationError(
         "EMPTY_MISTAKE",
         "请填写题目或保留至少一张题目图片"
       );
     }
-    const diagnosis = diagnoseMistake(proposed);
+    const { diagnosis } = this.buildCurriculumAwareDiagnosis(
+      proposed,
+      this.getStudent()
+    );
     const finalFields = {
       ...proposed,
       knowledgePoint: diagnosis.knowledgePoint,
@@ -4695,9 +4810,19 @@ export class LearningRepository {
     return result;
   }
 
-  buildLearningSummary({ from, to, knowledgePoint = null }) {
+  buildLearningSummary({
+    from,
+    to,
+    knowledgePoint = null,
+    studentId = null
+  }) {
+    const student = this.getStudent(studentId);
     const mistakeClauses = ["m.created_at >= ?", "m.created_at <= ?"];
     const mistakeParameters = [from, to];
+    if (student) {
+      mistakeClauses.push("m.student_id = ?");
+      mistakeParameters.push(student.id);
+    }
     if (knowledgePoint) {
       mistakeClauses.push("m.knowledge_point = ?");
       mistakeParameters.push(knowledgePoint);
@@ -4713,6 +4838,10 @@ export class LearningRepository {
 
     const attemptClauses = ["a.created_at >= ?", "a.created_at <= ?"];
     const attemptParameters = [from, to];
+    if (student) {
+      attemptClauses.push("m.student_id = ?");
+      attemptParameters.push(student.id);
+    }
     if (knowledgePoint) {
       attemptClauses.push("m.knowledge_point = ?");
       attemptParameters.push(knowledgePoint);
@@ -4728,6 +4857,10 @@ export class LearningRepository {
 
     const hintClauses = ["h.created_at >= ?", "h.created_at <= ?"];
     const hintParameters = [from, to];
+    if (student) {
+      hintClauses.push("m.student_id = ?");
+      hintParameters.push(student.id);
+    }
     if (knowledgePoint) {
       hintClauses.push("m.knowledge_point = ?");
       hintParameters.push(knowledgePoint);
@@ -4750,6 +4883,10 @@ export class LearningRepository {
       "e.rule_version != 'legacy'"
     ];
     const evidenceParameters = [from, to];
+    if (student) {
+      evidenceClauses.push("m.student_id = ?");
+      evidenceParameters.push(student.id);
+    }
     if (knowledgePoint) {
       evidenceClauses.push("m.knowledge_point = ?");
       evidenceParameters.push(knowledgePoint);
@@ -4780,15 +4917,23 @@ export class LearningRepository {
         createdAt: row.created_at
       }));
 
+    const legacyClauses = [
+      "(e.evidence_type IN ('legacy_backfill', 'legacy_seed') OR e.rule_version = 'legacy')"
+    ];
+    const legacyParameters = [];
+    if (student) {
+      legacyClauses.push("m.student_id = ?");
+      legacyParameters.push(student.id);
+    }
     const legacyEvidence = Number(
       this.db
         .prepare(
           `SELECT COUNT(*) AS count
-           FROM mastery_evidence
-           WHERE evidence_type IN ('legacy_backfill', 'legacy_seed')
-              OR rule_version = 'legacy'`
+           FROM mastery_evidence e
+           JOIN mistakes m ON m.id = e.mistake_id
+           WHERE ${legacyClauses.join(" AND ")}`
         )
-        .get().count || 0
+        .get(...legacyParameters).count || 0
     );
 
     const pointStatistics = new Map();
@@ -4948,7 +5093,10 @@ export class LearningRepository {
     };
   }
 
-  countDueReviews({ at = nowIso() } = {}) {
+  countDueReviews({ at = nowIso(), studentId = null } = {}) {
+    const student = this.getStudent(studentId);
+    const clause = student ? " AND m.student_id = ?" : "";
+    const parameters = student ? [at, student.id] : [at];
     return Number(
       this.db
         .prepare(
@@ -4956,13 +5104,19 @@ export class LearningRepository {
            FROM mistakes m
            LEFT JOIN review_schedule rs
              ON rs.mistake_id = m.id AND rs.active = 1
-           WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?`
+           WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?${clause}`
         )
-        .get(at).count || 0
+        .get(...parameters).count || 0
     );
   }
 
+  isReportPeriodClosed(reportType, periodKey) {
+    if (reportType !== "daily" && reportType !== "weekly") return true;
+    return String(periodKey) < localDateKey(nowIso());
+  }
+
   getReportSnapshot(reportType, periodKey, studentId = null) {
+    if (!this.isReportPeriodClosed(reportType, periodKey)) return null;
     const student = this.getStudent(studentId);
     if (!student) return null;
     const row = this.db
@@ -5005,6 +5159,7 @@ export class LearningRepository {
           .map((value) => localDateKey(value))
       )
     ].sort();
+    const closedPeriodCutoff = localDateKey(nowIso());
     const existing = new Set(
       this.db
         .prepare(
@@ -5016,6 +5171,7 @@ export class LearningRepository {
     );
     const snapshots = [];
     for (const dateKey of dateKeys) {
+      if (dateKey >= closedPeriodCutoff) continue;
       const [year, month, day] = dateKey.split("-").map(Number);
       const dayStart = new Date(year, month - 1, day);
       const dayEnd = new Date(year, month - 1, day + 1);
@@ -5091,8 +5247,13 @@ export class LearningRepository {
       );
       if (snapshot) return snapshot;
     }
-    const summary = this.buildLearningSummary({ from, to, knowledgePoint });
-    const dueCount = this.countDueReviews({ at: at || to });
+    const summary = this.buildLearningSummary({
+      from,
+      to,
+      knowledgePoint,
+      studentId
+    });
+    const dueCount = this.countDueReviews({ at: at || to, studentId });
     const attempts = summary.totals.attempts;
     const hints = summary.totals.hints;
     const independentCorrect = summary.totals.independentCorrectAttempts;
@@ -5129,7 +5290,7 @@ export class LearningRepository {
           ? "今天没有到期复习，可以休息一下，明天再巩固。"
           : "先选一道错题独立重做，日总结就会有内容。";
 
-    return {
+    const report = {
       ...summary,
       kind: "daily",
       hasData: summary.dataStatus.hasData,
@@ -5157,6 +5318,8 @@ export class LearningRepository {
           : [])
       ]
     };
+    const student = this.getStudent(studentId);
+    return withTextbookScope(report, student?.textbook, "当前教材");
   }
 
   buildWeeklyReport({
@@ -5175,8 +5338,13 @@ export class LearningRepository {
       );
       if (snapshot) return snapshot;
     }
-    const summary = this.buildLearningSummary({ from, to, knowledgePoint });
-    const dueCount = this.countDueReviews({ at: at || to });
+    const summary = this.buildLearningSummary({
+      from,
+      to,
+      knowledgePoint,
+      studentId
+    });
+    const dueCount = this.countDueReviews({ at: at || to, studentId });
     const statements = [];
     if (summary.totals.attempts > 0) {
       statements.push({
@@ -5216,7 +5384,7 @@ export class LearningRepository {
       });
     }
 
-    return {
+    const report = {
       ...summary,
       kind: "weekly",
       hasData: summary.dataStatus.hasData,
@@ -5244,6 +5412,8 @@ export class LearningRepository {
         masteryChanges: summary.masteryChanges.items
       }
     };
+    const student = this.getStudent(studentId);
+    return withTextbookScope(report, student?.textbook, "当前教材");
   }
 
   addDemoData() {
