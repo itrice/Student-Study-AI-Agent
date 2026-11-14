@@ -155,18 +155,47 @@ function createAttachmentImage(attachment, className = "") {
 }
 
 async function api(path, options = {}) {
+  const { headers, ...requestOptions } = options;
   const response = await fetch(path, {
+    ...requestOptions,
     headers: {
       "Content-Type": "application/json",
-      ...(options.headers || {})
-    },
-    ...options
+      ...(headers || {})
+    }
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || "请求失败，请稍后再试");
+    const error = new Error(data.error || "请求失败，请稍后再试");
+    error.status = response.status;
+    error.code = data.code || "";
+    throw error;
   }
   return data;
+}
+
+async function submitMistakeUpdate(id, data, idempotencyKey) {
+  const request = {
+    headers: {
+      "Idempotency-Key": idempotencyKey
+    },
+    body: JSON.stringify(data)
+  };
+  try {
+    return await api(`/api/mistakes/${id}/update`, {
+      ...request,
+      method: "POST"
+    });
+  } catch (error) {
+    const routeMissing =
+      error.status === 405 ||
+      error.code === "ROUTE_NOT_FOUND" ||
+      (error.status === 404 && error.message === "接口不存在");
+    if (!routeMissing) throw error;
+    return api(`/api/mistakes/${id}`, {
+      ...request,
+      method: "PATCH"
+    });
+  }
 }
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -2734,13 +2763,11 @@ async function saveMistake(event) {
   setBusy(button, true, isEdit ? "正在保存修改…" : "正在诊断并保存…");
   try {
     const result = isEdit
-      ? await api(`/api/mistakes/${state.editingMistakeId}`, {
-          method: "PATCH",
-          headers: {
-            "Idempotency-Key": state.editSubmissionKey
-          },
-          body: JSON.stringify(data)
-        })
+      ? await submitMistakeUpdate(
+          state.editingMistakeId,
+          data,
+          state.editSubmissionKey
+        )
       : await api("/api/mistakes", {
           method: "POST",
           body: JSON.stringify(data)

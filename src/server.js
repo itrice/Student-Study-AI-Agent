@@ -72,9 +72,10 @@ const editSessions = new Map();
 const reviewSessions = new Map();
 
 class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, { code = null } = {}) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -409,6 +410,53 @@ function diagnosisContextHash(input) {
   return createHash("sha256")
     .update(JSON.stringify(canonical))
     .digest("hex");
+}
+
+async function handleMistakeUpdate(request, response, mistakeId) {
+  const body = await readJson(request);
+  const input = {};
+  if (Object.hasOwn(body, "question")) {
+    input.question = optionalText(body.question, 3000);
+  }
+  if (Object.hasOwn(body, "studentAnswer")) {
+    input.studentAnswer = optionalText(body.studentAnswer, 1000);
+  }
+  const parts = parseMistakeParts(body.parts);
+  if (parts) input.parts = parts;
+  if (Object.hasOwn(body, "correctAnswer") && !parts) {
+    input.correctAnswer = requireText(body.correctAnswer, "正确答案", 1000);
+  }
+  if (Object.hasOwn(body, "analysis")) {
+    input.analysis = optionalText(body.analysis);
+  }
+  if (Object.hasOwn(body, "knowledgePoint")) {
+    input.knowledgePoint = requireText(body.knowledgePoint, "知识点", 100);
+  }
+  if (Object.hasOwn(body, "errorType")) {
+    input.errorType = requireText(body.errorType, "错因", 100);
+  }
+  if (Object.hasOwn(body, "attachmentIds")) {
+    input.attachmentIds = parseAttachmentIds(body.attachmentIds);
+  }
+
+  const result = await learningTools.invoke(
+    "update_mistake",
+    {
+      mistakeId,
+      ...input
+    },
+    {
+      caller: "ui",
+      idempotencyKey: request.headers["idempotency-key"]
+    }
+  );
+  const mistake = repository.getMistake(result.mistakeId, {
+    includeSolution: true
+  });
+  return sendJson(response, 200, {
+    ...result,
+    mistake
+  });
 }
 
 async function handleApi(request, response, url) {
@@ -853,51 +901,19 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, mistake);
   }
 
-  if (mistakeMatch && request.method === "PATCH") {
-    const body = await readJson(request);
-    const input = {};
-    if (Object.hasOwn(body, "question")) {
-      input.question = optionalText(body.question, 3000);
-    }
-    if (Object.hasOwn(body, "studentAnswer")) {
-      input.studentAnswer = optionalText(body.studentAnswer, 1000);
-    }
-    const parts = parseMistakeParts(body.parts);
-    if (parts) input.parts = parts;
-    if (Object.hasOwn(body, "correctAnswer") && !parts) {
-      input.correctAnswer = requireText(body.correctAnswer, "正确答案", 1000);
-    }
-    if (Object.hasOwn(body, "analysis")) {
-      input.analysis = optionalText(body.analysis);
-    }
-    if (Object.hasOwn(body, "knowledgePoint")) {
-      input.knowledgePoint = requireText(body.knowledgePoint, "知识点", 100);
-    }
-    if (Object.hasOwn(body, "errorType")) {
-      input.errorType = requireText(body.errorType, "错因", 100);
-    }
-    if (Object.hasOwn(body, "attachmentIds")) {
-      input.attachmentIds = parseAttachmentIds(body.attachmentIds);
-    }
-
-    const result = await learningTools.invoke(
-      "update_mistake",
-      {
-        mistakeId: parseId(mistakeMatch[1]),
-        ...input
-      },
-      {
-        caller: "ui",
-        idempotencyKey: request.headers["idempotency-key"]
-      }
+  const updateMistakeMatch = url.pathname.match(
+    /^\/api\/mistakes\/(\d+)\/update$/
+  );
+  if (updateMistakeMatch && request.method === "POST") {
+    return handleMistakeUpdate(
+      request,
+      response,
+      parseId(updateMistakeMatch[1])
     );
-    const mistake = repository.getMistake(result.mistakeId, {
-      includeSolution: true
-    });
-    return sendJson(response, 200, {
-      ...result,
-      mistake
-    });
+  }
+
+  if (mistakeMatch && request.method === "PATCH") {
+    return handleMistakeUpdate(request, response, parseId(mistakeMatch[1]));
   }
 
   if (mistakeMatch && request.method === "DELETE") {
@@ -990,7 +1006,7 @@ async function handleApi(request, response, url) {
     );
   }
 
-  throw new HttpError(404, "接口不存在");
+  throw new HttpError(404, "接口不存在", { code: "ROUTE_NOT_FOUND" });
 }
 
 async function serveStatic(response, pathname) {
