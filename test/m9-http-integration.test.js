@@ -158,6 +158,12 @@ test(
       await waitForServer(child);
       const baseUrl = `http://127.0.0.1:${port}`;
 
+      const missingRoute = await fetch(`${baseUrl}/api/not-a-route`, {
+        method: "POST"
+      });
+      assert.equal(missingRoute.status, 404);
+      assert.equal((await jsonBody(missingRoute)).code, "ROUTE_NOT_FOUND");
+
       const rejected = await fetch(`${baseUrl}/api/attachments?kind=question`, {
         method: "POST",
         headers: { "Content-Type": "image/jpeg" },
@@ -242,6 +248,59 @@ test(
 
       const filesAfterReplace = fs.readdirSync(attachmentsDirectory);
       assert.equal(filesAfterReplace.length, 1);
+
+      const primaryUpdate = await fetch(
+        `${baseUrl}/api/mistakes/${mistake.id}/update`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": "m9-http-update-post-1"
+          },
+          body: JSON.stringify({
+            question: "通过兼容接口修改后的图片题",
+            studentAnswer: "41",
+            correctAnswer: "42",
+            analysis: "先统一单位，再按百分数意义计算。",
+            knowledgePoint: "百分数",
+            errorType: "计算错误",
+            attachmentIds: [replacement.id]
+          })
+        }
+      );
+      assert.equal(primaryUpdate.status, 200);
+      const primaryResult = await jsonBody(primaryUpdate);
+      assert.equal(primaryResult.mistake.question, "通过兼容接口修改后的图片题");
+      assert.equal(primaryResult.mistake.analysis, "先统一单位，再按百分数意义计算。");
+      assert.equal(primaryResult.mistake.knowledgePoint, "百分数");
+      assert.equal(primaryResult.mistake.errorType, "计算错误");
+      assert.deepEqual(
+        primaryResult.mistake.attachments.map((item) => item.id),
+        [replacement.id]
+      );
+
+      const editSession = await jsonBody(
+        await fetch(`${baseUrl}/api/mistakes/${mistake.id}/edit-session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmed: true })
+        })
+      );
+      const persisted = await jsonBody(
+        await fetch(`${baseUrl}/api/mistakes/${mistake.id}/edit`, {
+          headers: { "X-Edit-Session": editSession.token }
+        })
+      );
+      assert.equal(persisted.question, "通过兼容接口修改后的图片题");
+      assert.equal(persisted.studentAnswer, "41");
+      assert.equal(persisted.correctAnswer, "42");
+      assert.equal(persisted.analysis, "先统一单位，再按百分数意义计算。");
+      assert.equal(persisted.knowledgePoint, "百分数");
+      assert.equal(persisted.errorType, "计算错误");
+      assert.deepEqual(
+        persisted.attachments.map((item) => item.id),
+        [replacement.id]
+      );
 
       const unboundUpload = await fetch(
         `${baseUrl}/api/attachments?kind=question`,
