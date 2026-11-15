@@ -35,6 +35,10 @@ test("复习全屏入口与退出按钮有清晰名称，题目区可程序化�
   );
   assert.match(html, /id="review-focus-progress">第 1 题</);
   assert.match(html, /id="review-focus-point"><\/span>/);
+  assert.match(
+    html,
+    /id="menu-button"[\s\S]{0,160}aria-expanded="false"/
+  );
 });
 
 test("全屏模式覆盖导航并保留响应式、键盘焦点样式", () => {
@@ -77,9 +81,18 @@ test("进入和退出全屏保存滚动位置、隔离背景并恢复焦点", ()
   assert.match(enter, /state\.reviewFocusScrollY = window\.scrollY;/);
   assert.match(enter, /setReviewFocusInert\(true\);/);
   assert.match(enter, /requestFullscreen/);
+  assert.doesNotMatch(enter, /\bcloseSidebar\s*\(/);
+  assert.match(enter, /sidebar\.classList\.remove\("is-open"\)/);
+  assert.match(enter, /menuButton\.setAttribute\("aria-expanded", "false"\)/);
+  assert.match(enter, /menuButton\.setAttribute\("aria-label", "打开菜单"\)/);
   assert.match(
     enter,
     /#review-question-block"\)\?\.focus\(\{ preventScroll: true \}\)/
+  );
+  assert.ok(
+    enter.indexOf('document.body.classList.add("review-focus-mode")') <
+      enter.indexOf('sidebar.classList.remove("is-open")'),
+    "应先应用专注层，再处理侧栏"
   );
 
   const exit = section("async function exitReviewFocus", "function splitAnswerVariants");
@@ -93,6 +106,111 @@ test("进入和退出全屏保存滚动位置、隔离背景并恢复焦点", ()
     app,
     /function setReviewFocusInert\(active\)[\s\S]*?element\.inert = true;/
   );
+});
+
+test("进入全屏在缺少 closeSidebar 时仍能应用 UI 并且不抛错", async () => {
+  const enterSource = section(
+    "async function enterReviewFocus",
+    "async function exitReviewFocus"
+  );
+  const bodyClasses = new Set();
+  const rootClasses = new Set();
+  const sidebarClasses = new Set(["is-open"]);
+  const menuAttributes = new Map();
+  const sidebar = {
+    inert: false,
+    classList: {
+      remove(name) {
+        sidebarClasses.delete(name);
+      }
+    }
+  };
+  const menuButton = {
+    setAttribute(name, value) {
+      menuAttributes.set(name, String(value));
+    }
+  };
+  const focusBar = { hidden: true };
+  const questionBlock = {
+    focused: false,
+    focus() {
+      this.focused = true;
+    }
+  };
+  const fakeDocument = {
+    body: {
+      classList: {
+        add(name) {
+          bodyClasses.add(name);
+        }
+      }
+    },
+    documentElement: {
+      classList: {
+        add(name) {
+          rootClasses.add(name);
+        }
+      },
+      requestFullscreen: undefined
+    },
+    fullscreenElement: null,
+    querySelector(selector) {
+      if (selector === ".sidebar") return sidebar;
+      if (selector === "#menu-button") return menuButton;
+      if (selector === "#review-focus-bar") return focusBar;
+      if (selector === "#view-review") return { scrollTop: 10 };
+      if (selector === "#review-question-block") return questionBlock;
+      return null;
+    }
+  };
+  const fakeWindow = {
+    scrollY: 240,
+    scrollTo() {},
+    matchMedia() {
+      return { matches: false };
+    }
+  };
+  const fakeState = {
+    reviewFocusMode: false,
+    reviewFocusScrollY: 0
+  };
+  let inertActive = null;
+  let chromeSynced = false;
+  const factory = new Function(
+    "state",
+    "document",
+    "window",
+    "$",
+    "syncReviewFocusChrome",
+    "setReviewFocusInert",
+    `${enterSource}\nreturn enterReviewFocus;`
+  );
+  const enterReviewFocus = factory(
+    fakeState,
+    fakeDocument,
+    fakeWindow,
+    (selector) => fakeDocument.querySelector(selector),
+    () => {
+      chromeSynced = true;
+    },
+    (active) => {
+      inertActive = active;
+    }
+  );
+
+  await enterReviewFocus();
+
+  assert.equal(fakeState.reviewFocusMode, true);
+  assert.equal(fakeState.reviewFocusScrollY, 240);
+  assert.equal(bodyClasses.has("review-focus-mode"), true);
+  assert.equal(rootClasses.has("review-focus-mode"), true);
+  assert.equal(focusBar.hidden, false);
+  assert.equal(sidebarClasses.has("is-open"), false);
+  assert.equal(menuAttributes.get("aria-expanded"), "false");
+  assert.equal(menuAttributes.get("aria-label"), "打开菜单");
+  assert.equal(inertActive, true);
+  assert.equal(chromeSynced, true);
+  assert.equal(questionBlock.focused, true);
 });
 
 test("原生全屏退出、Esc 和视图切换都会结束复习全屏", () => {

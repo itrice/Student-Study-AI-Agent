@@ -3230,17 +3230,47 @@ async function enterReviewFocus() {
   if (state.reviewFocusMode) return;
   state.reviewFocusMode = true;
   state.reviewFocusScrollY = window.scrollY;
-  closeSidebar({ restoreFocus: false });
   document.body.classList.add("review-focus-mode");
   document.documentElement.classList.add("review-focus-mode");
   const bar = $("#review-focus-bar");
   if (bar) bar.hidden = false;
   syncReviewFocusChrome();
-  setReviewFocusInert(true);
-  const view = $("#view-review");
-  if (view) view.scrollTop = 0;
-  window.scrollTo(0, 0);
-  $("#review-question-block")?.focus({ preventScroll: true });
+
+  try {
+    const sidebar = $(".sidebar");
+    if (sidebar) {
+      sidebar.classList.remove("is-open");
+      if (
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(max-width: 820px)").matches
+      ) {
+        sidebar.inert = true;
+      }
+    }
+    const menuButton = $("#menu-button");
+    if (menuButton) {
+      menuButton.setAttribute("aria-expanded", "false");
+      menuButton.setAttribute("aria-label", "打开菜单");
+    }
+  } catch {
+    /* 侧栏状态不能阻断专注层 */
+  }
+
+  try {
+    setReviewFocusInert(true);
+  } catch {
+    /* 背景隔离失败时仍保留专注层 */
+  }
+
+  try {
+    const view = $("#view-review");
+    if (view) view.scrollTop = 0;
+    window.scrollTo(0, 0);
+    $("#review-question-block")?.focus({ preventScroll: true });
+  } catch {
+    /* 滚动或初始聚焦失败时仍保留专注层 */
+  }
+
   try {
     if (typeof document.documentElement.requestFullscreen === "function") {
       await document.documentElement.requestFullscreen();
@@ -3258,7 +3288,11 @@ async function enterReviewFocus() {
     }
     return;
   }
-  $("#review-question-block")?.focus({ preventScroll: true });
+  try {
+    $("#review-question-block")?.focus({ preventScroll: true });
+  } catch {
+    /* 原生全屏后聚焦失败不影响专注层 */
+  }
 }
 
 async function exitReviewFocus({ restoreFocus = true, skipFullscreenExit = false } = {}) {
