@@ -238,4 +238,13 @@ test("系统配置索引页提供教材管理与审计日志两个子页面入�
   assert.match(app, /history\.replaceState\(null, "", "#settings"\)/);
   assert.match(app, /applySettingsRoute\(initialRoute\)/);
   assert.match(app, /normalizeSettingsSubpage/);
+  assert.match(settingsView, /class="settings-entry-desc"/);
+  assert.match(settingsView, /class="settings-entry-current"/);
+  assert.match(settingsView, /class="settings-entry-textbook-name"/);
+  assert.match(css, /\.settings-index\s*\{[^}]*align-items:\s*stretch/s);
+  assert.match(css, /\.settings-entry-action\s*\{[^}]*align-self:\s*end/s);
+  assert.match(
+    css,
+    /\.settings-entry-textbook-name\s*\{[^}]*word-break:\s*keep-all/s
+  );
 });

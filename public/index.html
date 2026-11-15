@@ -11,7 +11,7 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261115-13" />
+    <link rel="stylesheet" href="/styles.css?v=20261115-15" />
   </head>
   <body>
     <div class="app-shell">
@@ -640,8 +640,11 @@
               </span>
               <div class="settings-entry-text">
                 <h2 id="settings-entry-textbooks-title">教材管理</h2>
-                <p>
-                  选择学生当前使用的教材，切换前会预演影响。当前：<strong id="settings-index-textbook">加载中…</strong>
+                <p class="settings-entry-desc">
+                  选择学生当前使用的教材，切换前会预演影响。
+                </p>
+                <p class="settings-entry-current">
+                  当前：<span id="settings-index-textbook" class="settings-entry-textbook-name">加载中…</span>
                 </p>
               </div>
               <a
@@ -660,7 +663,7 @@
               </span>
               <div class="settings-entry-text">
                 <h2 id="settings-entry-audit-title">审计日志</h2>
-                <p>
+                <p class="settings-entry-desc">
                   只读的教材切换与人工归类记录，可按错题追溯。共 <strong id="settings-index-audit-count">0</strong> 条记录
                 </p>
               </div>
@@ -1015,6 +1018,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261115-13"></script>
+    <script type="module" src="/app.js?v=20261115-15"></script>
   </body>
 </html>
