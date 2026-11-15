@@ -11,7 +11,7 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261115-8" />
+    <link rel="stylesheet" href="/styles.css?v=20261115-9" />
   </head>
   <body>
     <div class="app-shell">
@@ -554,13 +554,32 @@
               <p>掌握度由错题状态和连续独立答对情况共同计算。</p>
             </div>
             <div class="curriculum-toolbar">
-              <div class="curriculum-current">
-                <span>当前教材</span>
-                <strong id="current-textbook-label">加载中…</strong>
-              </div>
-              <a class="link-button" href="#settings" data-go-view="settings">
-                前往系统配置
-              </a>
+              <section class="curriculum-current" aria-label="当前教材">
+                <span class="curriculum-current-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v16H6.5A2.5 2.5 0 0 0 4 21.5z" />
+                    <path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H19" />
+                  </svg>
+                </span>
+                <div class="curriculum-current-text">
+                  <span class="curriculum-current-label">当前教材</span>
+                  <div class="curriculum-current-name">
+                    <strong id="current-textbook-label">加载中…</strong>
+                    <span id="current-textbook-review" class="curriculum-review-badge" hidden></span>
+                  </div>
+                </div>
+                <a
+                  class="curriculum-current-action"
+                  href="#settings"
+                  data-go-view="settings"
+                  aria-label="前往系统配置管理教材"
+                >
+                  管理教材
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="m9 6 6 6-6 6" />
+                  </svg>
+                </a>
+              </section>
             </div>
           </div>
           <section id="curriculum-unmapped" class="panel curriculum-unmapped" hidden>
@@ -948,6 +967,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261115-8"></script>
+    <script type="module" src="/app.js?v=20261115-9"></script>
   </body>
 </html>

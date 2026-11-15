@@ -1003,6 +1003,7 @@ async function loadBootstrap() {
     };
     $("#student-textbook-label").textContent = `小学数学 · ${data.currentTextbook.displayName}`;
     $("#current-textbook-label").textContent = data.currentTextbook.displayName;
+    syncCurrentTextbookBadge(data.currentTextbook);
   }
 
   const select = $("#knowledge-point-select");
@@ -1455,6 +1456,7 @@ function applyCurriculumData(data) {
   const currentLabel = data.currentTextbook?.displayName || "未设置";
   const knowledgeLabel = $("#current-textbook-label");
   if (knowledgeLabel) knowledgeLabel.textContent = currentLabel;
+  syncCurrentTextbookBadge(data.currentTextbook);
   const settingsLabel = $("#settings-current-textbook");
   if (settingsLabel) {
     settingsLabel.textContent = data.currentTextbook
@@ -1516,6 +1518,21 @@ const textbookSemesterLabels = {
   lower: "下册",
   full: "上册/下册"
 };
+
+function syncCurrentTextbookBadge(textbook) {
+  const badge = $("#current-textbook-review");
+  if (!badge) return;
+  const status = textbook?.reviewStatus;
+  if (!status) {
+    badge.hidden = true;
+    badge.textContent = "";
+    badge.removeAttribute("data-status");
+    return;
+  }
+  badge.hidden = false;
+  badge.textContent = curriculumReviewLabel(status);
+  badge.dataset.status = status;
+}
 
 function curriculumReviewLabel(status) {
   if (status === "unreviewed") return "待教师审核";

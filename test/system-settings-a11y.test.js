@@ -130,3 +130,60 @@ test("结果页主按钮导航知识地图，次按钮留在设置并聚焦当�
     /\.settings-textbook-title:focus,[\s\S]*#knowledge-title:focus/
   );
 });
+
+test("知识点地图当前教材卡片：单行结构、审核胶囊与清晰焦点", () => {
+  const knowledgeView = html.slice(
+    html.indexOf('id="view-knowledge"'),
+    html.indexOf('id="view-settings"')
+  );
+  assert.match(
+    knowledgeView,
+    /<section class="curriculum-current" aria-label="当前教材">/
+  );
+  assert.match(
+    knowledgeView,
+    /<span class="curriculum-current-icon" aria-hidden="true">/
+  );
+  assert.match(knowledgeView, /id="current-textbook-label">加载中…</);
+  assert.match(
+    knowledgeView,
+    /<span\s+id="current-textbook-review"\s+class="curriculum-review-badge"\s+hidden/
+  );
+  assert.match(
+    knowledgeView,
+    /class="curriculum-current-action"[\s\S]*?data-go-view="settings"[\s\S]*?aria-label="前往系统配置管理教材"/
+  );
+  assert.match(knowledgeView, /href="#settings"[\s\S]*?data-go-view="settings"/);
+  assert.match(css, /\.curriculum-current\s*\{[^}]*max-width:\s*100%/s);
+  assert.match(css, /\.curriculum-current\s*\{[^}]*min-width:\s*0/s);
+  assert.match(css, /\.curriculum-current-icon\s*\{[^}]*width:\s*36px/s);
+  assert.match(
+    css,
+    /\.curriculum-current-name strong\s*\{[^}]*font-size:\s*16px/s
+  );
+  assert.match(css, /\.curriculum-review-badge\s*\{[^}]*font-size:\s*14px/s);
+  assert.match(
+    css,
+    /\.curriculum-review-badge\s*\{[^}]*border-radius:\s*999px/s
+  );
+  assert.match(
+    css,
+    /\.curriculum-review-badge\[data-status="self_reviewed"\],[^{]*\{[^}]*background:\s*#e7f5ec/s
+  );
+  assert.match(
+    css,
+    /\.curriculum-review-badge\[hidden\]\s*\{[^}]*display:\s*none/s
+  );
+  assert.match(
+    css,
+    /\.curriculum-current-action:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--green\)/s
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 820px\)[\s\S]*?\.curriculum-current-action\s*\{[^}]*min-height:\s*44px/
+  );
+  assert.match(app, /function syncCurrentTextbookBadge\(textbook\)/);
+  assert.match(app, /syncCurrentTextbookBadge\(data\.currentTextbook\)/);
+  assert.match(app, /badge\.hidden = true;/);
+  assert.match(app, /badge\.dataset\.status = status;/);
+});
