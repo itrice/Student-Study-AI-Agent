@@ -1482,9 +1482,11 @@ function renderKnowledge() {
 
   let currentUnit = null;
   for (const point of sorted) {
-    const unitLabel = point.unitNo
-      ? `第 ${point.unitNo} 单元 · ${point.unitTitle}`
-      : "当前教材未覆盖/待归类";
+    const unitLabel = !point.mapped
+      ? "当前教材未覆盖/待归类"
+      : point.teachingUnitNo == null
+        ? `附加板块 · ${point.unitTitle}`
+        : `第 ${point.teachingUnitNo} 单元 · ${point.unitTitle}`;
     if (unitLabel !== currentUnit) {
       currentUnit = unitLabel;
       const heading = createElement("div", "knowledge-unit-heading");
@@ -1694,7 +1696,10 @@ function curriculumPointOptions(points, selectedId = null) {
   const fragment = document.createDocumentFragment();
   let currentUnit = null;
   for (const point of points) {
-    const unit = `第 ${point.unitNo} 单元 · ${point.unitTitle}`;
+    const unit =
+      point.teachingUnitNo == null
+        ? `附加板块 · ${point.unitTitle}`
+        : `第 ${point.teachingUnitNo} 单元 · ${point.unitTitle}`;
     if (unit !== currentUnit) {
       currentUnit = unit;
       const group = document.createElement("optgroup");
@@ -2116,11 +2121,15 @@ function renderCurriculumPreview(preview) {
     added.append(createElement("h3", "", "新增知识点（待教师审核）"));
     const tags = createElement("div", "curriculum-tags");
     for (const point of preview.newTargetPoints) {
+      const unitLabel =
+        point.teachingUnitNo == null
+          ? `附加板块 · ${point.unitTitle}`
+          : `第${point.teachingUnitNo}单元 ${point.unitTitle}`;
       tags.append(
         createElement(
           "span",
           "tag",
-          `第${point.unitNo}单元 ${point.unitTitle} · ${point.name} · 待教师审核`
+          `${unitLabel} · ${point.name} · 待教师审核`
         )
       );
     }

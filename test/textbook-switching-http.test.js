@@ -7,6 +7,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 
 const projectRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -121,6 +122,77 @@ test(
       assert.equal(curriculum.textbooks.length, 5);
       const target = curriculum.textbooks.find(
         (textbook) => textbook.textbookKey === "beishida-2024-6-upper"
+      );
+
+      const seed = new DatabaseSync(databasePath);
+      let archivedTextbookId;
+      try {
+        const timestamp = new Date().toISOString();
+        archivedTextbookId = Number(
+          seed
+            .prepare(
+              `INSERT INTO textbooks (
+                textbook_key, edition_key, publisher, edition, grade, semester,
+                display_name, selectable, review_status, source_key,
+                created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'unreviewed', ?, ?, ?)`
+            )
+            .run(
+              "beishida-6-upper",
+              "beishida",
+              "北京师范大学出版社",
+              "北师大版",
+              6,
+              "upper",
+              "北师大版六年级上册（旧版）",
+              "beishida-self-authored-summary-v1",
+              timestamp,
+              timestamp
+            ).lastInsertRowid
+        );
+      } finally {
+        seed.close();
+      }
+
+      const archivedPreviewResponse = await fetch(
+        `${baseUrl}/api/curriculum/switch/preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetTextbookId: archivedTextbookId })
+        }
+      );
+      assert.equal(archivedPreviewResponse.status, 400);
+      assert.equal(
+        (await jsonBody(archivedPreviewResponse)).code,
+        "TEXTBOOK_NOT_SELECTABLE"
+      );
+      const archivedExecuteResponse = await fetch(
+        `${baseUrl}/api/curriculum/switch/execute`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": randomUUID()
+          },
+          body: JSON.stringify({
+            targetTextbookId: archivedTextbookId,
+            previewToken: "stale-token",
+            confirmUnmapped: true
+          })
+        }
+      );
+      assert.equal(archivedExecuteResponse.status, 400);
+      assert.equal(
+        (await jsonBody(archivedExecuteResponse)).code,
+        "TEXTBOOK_NOT_SELECTABLE"
+      );
+      const afterArchivedAttempt = await jsonBody(
+        await fetch(`${baseUrl}/api/curriculum`)
+      );
+      assert.equal(
+        afterArchivedAttempt.currentTextbook.textbookKey,
+        "renjiao-6-all"
       );
 
       const createResponse = await fetch(`${baseUrl}/api/mistakes`, {

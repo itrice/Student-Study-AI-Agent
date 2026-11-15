@@ -1437,6 +1437,18 @@ const TEXTBOOK_SWITCHING_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: TEXTBOOK_SWITCHING_SCHEMA_SQL
 });
 
+const CURRICULUM_UNIT_NUMBERING_SCHEMA_SQL = `
+  ALTER TABLE textbook_units ADD COLUMN teaching_unit_no INTEGER;
+`;
+
+const CURRICULUM_UNIT_NUMBERING_REQUIRED_COLUMNS = {
+  textbook_units: ["teaching_unit_no"]
+};
+
+const CURRICULUM_UNIT_NUMBERING_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: CURRICULUM_UNIT_NUMBERING_SCHEMA_SQL
+});
+
 export const SCHEMA_MIGRATIONS = [
   {
     version: 1,
@@ -1591,6 +1603,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(TEXTBOOK_SWITCHING_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         TEXTBOOK_SWITCHING_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 13,
+    name: "curriculum_unit_numbering",
+    checksumSource: CURRICULUM_UNIT_NUMBERING_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(CURRICULUM_UNIT_NUMBERING_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        CURRICULUM_UNIT_NUMBERING_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

@@ -963,7 +963,7 @@ test("备份与恢复保留教材选择、错题映射、审计和附件", () =>
   });
 });
 
-test("v11 数据库升级到 v12 后旧错题自动绑定人教版且保留原数据", () => {
+test("v11 数据库升级到最新版本后旧错题自动绑定人教版且保留原数据", () => {
   withTemporaryDirectory((directory) => {
     const databasePath = path.join(directory, "learning.sqlite");
     const db = new DatabaseSync(databasePath);
@@ -997,7 +997,7 @@ test("v11 数据库升级到 v12 后旧错题自动绑定人教版且保留原�
 
     const repository = new LearningRepository(databasePath);
     try {
-      assert.equal(repository.getSchemaVersion(), 12);
+      assert.equal(repository.getSchemaVersion(), 13);
       const mistake = repository.getMistake(mistakeId);
       const textbook = repository.getTextbook("renjiao-6-all");
       assert.equal(mistake.textbookId, textbook.id);
@@ -1111,6 +1111,210 @@ test("旧北师大教材选择迁移到 2024 版，保留旧目录并写入切�
       reopened.close();
     }
   });
+});
+
+test("预演和执行都拒绝已下架的旧教材，且不改动学生或审计数据", () => {
+  const repository = new LearningRepository();
+  try {
+    const mistake = createMistake(repository, "圆");
+    const timestamp = "2026-01-01T00:00:00.000Z";
+    const legacyId = Number(
+      repository.db
+        .prepare(
+          `INSERT INTO textbooks (
+            textbook_key, edition_key, publisher, edition, grade, semester,
+            display_name, selectable, review_status, source_key, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'unreviewed', ?, ?, ?)`
+        )
+        .run(
+          "beishida-6-upper",
+          "beishida",
+          "北京师范大学出版社",
+          "北师大版",
+          6,
+          "upper",
+          "北师大版六年级上册（旧版）",
+          "beishida-self-authored-summary-v1",
+          timestamp,
+          timestamp
+        ).lastInsertRowid
+    );
+    const textbookIdBefore = repository.getStudent().textbookId;
+    const logCountBefore = repository.db
+      .prepare("SELECT COUNT(*) AS count FROM curriculum_switch_logs")
+      .get().count;
+    const mistakeBefore = repository.getMistake(mistake.id);
+
+    for (const operation of [
+      () =>
+        repository.buildCurriculumSwitchPreview({
+          targetTextbookId: legacyId
+        }),
+      () =>
+        repository.executeCurriculumSwitch({
+          targetTextbookId: legacyId,
+          previewToken: "stale-token",
+          idempotencyKey: randomUUID(),
+          confirmUnmapped: true
+        })
+    ]) {
+      assert.throws(operation, (error) => {
+        assert.equal(error.code, "TEXTBOOK_NOT_SELECTABLE");
+        assert.equal(error.status, 400);
+        return true;
+      });
+    }
+
+    assert.equal(repository.getStudent().textbookId, textbookIdBefore);
+    assert.equal(
+      repository.db
+        .prepare("SELECT COUNT(*) AS count FROM curriculum_switch_logs")
+        .get().count,
+      logCountBefore
+    );
+    assert.deepEqual(repository.getMistake(mistake.id), mistakeBefore);
+  } finally {
+    repository.close();
+  }
+});
+
+test("当前学生仍停留在旧教材时可以切换到可选的新教材", () => {
+  const repository = new LearningRepository();
+  try {
+    const timestamp = "2026-01-01T00:00:00.000Z";
+    const legacyId = Number(
+      repository.db
+        .prepare(
+          `INSERT INTO textbooks (
+            textbook_key, edition_key, publisher, edition, grade, semester,
+            display_name, selectable, review_status, source_key, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'unreviewed', ?, ?, ?)`
+        )
+        .run(
+          "beishida-6-upper",
+          "beishida",
+          "北京师范大学出版社",
+          "北师大版",
+          6,
+          "upper",
+          "北师大版六年级上册（旧版）",
+          "beishida-self-authored-summary-v1",
+          timestamp,
+          timestamp
+        ).lastInsertRowid
+    );
+    const legacyUnitId = Number(
+      repository.db
+        .prepare(
+          `INSERT INTO textbook_units (
+            textbook_id, unit_no, title, position, review_status, source_key,
+            note, created_at, updated_at
+          ) VALUES (?, 1, '圆', 1, 'unreviewed', ?, '', ?, ?)`
+        )
+        .run(
+          legacyId,
+          "beishida-self-authored-summary-v1",
+          timestamp,
+          timestamp
+        ).lastInsertRowid
+    );
+    repository.db
+      .prepare(
+        `INSERT INTO curriculum_points (
+          textbook_id, unit_id, name, slug, aliases_json, semantic_keys_json,
+          source_knowledge_slug, position, review_status, source_key,
+          content_version, created_at, updated_at
+        ) VALUES (?, ?, '圆', 'legacy-circle', '[]', '["circle"]',
+                  'circle', 101, 'unreviewed', ?, 'legacy', ?, ?)`
+      )
+      .run(
+        legacyId,
+        legacyUnitId,
+        "beishida-self-authored-summary-v1",
+        timestamp,
+        timestamp
+      );
+    repository.db
+      .prepare("UPDATE students SET textbook_id = ?, textbook_selected_at = ?")
+      .run(legacyId, timestamp);
+    const mistake = createMistake(repository, "圆");
+    assert.equal(repository.getMistake(mistake.id).textbookId, legacyId);
+
+    switchTextbook(repository, "beishida-2024-6-upper");
+
+    assert.equal(
+      repository.getStudent().textbook.textbookKey,
+      "beishida-2024-6-upper"
+    );
+    const switched = repository.getMistake(mistake.id);
+    assert.equal(switched.knowledgePoint, "圆");
+    assert.equal(
+      switched.textbookId,
+      repository.getTextbook("beishida-2024-6-upper").id
+    );
+    const logs = repository.getCurriculumSwitchLogs({ mistakeId: mistake.id });
+    assert.equal(logs.length, 1);
+    assert.equal(logs[0].fromTextbook.textbookKey, "beishida-6-upper");
+    assert.equal(
+      logs[0].toTextbook.textbookKey,
+      "beishida-2024-6-upper"
+    );
+  } finally {
+    repository.close();
+  }
+});
+
+test("北师大版教学单元连续编号，附加板块不占用教学单元号", () => {
+  const repository = new LearningRepository();
+  try {
+    const upper = repository.getTextbook("beishida-2024-6-upper");
+    const upperUnits = repository.getCurriculumUnits(upper.id);
+    assert.deepEqual(
+      upperUnits
+        .filter((unit) => unit.teachingUnitNo != null)
+        .map((unit) => unit.teachingUnitNo),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    );
+    assert.deepEqual(
+      upperUnits
+        .filter((unit) => unit.teachingUnitNo == null)
+        .map((unit) => unit.unitNo),
+      [3, 8, 12, 13]
+    );
+    const upperPoints = repository.getCurriculumPoints(upper.id);
+    const waterPoint = upperPoints.find(
+      (point) => point.name === "制订节水方案"
+    );
+    assert.equal(waterPoint.teachingUnitNo, null);
+    const waterCard = repository
+      .getCurriculumKnowledgeCards(upper.id)
+      .find((card) => card.name === "制订节水方案");
+    assert.ok(waterCard.unit.includes("附加板块 · 综合实践：制订节水方案"));
+    assert.equal(waterCard.unit.includes("第3单元"), false);
+
+    const lower = repository.getTextbook("beishida-2024-6-lower");
+    const lowerUnits = repository.getCurriculumUnits(lower.id);
+    assert.deepEqual(
+      lowerUnits
+        .filter((unit) => unit.teachingUnitNo != null)
+        .map((unit) => unit.teachingUnitNo),
+      [1, 2, 3, 4]
+    );
+    assert.deepEqual(
+      lowerUnits
+        .filter((unit) => unit.teachingUnitNo == null)
+        .map((unit) => unit.unitNo),
+      [5, 6, 7]
+    );
+    assert.equal(
+      repository
+        .getCurriculumPoints(lower.id)
+        .find((point) => point.name === "数学好玩").teachingUnitNo,
+      null
+    );
+  } finally {
+    repository.close();
+  }
 });
 
 test("教材切换 UI 提供预演/确认/结果、审计追溯和移动端无溢出兜底", () => {

@@ -369,6 +369,7 @@ function mapCurriculumPoint(row) {
     unitId: row.unit_id,
     unitNo: row.unit_no,
     unitTitle: row.unit_title,
+    teachingUnitNo: row.teaching_unit_no ?? null,
     name: row.name,
     slug: row.slug,
     aliases: parseJson(row.aliases_json),
@@ -381,6 +382,13 @@ function mapCurriculumPoint(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function curriculumUnitLabel(textbook, point) {
+  if (!point) return "";
+  return point.teachingUnitNo == null
+    ? `${textbook.displayName} · 附加板块 · ${point.unitTitle}`
+    : `${textbook.displayName} 第${point.teachingUnitNo}单元 ${point.unitTitle}`;
 }
 
 function mapCurriculumMapping(row) {
@@ -1195,10 +1203,11 @@ export class LearningRepository {
       `);
       const upsertUnit = this.db.prepare(`
         INSERT INTO textbook_units (
-          textbook_id, unit_no, title, position, review_status, source_key,
-          note, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)
+          textbook_id, unit_no, teaching_unit_no, title, position,
+          review_status, source_key, note, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?)
         ON CONFLICT(textbook_id, unit_no) DO UPDATE SET
+          teaching_unit_no = excluded.teaching_unit_no,
           title = excluded.title,
           position = excluded.position,
           review_status = excluded.review_status,
@@ -1242,10 +1251,15 @@ export class LearningRepository {
         const textbookRow = this.db
           .prepare("SELECT id FROM textbooks WHERE textbook_key = ?")
           .get(textbook.key);
+        let teachingUnitNo = 0;
         for (const entry of textbook.units) {
+          const currentTeachingUnitNo = entry.appendix
+            ? null
+            : ++teachingUnitNo;
           upsertUnit.run(
             textbookRow.id,
             entry.unitNo,
+            currentTeachingUnitNo,
             entry.title,
             entry.unitNo,
             textbook.reviewStatus,
@@ -1401,7 +1415,7 @@ export class LearningRepository {
       .all();
     const rows = this.db
       .prepare(
-        `SELECT p.*, u.unit_no, u.title AS unit_title
+        `SELECT p.*, u.unit_no, u.teaching_unit_no, u.title AS unit_title
          FROM curriculum_points p
          JOIN textbook_units u ON u.id = p.unit_id
          ORDER BY p.textbook_id, p.position, p.id`
@@ -1590,7 +1604,7 @@ export class LearningRepository {
   getCurriculumPoints(textbookId) {
     return this.db
       .prepare(
-        `SELECT p.*, u.unit_no, u.title AS unit_title
+        `SELECT p.*, u.unit_no, u.teaching_unit_no, u.title AS unit_title
          FROM curriculum_points p
          JOIN textbook_units u ON u.id = p.unit_id
          WHERE p.textbook_id = ?
@@ -1607,7 +1621,7 @@ export class LearningRepository {
     const value = String(identifier);
     const row = this.db
       .prepare(
-        `SELECT p.*, u.unit_no, u.title AS unit_title
+        `SELECT p.*, u.unit_no, u.teaching_unit_no, u.title AS unit_title
          FROM curriculum_points p
          JOIN textbook_units u ON u.id = p.unit_id
          WHERE p.textbook_id = ?
@@ -1679,7 +1693,8 @@ export class LearningRepository {
   getCurriculumUnits(textbookId) {
     return this.db
       .prepare(
-        `SELECT id, unit_no, title, position, review_status, source_key
+        `SELECT id, unit_no, teaching_unit_no, title, position,
+                review_status, source_key
          FROM textbook_units
          WHERE textbook_id = ?
          ORDER BY position, id`
@@ -1688,6 +1703,7 @@ export class LearningRepository {
       .map((row) => ({
         id: row.id,
         unitNo: row.unit_no,
+        teachingUnitNo: row.teaching_unit_no ?? null,
         title: row.title,
         position: row.position,
         reviewStatus: row.review_status,
@@ -1794,7 +1810,7 @@ export class LearningRepository {
     if (!id) return null;
     const row = this.db
       .prepare(
-        `SELECT p.*, u.unit_no, u.title AS unit_title
+        `SELECT p.*, u.unit_no, u.teaching_unit_no, u.title AS unit_title
          FROM curriculum_points p
          JOIN textbook_units u ON u.id = p.unit_id
          WHERE p.id = ?`
@@ -1923,6 +1939,13 @@ export class LearningRepository {
         404
       );
     }
+    if (!targetTextbook.selectable) {
+      throw curriculumValidationError(
+        "TEXTBOOK_NOT_SELECTABLE",
+        "目标教材已下架，不能切换",
+        400
+      );
+    }
     if (!fromTextbook) {
       throw curriculumValidationError(
         "CURRENT_TEXTBOOK_MISSING",
@@ -1948,6 +1971,7 @@ export class LearningRepository {
         id: point.id,
         name: point.name,
         unitNo: point.unitNo,
+        teachingUnitNo: point.teachingUnitNo,
         unitTitle: point.unitTitle,
         reviewStatus: point.reviewStatus
       }));
@@ -1970,6 +1994,30 @@ export class LearningRepository {
         ? mappingBySource.get(sourcePoint.id)
         : null;
       const mappingTargets = mapping?.mappings || [];
+      let fallbackPoint = null;
+      let fallbackStatus = null;
+      if (sourcePoint && !mapping) {
+        const exactMatches = targetPoints.filter(
+          (point) => point.name === sourcePoint.name
+        );
+        const aliasMatches = targetPoints.filter((point) =>
+          point.aliases.includes(sourcePoint.name)
+        );
+        const semanticMatches = targetPoints.filter((point) =>
+          point.semanticKeys.some((key) =>
+            sourcePoint.semanticKeys.includes(key)
+          )
+        );
+        const candidates = exactMatches.length
+          ? exactMatches
+          : aliasMatches.length
+            ? aliasMatches
+            : semanticMatches;
+        if (candidates.length === 1) {
+          fallbackPoint = candidates[0];
+          fallbackStatus = exactMatches.length ? "exact" : "renamed";
+        }
+      }
       const restoration = this.getLatestCurriculumRestoration({
         mistakeId: mistake.id,
         studentId: student.id,
@@ -1986,11 +2034,11 @@ export class LearningRepository {
       const explicitChoice = Object.hasOwn(mappingChoices, resolutionKey)
         ? mappingChoices[resolutionKey]
         : undefined;
-      const candidateTarget = restoredPoint || mappingTargets[0]?.targetPointId
-        ? targetById.get(
-            restoredPoint?.id || mappingTargets[0]?.targetPointId
-          )
-        : null;
+      const candidateTarget = restoredPoint
+        ? targetById.get(restoredPoint.id)
+        : mappingTargets[0]?.targetPointId
+          ? targetById.get(mappingTargets[0].targetPointId)
+          : fallbackPoint;
       const chosenTarget =
         explicitChoice !== undefined
           ? explicitChoice === null || explicitChoice === "unmapped"
@@ -2000,10 +2048,13 @@ export class LearningRepository {
 
       let mappingStatus = restoredPoint
         ? "restored"
-        : mapping?.status || (sourcePoint ? "uncovered" : "conflict");
+        : mapping?.status ||
+          fallbackStatus ||
+          (sourcePoint ? "uncovered" : "conflict");
       let resolutionMode = restoredPoint
         ? "restored"
-        : mappingTargets.length && !mapping?.requiresConfirmation
+        : (mappingTargets.length && !mapping?.requiresConfirmation) ||
+            fallbackPoint
           ? "automatic"
           : candidateTarget
             ? "manual"
@@ -2038,13 +2089,15 @@ export class LearningRepository {
         conflict,
         unmapped,
         resolutionKey,
-        candidateTargetPointIds: mappingTargets.map(
-          (target) => target.targetPointId
-        ),
+        candidateTargetPointIds: mappingTargets.length
+          ? mappingTargets.map((target) => target.targetPointId)
+          : fallbackPoint
+            ? [fallbackPoint.id]
+            : [],
         targetPointId: chosenTarget?.id || null,
         targetKnowledgePoint: chosenTarget?.name || "待归类",
         targetUnit: chosenTarget
-          ? `${targetTextbook.displayName} 第${chosenTarget.unitNo}单元 ${chosenTarget.unitTitle}`
+          ? curriculumUnitLabel(targetTextbook, chosenTarget)
           : `${targetTextbook.displayName} · 当前教材未覆盖/待归类`,
         preservedStatus: mistake.status,
         preservedDueAt:
@@ -2193,6 +2246,21 @@ export class LearningRepository {
         idempotentReplay: true
       };
     }
+    const targetTextbook = this.getTextbook(targetTextbookId);
+    if (!targetTextbook) {
+      throw curriculumValidationError(
+        "TEXTBOOK_NOT_FOUND",
+        "没有找到目标教材",
+        404
+      );
+    }
+    if (!targetTextbook.selectable) {
+      throw curriculumValidationError(
+        "TEXTBOOK_NOT_SELECTABLE",
+        "目标教材已下架，不能切换",
+        400
+      );
+    }
     const preview = this.buildCurriculumSwitchPreview({
       studentId: student.id,
       targetTextbookId
@@ -2296,7 +2364,7 @@ export class LearningRepository {
         curriculumStatus: mapped ? "mapped" : "unmapped",
         detail: {
           targetUnit: targetPoint
-            ? `${preview.targetTextbook.displayName} 第${targetPoint.unitNo}单元 ${targetPoint.unitTitle}`
+            ? curriculumUnitLabel(preview.targetTextbook, targetPoint)
             : "当前教材未覆盖/待归类",
           note: item.note
         }
@@ -2754,7 +2822,7 @@ export class LearningRepository {
           mistake.knowledge_point,
           targetPoint.name,
           JSON.stringify({
-            targetUnit: `${textbook.displayName} 第${targetPoint.unitNo}单元 ${targetPoint.unitTitle}`
+            targetUnit: curriculumUnitLabel(textbook, targetPoint)
           }),
           timestamp
         );
@@ -2918,8 +2986,9 @@ export class LearningRepository {
             curriculumPointId: point.id,
             name: point.name,
             slug: point.slug,
-            unit: `${textbook.displayName} 第${point.unitNo}单元 ${point.unitTitle}`,
+            unit: curriculumUnitLabel(textbook, point),
             unitNo: point.unitNo,
+            teachingUnitNo: point.teachingUnitNo,
             unitTitle: point.unitTitle,
             textbookVersion: textbook.displayName,
             textbookId: textbook.id,
@@ -2953,8 +3022,9 @@ export class LearningRepository {
           curriculumPointId: point.id,
           name: point.name,
           slug: point.slug,
-          unit: `${textbook.displayName} 第${point.unitNo}单元 ${point.unitTitle}`,
+          unit: curriculumUnitLabel(textbook, point),
           unitNo: point.unitNo,
+          teachingUnitNo: point.teachingUnitNo,
           unitTitle: point.unitTitle,
           textbookVersion: textbook.displayName,
           textbookId: textbook.id,
@@ -4970,8 +5040,9 @@ export class LearningRepository {
       id: point.id,
       name: point.name,
       unitNo: point.unitNo,
+      teachingUnitNo: point.teachingUnitNo,
       unitTitle: point.unitTitle,
-      unit: `${textbook.displayName} 第${point.unitNo}单元 ${point.unitTitle}`,
+      unit: curriculumUnitLabel(textbook, point),
       textbookId: textbook.id,
       textbookLabel: textbook.displayName,
       reviewStatus: point.reviewStatus,
@@ -4984,6 +5055,7 @@ export class LearningRepository {
         id: "unmapped",
         name: "待归类",
         unitNo: null,
+        teachingUnitNo: null,
         unitTitle: "当前教材未覆盖/待归类",
         unit: `${textbook.displayName} · 当前教材未覆盖/待归类`,
         textbookId: textbook.id,

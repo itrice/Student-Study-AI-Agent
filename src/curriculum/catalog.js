@@ -35,8 +35,13 @@ const RENJIAO_SOURCE = CURRICULUM_SOURCE_KEYS.renjiaoOutline;
 const BEISHIDA_OUTLINE = CURRICULUM_SOURCE_KEYS.beishida2024Outline;
 const BEISHIDA_SUMMARY = CURRICULUM_SOURCE_KEYS.beishida2024Summary;
 
-function unit(unitNo, title, points) {
-  return { unitNo, title, points };
+function unit(unitNo, title, points, options = {}) {
+  return {
+    unitNo,
+    title,
+    points,
+    appendix: Boolean(options.appendix)
+  };
 }
 
 function point(name, sourceKnowledgeSlug, semanticKeys, aliases = [], options = {}) {
@@ -184,7 +189,7 @@ export const TEXTBOOK_CATALOGS = [
           "调查用水情况",
           "滴水实验"
         ])
-      ]),
+      ], { appendix: true }),
       unit(4, "用字母表示（二）", [
         point(
           "用字母表示（二）",
@@ -224,7 +229,7 @@ export const TEXTBOOK_CATALOGS = [
       ]),
       unit(8, "数学好玩：五子棋", [
         point("数学好玩", null, ["math-fun"], ["五子棋"])
-      ]),
+      ], { appendix: true }),
       unit(9, "百分数的认识与应用（一）", [
         point(
           "百分数的认识与应用（一）",
@@ -264,7 +269,7 @@ export const TEXTBOOK_CATALOGS = [
           "优化设计新食谱",
           "一日食谱交流会"
         ])
-      ]),
+      ], { appendix: true }),
       unit(13, "总复习", [
         point("总复习", "integrated-application", ["integrated"], [
           "数与代数",
@@ -272,7 +277,7 @@ export const TEXTBOOK_CATALOGS = [
           "统计与概率",
           "综合与实践"
         ])
-      ])
+      ], { appendix: true })
     ]
   },
   {
@@ -328,10 +333,10 @@ export const TEXTBOOK_CATALOGS = [
           "神奇的莫比乌斯带",
           "可爱的小猫"
         ])
-      ]),
+      ], { appendix: true }),
       unit(6, "整理与复习", [
         point("整理与复习", "integrated-application", ["integrated-review"])
-      ]),
+      ], { appendix: true }),
       unit(7, "总复习", [
         point("总复习", "integrated-application", ["integrated"], [
           "数与代数",
@@ -339,7 +344,7 @@ export const TEXTBOOK_CATALOGS = [
           "统计与概率",
           "解决问题的策略"
         ])
-      ])
+      ], { appendix: true })
     ]
   }
 ];
@@ -474,20 +479,23 @@ export const TEXTBOOK_BY_KEY = new Map(
   TEXTBOOK_CATALOGS.map((textbook) => [textbook.key, textbook])
 );
 
-export const CURRICULUM_POINTS = TEXTBOOK_CATALOGS.flatMap((textbook) =>
-  textbook.units.flatMap((entry) =>
-    entry.points.map((catalogPoint, index) => ({
+export const CURRICULUM_POINTS = TEXTBOOK_CATALOGS.flatMap((textbook) => {
+  let teachingUnitNo = 0;
+  return textbook.units.flatMap((entry) => {
+    const currentTeachingUnitNo = entry.appendix ? null : ++teachingUnitNo;
+    return entry.points.map((catalogPoint, index) => ({
       ...catalogPoint,
       textbookKey: textbook.key,
       unitNo: entry.unitNo,
+      teachingUnitNo: currentTeachingUnitNo,
       unitTitle: entry.title,
       position: entry.unitNo * 100 + index,
       reviewStatus: textbook.reviewStatus,
       sourceKey: textbook.sourceKey,
       unitSourceKey: textbook.sourceKey
-    }))
-  )
-);
+    }));
+  });
+});
 
 export const CURRICULUM_NEW_POINT_NAMES = new Map(
   TEXTBOOK_CATALOGS.map((textbook) => [
