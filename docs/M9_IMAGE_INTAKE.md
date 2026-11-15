@@ -220,7 +220,8 @@ Content-Type: application/json
 
 ### 创建和修改错题
 
-`POST /api/mistakes` 和 `PATCH /api/mistakes/:id` 接受可选字段：
+`POST /api/mistakes`、`POST /api/mistakes/:id/update` 和兼容保留的
+`PATCH /api/mistakes/:id` 接受可选字段：
 
 ```json
 {
@@ -235,6 +236,8 @@ Content-Type: application/json
 约束：
 
 - 新建时 `question` 与 `attachmentIds` 至少一项非空。
+- 前端修改错题优先使用 `POST /api/mistakes/:id/update`，避免代理拦截 PATCH；
+  遇到旧后端返回“接口不存在”时自动回退到 `PATCH /api/mistakes/:id`。
 - 附件必须存在且未绑定到其他错题。
 - 每道题最多 6 张，总字节数不超过 30 MiB。
 - 修改时 `attachmentIds` 表示最终完整集合；未包含的旧附件会被删除。

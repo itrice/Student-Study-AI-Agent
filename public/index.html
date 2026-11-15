@@ -11,7 +11,7 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261112-1" />
+    <link rel="stylesheet" href="/styles.css?v=20261115-4" />
   </head>
   <body>
     <div class="app-shell">
@@ -80,7 +80,7 @@
           <span class="avatar">六</span>
           <span>
             <strong id="student-name">六年级同学</strong>
-            <small>小学数学 · 人教版</small>
+            <small id="student-textbook-label">小学数学 · 人教版</small>
           </span>
         </div>
       </aside>
@@ -500,6 +500,7 @@
                 <span class="small-pill" id="daily-status-pill">--</span>
               </div>
               <p class="feedback-copy" id="daily-copy"></p>
+              <p class="feedback-scope" id="daily-scope" hidden></p>
               <div class="feedback-metrics" id="daily-metrics"></div>
               <div class="feedback-points" id="daily-points"></div>
               <p class="feedback-next" id="daily-next"></p>
@@ -514,6 +515,7 @@
                 <span class="small-pill" id="weekly-status-pill">--</span>
               </div>
               <p class="feedback-copy" id="weekly-copy"></p>
+              <p class="feedback-scope" id="weekly-scope" hidden></p>
               <div class="feedback-metrics" id="weekly-metrics"></div>
               <div class="feedback-points" id="weekly-points"></div>
               <div class="feedback-changes" id="weekly-changes"></div>
@@ -537,7 +539,55 @@
               <h1>知识点地图</h1>
               <p>掌握度由错题状态和连续独立答对情况共同计算。</p>
             </div>
+            <div class="curriculum-toolbar">
+              <div class="curriculum-current">
+                <span>当前教材</span>
+                <strong id="current-textbook-label">加载中…</strong>
+              </div>
+              <button class="secondary-button compact" type="button" id="curriculum-switch-button">
+                切换教材
+              </button>
+            </div>
           </div>
+          <section id="curriculum-unmapped" class="panel curriculum-unmapped" hidden>
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">未映射处理</span>
+                <h2>当前教材未覆盖/待归类</h2>
+              </div>
+              <span id="curriculum-unmapped-count" class="tag"></span>
+            </div>
+            <p class="curriculum-note">
+              错题不会被删除。请为每道题选择当前教材知识点，或保留待归类。
+            </p>
+            <div id="curriculum-unmapped-list" class="curriculum-unmapped-list"></div>
+          </section>
+          <section class="panel curriculum-history" id="curriculum-history">
+            <div class="panel-heading">
+              <div>
+                <span class="section-kicker">切换审计</span>
+                <h2>最近教材切换记录</h2>
+              </div>
+              <form class="curriculum-history-filter" id="curriculum-history-filter">
+                <label class="sr-only" for="curriculum-history-mistake">按错题 ID 追溯</label>
+                <input
+                  id="curriculum-history-mistake"
+                  type="number"
+                  min="1"
+                  inputmode="numeric"
+                  placeholder="按错题 ID 追溯"
+                />
+                <button class="secondary-button compact" type="submit">追溯</button>
+                <button class="secondary-button compact" type="button" id="curriculum-history-reset">
+                  全部
+                </button>
+              </form>
+            </div>
+            <p class="curriculum-note">
+              审计记录写入后不可编辑，可按题查看切换前后的教材、知识点与映射结果。
+            </p>
+            <div id="curriculum-history-list" class="curriculum-history-list"></div>
+          </section>
           <div class="knowledge-summary" id="knowledge-summary"></div>
           <div id="knowledge-grid" class="knowledge-grid"></div>
 
@@ -565,6 +615,46 @@
         </section>
       </main>
     </div>
+
+    <dialog
+      id="curriculum-dialog"
+      class="curriculum-dialog"
+      aria-labelledby="curriculum-dialog-title"
+      aria-describedby="curriculum-dialog-footnote"
+    >
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">教材切换</span>
+          <h2 id="curriculum-dialog-title">预演切换影响</h2>
+        </div>
+        <button class="icon-button" type="button" id="curriculum-close-button" aria-label="关闭教材切换">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m6 6 12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <div id="curriculum-step-preview" class="curriculum-step">
+          <label class="field">
+            <span>目标教材</span>
+            <select id="curriculum-target-select"></select>
+          </label>
+          <div id="curriculum-preview" class="curriculum-preview" hidden></div>
+        </div>
+        <div id="curriculum-step-confirm" class="curriculum-step" hidden></div>
+        <div id="curriculum-step-result" class="curriculum-step" aria-live="polite" hidden></div>
+      </div>
+      <div class="dialog-footer">
+        <p id="curriculum-dialog-footnote">预演不会修改任何数据。</p>
+        <div class="curriculum-dialog-actions">
+          <button class="secondary-button" type="button" id="curriculum-cancel-button">取消</button>
+          <button class="primary-button" type="button" id="curriculum-preview-button">开始预演</button>
+          <button class="primary-button" type="button" id="curriculum-confirm-button" hidden>继续确认</button>
+          <button class="primary-button" type="button" id="curriculum-execute-button" hidden>确认执行切换</button>
+          <button class="primary-button" type="button" id="curriculum-done-button" hidden>返回知识地图</button>
+        </div>
+      </div>
+    </dialog>
 
     <dialog id="add-dialog" class="add-dialog">
       <form id="add-form" method="dialog">
@@ -815,6 +905,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261112-1"></script>
+    <script type="module" src="/app.js?v=20261115-4"></script>
   </body>
 </html>
