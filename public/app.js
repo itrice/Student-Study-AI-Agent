@@ -61,7 +61,8 @@ const viewLabels = {
   review: "开始复习",
   mistakes: "我的错题",
   feedback: "学习反馈",
-  knowledge: "知识点地图"
+  knowledge: "知识点地图",
+  settings: "系统配置"
 };
 
 const statusLabels = {
@@ -939,6 +940,8 @@ function navigateTo(name) {
     loadNextReview();
   } else if (name === "feedback") {
     loadFeedback();
+  } else if (name === "settings") {
+    loadSettings().catch((error) => showToast(error.message, true));
   }
 }
 
@@ -1403,13 +1406,32 @@ function renderMistakes() {
   renderMistakePagination(items.length);
 }
 
+function applyCurriculumData(data) {
+  if (!data) return;
+  state.curriculum = data;
+  const currentLabel = data.currentTextbook?.displayName || "未设置";
+  const knowledgeLabel = $("#current-textbook-label");
+  if (knowledgeLabel) knowledgeLabel.textContent = currentLabel;
+  const settingsLabel = $("#settings-current-textbook");
+  if (settingsLabel) {
+    settingsLabel.textContent = data.currentTextbook
+      ? `当前：${currentLabel}`
+      : "未设置";
+  }
+  const sidebarLabel = $("#student-textbook-label");
+  if (sidebarLabel) {
+    sidebarLabel.textContent = data.currentTextbook
+      ? `小学数学 · ${currentLabel}`
+      : "小学数学";
+  }
+}
+
 async function loadKnowledge() {
-  const [summaryResult, baseResult, curriculumResult, unmappedResult, historyResult] = await Promise.allSettled([
+  const [summaryResult, baseResult, curriculumResult, unmappedResult] = await Promise.allSettled([
     api("/api/knowledge-points"),
     api("/api/knowledge-base"),
     api("/api/curriculum"),
-    api("/api/curriculum/unmapped"),
-    api("/api/curriculum/switches?limit=10")
+    api("/api/curriculum/unmapped")
   ]);
   if (summaryResult.status === "fulfilled") {
     state.knowledge = summaryResult.value;
@@ -1418,23 +1440,14 @@ async function loadKnowledge() {
     state.knowledgeBase = baseResult.value;
   }
   if (curriculumResult.status === "fulfilled") {
-    state.curriculum = curriculumResult.value;
-    $("#current-textbook-label").textContent =
-      curriculumResult.value.currentTextbook?.displayName || "未设置";
-    $("#student-textbook-label").textContent = curriculumResult.value.currentTextbook
-      ? `小学数学 · ${curriculumResult.value.currentTextbook.displayName}`
-      : "小学数学";
+    applyCurriculumData(curriculumResult.value);
   }
   if (unmappedResult.status === "fulfilled") {
     state.curriculumUnmapped = unmappedResult.value;
   }
-  if (historyResult.status === "fulfilled") {
-    state.curriculumHistory = historyResult.value;
-  }
   renderKnowledge();
   renderKnowledgeBase();
   renderCurriculumUnmapped();
-  renderCurriculumHistory();
   renderWeakness();
   const failures = [
     summaryResult.status === "rejected"
@@ -1448,6 +1461,132 @@ async function loadKnowledge() {
       : null,
     unmappedResult.status === "rejected"
       ? `未映射处理：${unmappedResult.reason?.message || "加载失败"}`
+      : null
+  ].filter(Boolean);
+  if (failures.length) {
+    throw new Error(failures.join("；"));
+  }
+}
+
+const textbookSemesterLabels = {
+  upper: "上册",
+  lower: "下册",
+  full: "上册/下册"
+};
+
+function curriculumReviewLabel(status) {
+  if (status === "unreviewed") return "待教师审核";
+  if (status === "self_reviewed") return "已自检";
+  return status || "未记录";
+}
+
+function renderSettings() {
+  const list = $("#settings-textbook-list");
+  if (!list) return;
+  const data = state.curriculum;
+  const currentId = data?.currentTextbook?.id;
+  const textbooks = data?.allTextbooks || data?.textbooks || [];
+  const currentLabel = $("#settings-current-textbook");
+  if (currentLabel) {
+    currentLabel.textContent = data?.currentTextbook
+      ? `当前：${data.currentTextbook.displayName}`
+      : "未设置";
+  }
+  list.replaceChildren();
+  if (!textbooks.length) {
+    list.append(
+      createElement("p", "curriculum-history-empty", "还没有可展示的教材目录。")
+    );
+    return;
+  }
+  for (const textbook of textbooks) {
+    const isCurrent = textbook.id === currentId;
+    const selectable = Boolean(textbook.selectable);
+    const card = createElement(
+      "article",
+      `settings-textbook-card${isCurrent ? " is-current" : ""}${
+        selectable ? "" : " is-retired"
+      }`
+    );
+    const head = createElement("div", "settings-textbook-head");
+    const title = createElement("div", "settings-textbook-title");
+    title.append(
+      createElement("strong", "", textbook.displayName),
+      createElement(
+        "span",
+        "",
+        `${textbook.publisher} · ${textbook.grade} 年级 · ${
+          textbookSemesterLabels[textbook.semester] || textbook.semester
+        }`
+      )
+    );
+    const badges = createElement("div", "settings-textbook-badges");
+    badges.append(
+      createElement(
+        "span",
+        `settings-badge settings-badge-${textbook.reviewStatus || "unknown"}`,
+        curriculumReviewLabel(textbook.reviewStatus)
+      )
+    );
+    if (isCurrent) {
+      badges.append(createElement("span", "settings-badge is-current", "当前教材"));
+    }
+    if (!selectable) {
+      badges.append(
+        createElement("span", "settings-badge is-retired", "已下架 · 不可选")
+      );
+    }
+    head.append(title, badges);
+    card.append(head);
+
+    const meta = createElement(
+      "p",
+      "settings-textbook-meta",
+      `审核状态：${curriculumReviewLabel(textbook.reviewStatus)} · 可选状态：${
+        selectable ? "可选" : "不可选（已下架）"
+      }`
+    );
+    card.append(meta);
+
+    const actions = createElement("div", "settings-textbook-actions");
+    if (isCurrent) {
+      actions.append(createElement("span", "settings-current-note", "当前使用中"));
+    } else if (!selectable) {
+      actions.append(
+        createElement(
+          "span",
+          "settings-retired-note",
+          "已下架，不可作为切换目标；历史数据仍可追溯。"
+        )
+      );
+    } else {
+      const button = createElement("button", "secondary-button compact", "切换");
+      button.type = "button";
+      button.addEventListener("click", () => openCurriculumDialog(textbook.id));
+      actions.append(button);
+    }
+    card.append(actions);
+    list.append(card);
+  }
+}
+
+async function loadSettings() {
+  const [curriculumResult, historyResult] = await Promise.allSettled([
+    api("/api/curriculum"),
+    api("/api/curriculum/switches?limit=10")
+  ]);
+  if (curriculumResult.status === "fulfilled") {
+    applyCurriculumData(curriculumResult.value);
+  }
+  if (historyResult.status === "fulfilled") {
+    state.curriculumHistory = historyResult.value;
+    state.curriculumHistoryMistake = null;
+  }
+  renderSettings();
+  renderCurriculumHistory();
+  const failures = [
+    curriculumResult.status === "rejected"
+      ? `教材目录：${curriculumResult.reason?.message || "加载失败"}`
       : null,
     historyResult.status === "rejected"
       ? `切换审计：${historyResult.reason?.message || "加载失败"}`
@@ -1455,6 +1594,13 @@ async function loadKnowledge() {
   ].filter(Boolean);
   if (failures.length) {
     throw new Error(failures.join("；"));
+  }
+}
+
+function syncSettingsAfterSwitch() {
+  const settingsPanel = $('[data-view-panel="settings"]');
+  if (settingsPanel?.classList.contains("is-active")) {
+    loadSettings().catch((error) => showToast(error.message, true));
   }
 }
 
@@ -1938,31 +2084,37 @@ function resetCurriculumDialog() {
   state.curriculumStage = "preview";
 }
 
-function populateCurriculumTargets() {
+function populateCurriculumTargets(preselectTextbookId = null) {
   const select = $("#curriculum-target-select");
   select.replaceChildren();
   const textbooks = state.curriculum?.textbooks || [];
   const currentId = state.curriculum?.currentTextbook?.id;
+  const targetId =
+    preselectTextbookId != null ? String(preselectTextbookId) : null;
+  let preselectAvailable = false;
   for (const textbook of textbooks) {
     if (textbook.id === currentId) continue;
     const option = createElement("option", "", textbook.displayName);
     option.value = String(textbook.id);
     select.append(option);
+    if (targetId && option.value === targetId) preselectAvailable = true;
   }
   if (!select.options.length) {
     const option = createElement("option", "", "没有可切换的教材");
     option.value = "";
     select.append(option);
+  } else if (preselectAvailable) {
+    select.value = targetId;
   }
 }
 
-async function openCurriculumDialog() {
+async function openCurriculumDialog(preselectTextbookId = null) {
   try {
     if (!state.curriculum) {
       state.curriculum = await api("/api/curriculum");
     }
-    populateCurriculumTargets();
     resetCurriculumDialog();
+    populateCurriculumTargets(preselectTextbookId);
     $("#curriculum-dialog").showModal();
     $("#curriculum-target-select").focus();
   } catch (error) {
@@ -2432,6 +2584,7 @@ async function finishCurriculumSwitch() {
   try {
     await loadBootstrap();
     const refresh = await refreshAll();
+    syncSettingsAfterSwitch();
     if (!refresh.ok) {
       showToast("切换已完成，但部分页面刷新失败，请手动刷新", true);
     } else {
@@ -3754,7 +3907,6 @@ function bindEvents() {
 
   $("#top-add-button").addEventListener("click", openAddDialog);
   $("#quick-add-button").addEventListener("click", openAddDialog);
-  $("#curriculum-switch-button").addEventListener("click", openCurriculumDialog);
   $("#curriculum-close-button").addEventListener("click", closeCurriculumDialog);
   $("#curriculum-cancel-button").addEventListener("click", closeCurriculumDialog);
   $("#curriculum-preview-button").addEventListener("click", previewCurriculumSwitch);
@@ -4029,6 +4181,8 @@ function bindEvents() {
       }
     } else if (route.view === "feedback") {
       loadFeedback().catch((error) => showToast(error.message, true));
+    } else if (route.view === "settings") {
+      loadSettings().catch((error) => showToast(error.message, true));
     }
   });
 
@@ -4063,6 +4217,8 @@ async function init() {
       } else {
         await loadNextReview();
       }
+    } else if (initialRoute.view === "settings") {
+      await loadSettings();
     }
   } catch (error) {
     showToast(`页面初始化失败：${error.message}`, true);

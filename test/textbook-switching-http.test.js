@@ -194,6 +194,21 @@ test(
         afterArchivedAttempt.currentTextbook.textbookKey,
         "renjiao-6-all"
       );
+      assert.equal(
+        afterArchivedAttempt.textbooks.some(
+          (textbook) => textbook.id === archivedTextbookId
+        ),
+        false
+      );
+      const archivedEntry = afterArchivedAttempt.allTextbooks.find(
+        (textbook) => textbook.id === archivedTextbookId
+      );
+      assert.ok(archivedEntry, "系统配置需要看到已下架教材");
+      assert.equal(archivedEntry.selectable, false);
+      assert.equal(
+        afterArchivedAttempt.allTextbooks.length,
+        afterArchivedAttempt.textbooks.length + 1
+      );
 
       const createResponse = await fetch(`${baseUrl}/api/mistakes`, {
         method: "POST",

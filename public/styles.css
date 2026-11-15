@@ -614,6 +614,12 @@ svg {
   border-radius: 10px;
 }
 
+.secondary-button.compact {
+  min-height: 38px;
+  padding: 0 15px;
+  border-radius: 10px;
+}
+
 .secondary-button {
   color: var(--ink);
   border: 1px solid #d8e1db;
@@ -4152,9 +4158,151 @@ svg {
   color: var(--ink-soft);
 }
 
+/* System settings */
+.settings-sections {
+  display: grid;
+  min-width: 0;
+  gap: 18px;
+}
+
+.settings-section {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+.settings-textbook-list {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.settings-textbook-card {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.settings-textbook-card.is-current {
+  border-color: rgba(31, 122, 99, 0.38);
+  background: linear-gradient(180deg, var(--green-pale) 0%, #fff 72%);
+}
+
+.settings-textbook-card.is-retired {
+  background: #f8f9f7;
+}
+
+.settings-textbook-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 10px;
+}
+
+.settings-textbook-title {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.settings-textbook-title strong {
+  font-size: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+.settings-textbook-title span {
+  color: var(--ink-soft);
+  font-size: var(--text-label);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-textbook-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings-badge {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink-soft);
+  font-size: var(--text-label);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.settings-badge-self_reviewed {
+  border-color: #c7ddd2;
+  background: var(--green-pale);
+  color: var(--green-dark);
+}
+
+.settings-badge-unreviewed {
+  border-color: #ead9b4;
+  background: var(--gold-pale);
+  color: #7c5a18;
+}
+
+.settings-badge.is-current {
+  border-color: var(--green);
+  background: var(--green);
+  color: #fff;
+}
+
+.settings-badge.is-retired {
+  border-color: #d8ded9;
+  background: #eceeeb;
+  color: var(--ink-soft);
+}
+
+.settings-textbook-meta {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--text-label);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.settings-textbook-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+
+.settings-current-note {
+  color: var(--green-dark);
+  font-size: var(--text-label);
+  font-weight: 600;
+}
+
+.settings-retired-note {
+  color: var(--ink-soft);
+  font-size: var(--text-label);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 820px) {
   .curriculum-toolbar {
     width: 100%;
+  }
+
+  .settings-textbook-head {
+    flex-direction: column;
   }
 
   .curriculum-current {
@@ -4177,6 +4325,14 @@ svg {
 }
 
 @media (max-width: 560px) {
+  .settings-textbook-card {
+    padding: 14px;
+  }
+
+  .settings-textbook-actions .secondary-button {
+    width: 100%;
+  }
+
   .curriculum-dialog {
     width: calc(100vw - 20px);
     max-width: calc(100vw - 20px);
