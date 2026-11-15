@@ -51,12 +51,12 @@ function resolvePixels(value, variables) {
   return null;
 }
 
-test("全站阅读文本字号不低于 12px", () => {
+test("全站阅读文本字号不低于 14px", () => {
   const violations = [];
   for (const block of parseBlocks()) {
     for (const match of block.declarations.matchAll(/font-size\s*:\s*([^;]+)/gi)) {
       const size = resolvePixels(match[1].trim(), cssVariables());
-      if (size !== null && size < 12) {
+      if (size !== null && size < 14) {
         violations.push(`${block.selectors.join(", ")}: ${match[1].trim()}`);
       }
     }
@@ -68,8 +68,26 @@ test("正文和辅助文字使用统一可读性基线", () => {
   const variables = cssVariables();
   assert.equal(resolvePixels(variables.get("--text-body"), variables), 16);
   assert.equal(resolvePixels(variables.get("--text-label"), variables), 14);
-  assert.equal(resolvePixels(variables.get("--text-meta"), variables), 12);
+  assert.equal(resolvePixels(variables.get("--text-meta"), variables), 14);
   assert.equal(findDeclaration("body", "font-size"), "var(--text-body)");
+});
+
+test("导航、分页和状态元信息保持 14px 可读字号", () => {
+  const variables = cssVariables();
+  for (const selector of [
+    ".breadcrumb",
+    ".today-chip",
+    ".priority-footer span",
+    ".session-progress span",
+    ".pagination-status"
+  ]) {
+    const value = findDeclaration(selector, "font-size");
+    assert.ok(value, `${selector} 缺少显式字号`);
+    assert.ok(
+      resolvePixels(value, variables) >= 14,
+      `${selector} 的字号 ${value} 小于 14px`
+    );
+  }
 });
 
 test("按钮和输入框字号不低于 14px", () => {
