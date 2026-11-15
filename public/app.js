@@ -44,6 +44,10 @@ const state = {
   review: null,
   reviewSessionId: null,
   reviewAttemptsThisSession: 0,
+  reviewQueue: [],
+  reviewFocusMode: false,
+  reviewFocusScrollY: 0,
+  reviewFocusInert: null,
   reviewHintLevel: 0,
   hintRequestKey: null,
   followUpRequestKey: null,
@@ -953,6 +957,9 @@ function syncSidebarForViewport() {
 }
 
 function showView(name, { updateHash = true } = {}) {
+  if (state.reviewFocusMode && name !== "review") {
+    exitReviewFocus({ restoreFocus: false });
+  }
   if (!viewLabels[name]) name = "home";
   $$("[data-view-panel]").forEach((panel) => {
     panel.classList.toggle("is-active", panel.dataset.viewPanel === name);
@@ -3134,7 +3141,11 @@ async function loadNextReview() {
   card.hidden = true;
   empty.hidden = true;
   try {
-    const review = await api("/api/review/next");
+    const [review, queue] = await Promise.all([
+      api("/api/review/next"),
+      api("/api/review/queue?limit=20").catch(() => ({ items: [] }))
+    ]);
+    state.reviewQueue = queue.items || [];
     if (!review) {
       state.review = null;
       showReviewEmpty();
@@ -3161,6 +3172,116 @@ function showReviewEmpty(
   empty.hidden = false;
   $("#review-progress").style.width = "100%";
   $("#review-session-label").textContent = "本轮复习已完成";
+  const focusProgress = $("#review-focus-progress");
+  if (focusProgress) focusProgress.textContent = "本轮复习已完成";
+  const focusPoint = $("#review-focus-point");
+  if (focusPoint) {
+    focusPoint.textContent = "";
+    focusPoint.hidden = true;
+  }
+}
+
+const reviewFocusInertSelectors = [
+  "#main-sidebar",
+  ".topbar",
+  "#view-review .page-heading"
+];
+
+function setReviewFocusInert(active) {
+  if (active) {
+    const previous = new Map();
+    for (const selector of reviewFocusInertSelectors) {
+      const element = $(selector);
+      if (!element) continue;
+      previous.set(element, element.inert);
+      element.inert = true;
+    }
+    state.reviewFocusInert = previous;
+    return;
+  }
+  if (!state.reviewFocusInert) return;
+  for (const [element, wasInert] of state.reviewFocusInert) {
+    element.inert = wasInert;
+  }
+  state.reviewFocusInert = null;
+}
+
+function reviewFocusProgressText() {
+  const review = state.review;
+  if (!review) return "本轮复习已完成";
+  const queue = state.reviewQueue || [];
+  const index = queue.findIndex((item) => item.id === review.id);
+  if (index >= 0 && queue.length) return `第 ${index + 1} / ${queue.length} 题`;
+  return "第 1 题";
+}
+
+function syncReviewFocusChrome() {
+  const progress = $("#review-focus-progress");
+  if (progress) progress.textContent = reviewFocusProgressText();
+  const point = $("#review-focus-point");
+  if (point) {
+    const label = state.review?.knowledgePoint || "";
+    point.textContent = label;
+    point.hidden = !label;
+  }
+}
+
+async function enterReviewFocus() {
+  if (state.reviewFocusMode) return;
+  state.reviewFocusMode = true;
+  state.reviewFocusScrollY = window.scrollY;
+  closeSidebar({ restoreFocus: false });
+  document.body.classList.add("review-focus-mode");
+  document.documentElement.classList.add("review-focus-mode");
+  const bar = $("#review-focus-bar");
+  if (bar) bar.hidden = false;
+  syncReviewFocusChrome();
+  setReviewFocusInert(true);
+  const view = $("#view-review");
+  if (view) view.scrollTop = 0;
+  window.scrollTo(0, 0);
+  $("#review-question-block")?.focus({ preventScroll: true });
+  try {
+    if (typeof document.documentElement.requestFullscreen === "function") {
+      await document.documentElement.requestFullscreen();
+    }
+  } catch {
+    /* 浏览器不允许原生全屏时使用页面内专注模式 */
+  }
+  if (!state.reviewFocusMode) {
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch {
+        /* 浏览器已退出全屏 */
+      }
+    }
+    return;
+  }
+  $("#review-question-block")?.focus({ preventScroll: true });
+}
+
+async function exitReviewFocus({ restoreFocus = true, skipFullscreenExit = false } = {}) {
+  if (!state.reviewFocusMode) return;
+  state.reviewFocusMode = false;
+  const shouldExitFullscreen =
+    !skipFullscreenExit && Boolean(document.fullscreenElement);
+  document.body.classList.remove("review-focus-mode");
+  document.documentElement.classList.remove("review-focus-mode");
+  const bar = $("#review-focus-bar");
+  if (bar) bar.hidden = true;
+  setReviewFocusInert(false);
+  window.scrollTo({ top: state.reviewFocusScrollY, behavior: "auto" });
+  if (shouldExitFullscreen) {
+    try {
+      await document.exitFullscreen();
+    } catch {
+      /* 浏览器已退出全屏 */
+    }
+  }
+  if (restoreFocus) {
+    $("#review-enter-focus-button")?.focus({ preventScroll: true });
+  }
 }
 
 function splitAnswerVariants(value) {
@@ -3403,11 +3524,21 @@ function renderReview() {
   )}%`;
   $("#review-session-label").textContent =
     review.status === "new" ? "优先处理当前不会的题" : "逐步把思路补完整";
+  syncReviewFocusChrome();
+  if (state.reviewFocusMode) {
+    const view = $("#view-review");
+    if (view) view.scrollTop = 0;
+    $("#review-question-block")?.focus({ preventScroll: true });
+  }
 }
 
 async function openReview(id, { updateHash = true } = {}) {
   try {
-    const review = await api(`/api/review/${id}`);
+    const [review, queue] = await Promise.all([
+      api(`/api/review/${id}`),
+      api("/api/review/queue?limit=20").catch(() => ({ items: [] }))
+    ]);
+    state.reviewQueue = queue.items || [];
     state.review = review;
     showView("review", { updateHash: false });
     renderReview();
@@ -4300,6 +4431,10 @@ function bindEvents() {
       openEditDialog(state.review.id, { context: "review" });
     }
   });
+  $("#review-enter-focus-button").addEventListener("click", enterReviewFocus);
+  $("#review-exit-focus-button").addEventListener("click", () =>
+    exitReviewFocus()
+  );
   $("#answer-form").addEventListener("submit", submitAttempt);
   $("#review-parts").addEventListener("input", () => {
     state.attemptRequestKey = null;
@@ -4384,7 +4519,22 @@ function bindEvents() {
     }
   });
 
+  document.addEventListener("fullscreenchange", () => {
+    if (state.reviewFocusMode && !document.fullscreenElement) {
+      exitReviewFocus({ skipFullscreenExit: true });
+    }
+  });
+
   document.addEventListener("keydown", (event) => {
+    if (
+      event.key === "Escape" &&
+      state.reviewFocusMode &&
+      !document.fullscreenElement
+    ) {
+      event.preventDefault();
+      exitReviewFocus();
+      return;
+    }
     if (event.key === "Escape" && state.cropEditor) {
       event.preventDefault();
       closeCropEditor();

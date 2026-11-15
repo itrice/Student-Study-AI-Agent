@@ -4656,3 +4656,145 @@ svg {
     width: 100%;
   }
 }
+
+/* Review focus mode */
+.review-meta-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.review-focus-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink-soft);
+  background: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.review-focus-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.review-focus-button:hover {
+  color: var(--green-dark);
+  border-color: rgba(31, 107, 79, 0.3);
+  background: #f4faf7;
+}
+
+.review-focus-button:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+.review-focus-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 14px 0;
+}
+
+.review-focus-progress {
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+body.review-focus-mode {
+  overflow: hidden;
+}
+
+body.review-focus-mode .sidebar,
+body.review-focus-mode .topbar {
+  display: none;
+}
+
+body.review-focus-mode #view-review {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 24px 48px;
+  background: var(--paper);
+}
+
+body.review-focus-mode #view-review .page-heading,
+body.review-focus-mode #view-review .review-instruction {
+  display: none;
+}
+
+body.review-focus-mode #view-review .review-focus-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--paper);
+}
+
+body.review-focus-mode #view-review #review-point,
+body.review-focus-mode #view-review .review-focus-button {
+  display: none;
+}
+
+body.review-focus-mode #view-review .review-card,
+body.review-focus-mode #view-review .loading-card,
+body.review-focus-mode #view-review .empty-state {
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+body.review-focus-mode #view-review #review-question-block {
+  outline: none;
+}
+
+body.review-focus-mode #view-review #review-question {
+  font-size: 19px;
+  line-height: 1.8;
+}
+
+body.review-focus-mode #view-review .review-attachments img {
+  max-width: 100%;
+  height: auto;
+}
+
+@media (max-width: 560px) {
+  body.review-focus-mode #view-review {
+    padding: 0 14px 32px;
+  }
+
+  body.review-focus-mode .review-focus-bar {
+    padding: 10px 0;
+  }
+
+  body.review-focus-mode .review-focus-exit {
+    width: 100%;
+  }
+
+  body.review-focus-mode .review-focus-button {
+    min-height: 44px;
+  }
+
+  body.review-focus-mode .review-meta-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
