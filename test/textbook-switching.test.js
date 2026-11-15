@@ -490,6 +490,86 @@ test("切换后可按北师大知识点编辑和新增错题，重复保存不�
   }
 });
 
+test("切换后旧多小问知识点同步迁移，无改动保存不重置掌握进度", () => {
+  const repository = new LearningRepository();
+  try {
+    const mistake = repository.createMistake({
+      question: "甲、乙工作效率比和时间比分别是多少？",
+      analysis: "先分别写出效率比和时间比。",
+      knowledgePoint: "比和比例",
+      errorType: "前后项对应反了",
+      parts: [
+        {
+          label: "工作效率比",
+          prompt: "甲队和乙队的工作效率比",
+          studentAnswer: "",
+          answerType: "ratio",
+          comparisonRule: "ratio",
+          knowledgePoint: "比和比例",
+          acceptedAnswers: ["1:6"]
+        },
+        {
+          label: "时间比",
+          prompt: "甲队和乙队完成同一项工程所需时间比",
+          studentAnswer: "",
+          answerType: "ratio",
+          comparisonRule: "ratio",
+          knowledgePoint: "比和比例",
+          acceptedAnswers: ["6:1"]
+        }
+      ]
+    });
+    const attempt = repository.recordAttempt(mistake.id, "", {
+      independent: true,
+      answers: [
+        { partId: mistake.parts[0].id, value: "1:6" },
+        { partId: mistake.parts[1].id, value: "1:6" }
+      ]
+    });
+    assert.equal(attempt.mistake.status, "practicing");
+    const before = repository.getMistake(mistake.id, { includeSolution: true });
+
+    switchTextbook(repository, "beishida-6-upper");
+    const switched = repository.getMistake(mistake.id, {
+      includeSolution: true
+    });
+    assert.equal(switched.knowledgePoint, "比的认识");
+    for (const part of switched.parts) {
+      assert.equal(part.knowledgePoint, "比的认识");
+    }
+
+    const saved = repository.updateMistake(mistake.id, {
+      question: switched.question,
+      studentAnswer: switched.studentAnswer,
+      correctAnswer: switched.correctAnswer,
+      analysis: switched.analysis,
+      knowledgePoint: switched.knowledgePoint,
+      errorType: switched.errorType,
+      parts: switched.parts.map((part) => ({
+        label: part.label,
+        prompt: part.prompt,
+        studentAnswer: part.studentAnswer,
+        answerType: part.answerType,
+        comparisonRule: part.comparisonRule,
+        knowledgePoint: "",
+        acceptedAnswers: part.acceptedAnswers,
+        hint: part.hint,
+        explanation: part.explanation
+      }))
+    });
+    assert.deepEqual(saved.changedFields, []);
+    assert.equal(saved.learningReset, false);
+    const after = repository.getMistake(mistake.id, { includeSolution: true });
+    assert.equal(after.status, before.status);
+    assert.equal(after.attemptCount, before.attemptCount);
+    assert.equal(after.consecutiveCorrect, before.consecutiveCorrect);
+    assert.equal(after.dueAt, before.dueAt);
+    assert.equal(after.revision, before.revision);
+  } finally {
+    repository.close();
+  }
+});
+
 test("未映射项保留待归类，人工归类写入审计且审计不可编辑或删除", () => {
   const repository = new LearningRepository();
   try {
@@ -516,6 +596,11 @@ test("未映射项保留待归类，人工归类写入审计且审计不可编�
     assert.equal(resolved.operation, "manual_resolve");
     assert.equal(resolved.items[0].afterKnowledgePoint, "数据处理");
     assert.equal(repository.getMistake(mistake.id).knowledgePoint, "数据处理");
+    assert.equal(
+      repository.getMistake(mistake.id, { includeSolution: true }).parts[0]
+        .knowledgePoint,
+      "数据处理"
+    );
     assert.equal(repository.getUnmappedCurriculumMistakes().length, 0);
 
     const replay = repository.assignMistakeCurriculum({

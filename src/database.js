@@ -2239,6 +2239,13 @@ export class LearningRepository {
              curriculum_status = ?, updated_at = ?
          WHERE id = ? AND student_id = ?`
       );
+      const selectActiveParts = this.db.prepare(
+        `SELECT id, knowledge_point FROM mistake_parts
+         WHERE mistake_id = ? AND active = 1`
+      );
+      const updatePartKnowledgePoint = this.db.prepare(
+        "UPDATE mistake_parts SET knowledge_point = ?, updated_at = ? WHERE id = ?"
+      );
       for (const item of resolvedItems) {
         const result = updateMistake.run(
           preview.targetTextbook.id,
@@ -2251,6 +2258,31 @@ export class LearningRepository {
         );
         if (!result.changes) {
           throw new Error(`错题 ${item.mistakeId} 不属于当前学生，切换已回滚`);
+        }
+        for (const part of selectActiveParts.all(item.mistakeId)) {
+          let nextKnowledgePoint = part.knowledge_point;
+          if (
+            !nextKnowledgePoint ||
+            nextKnowledgePoint === item.beforeKnowledgePoint
+          ) {
+            nextKnowledgePoint = item.afterKnowledgePoint;
+          } else {
+            const resolved = this.resolveMistakeCurriculum(
+              nextKnowledgePoint,
+              { textbook: preview.targetTextbook }
+            );
+            nextKnowledgePoint =
+              resolved.curriculumStatus === "mapped"
+                ? resolved.knowledgePoint
+                : item.afterKnowledgePoint;
+          }
+          if (nextKnowledgePoint !== part.knowledge_point) {
+            updatePartKnowledgePoint.run(
+              nextKnowledgePoint,
+              timestamp,
+              part.id
+            );
+          }
         }
       }
       const logResult = this.db
@@ -2518,6 +2550,19 @@ export class LearningRepository {
           timestamp,
           mistake.id,
           student.id
+        );
+      this.db
+        .prepare(
+          `UPDATE mistake_parts
+           SET knowledge_point = ?, updated_at = ?
+           WHERE mistake_id = ? AND active = 1
+             AND (knowledge_point = ? OR knowledge_point = '')`
+        )
+        .run(
+          targetPoint.name,
+          timestamp,
+          mistake.id,
+          mistake.knowledge_point
         );
       const logResult = this.db
         .prepare(
@@ -3560,14 +3605,18 @@ export class LearningRepository {
       knowledgePoint: input.knowledgePoint ?? current.knowledgePoint,
       errorType: input.errorType ?? current.errorType
     };
-    for (const part of proposedParts) {
-      if (!part.knowledgePoint) continue;
+    proposedParts.forEach((part, index) => {
+      if (!part.knowledgePoint) {
+        part.knowledgePoint =
+          current.parts[index]?.knowledgePoint || current.knowledgePoint || "";
+        return;
+      }
       const resolvedPart = this.resolveDiagnosisKnowledgePoint(
         part.knowledgePoint,
         this.getStudent()
       );
       if (resolvedPart) part.knowledgePoint = resolvedPart.point.name;
-    }
+    });
     if (!String(proposed.question || "").trim() && !proposedAttachmentIds.length) {
       throw new LearningValidationError(
         "EMPTY_MISTAKE",
