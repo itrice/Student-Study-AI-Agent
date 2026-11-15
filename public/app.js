@@ -1504,6 +1504,11 @@ function renderKnowledge() {
     );
     const head = createElement("div", "knowledge-card-head");
     head.append(createElement("h3", "", point.name));
+    if (point.reviewStatus === "unreviewed") {
+      head.append(
+        createElement("span", "review-badge review-unreviewed", "待教师审核")
+      );
+    }
     if (!point.mapped) {
       card.classList.add("is-unmapped");
     }
@@ -1953,7 +1958,13 @@ function curriculumMappingGroupKey(item) {
 
 function renderCurriculumMappingTable(preview) {
   const section = createElement("section", "curriculum-section");
-  section.append(createElement("h3", "", "12 个知识点映射"));
+  section.append(
+    createElement(
+      "h3",
+      "",
+      `${preview.mappingTable?.length || 0} 个知识点映射`
+    )
+  );
   const list = createElement("div", "curriculum-mapping-list");
   for (const group of preview.mappingTable || []) {
     const row = createElement("div", "curriculum-mapping-row");
@@ -1977,7 +1988,14 @@ function renderCurriculumMappingTable(preview) {
 function renderCurriculumChoices(preview) {
   const groups = new Map();
   for (const item of preview.items) {
-    if (!item.requiresConfirmation && !item.conflict && !item.unmapped) continue;
+    if (
+      !item.requiresConfirmation &&
+      !item.conflict &&
+      !item.unmapped &&
+      item.candidateTargetPointIds.length <= 1
+    ) {
+      continue;
+    }
     const key = curriculumMappingGroupKey(item);
     if (!groups.has(key)) groups.set(key, item);
   }
@@ -2022,19 +2040,28 @@ function renderCurriculumChoices(preview) {
     row.append(title, select);
     section.append(row);
   }
-  const confirm = createElement("label", "curriculum-confirm-unmapped");
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.id = "curriculum-confirm-splits";
-  checkbox.addEventListener("change", () => {
-    state.curriculumConfirmSplits = checkbox.checked;
-    updateCurriculumConfirmButton();
-  });
-  confirm.append(
-    checkbox,
-    createElement("span", "", "我已核对以上拆分/冲突映射，并确认所选目标知识点。")
+  const needsSplitConfirm = [...groups.values()].some(
+    (item) => item.mappingStatus === "split" || item.conflict
   );
-  section.append(confirm);
+  if (needsSplitConfirm) {
+    const confirm = createElement("label", "curriculum-confirm-unmapped");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.id = "curriculum-confirm-splits";
+    checkbox.addEventListener("change", () => {
+      state.curriculumConfirmSplits = checkbox.checked;
+      updateCurriculumConfirmButton();
+    });
+    confirm.append(
+      checkbox,
+      createElement(
+        "span",
+        "",
+        "我已核对以上拆分/冲突映射，并确认所选目标知识点。"
+      )
+    );
+    section.append(confirm);
+  }
   return section;
 }
 
@@ -2056,10 +2083,16 @@ function renderCurriculumPreview(preview) {
   const metrics = createElement("div", "curriculum-metrics");
   metrics.append(
     curriculumMetric("受影响错题", summary.affectedMistakes, "全部保留题目与答案"),
-    curriculumMetric("自动映射", summary.autoMapped, "精确/改名/合并"),
+    curriculumMetric("新增知识点", summary.newPoints || 0, "待教师审核"),
+    curriculumMetric("精确", summary.statusCounts?.exact || 0, "同名直接对应"),
+    curriculumMetric("改名", summary.statusCounts?.renamed || 0, "按映射表对应"),
+    curriculumMetric("合并", summary.statusCounts?.merged || 0, "可人工改选"),
+    curriculumMetric("拆分", summary.statusCounts?.split || 0, "必须人工确认"),
+    curriculumMetric("未覆盖", summary.statusCounts?.uncovered || 0, "保留为待归类"),
+    curriculumMetric("自动映射", summary.autoMapped, "无需逐题操作"),
     curriculumMetric("历史还原", summary.restored, "按切换审计还原"),
     curriculumMetric("需人工确认", summary.needsConfirmation, "拆分/冲突/未覆盖"),
-    curriculumMetric("未覆盖", summary.unmapped, "默认保留为待归类"),
+    curriculumMetric("待归类错题", summary.unmapped, "默认保留为待归类"),
     curriculumMetric("附件", summary.attachments, "原图与文件不动"),
     curriculumMetric("作答历史", summary.attempts, "不重算"),
     curriculumMetric("掌握证据", summary.masteryEvidence, "掌握状态不清零"),
@@ -2067,6 +2100,33 @@ function renderCurriculumPreview(preview) {
     curriculumMetric("历史报告", summary.historicalReportDays, "按当时教材快照")
   );
   target.append(metrics);
+
+  if (preview.targetTextbook.reviewStatus === "unreviewed") {
+    target.append(
+      createElement(
+        "p",
+        "curriculum-review-banner",
+        "目标教材为北师大版（2024）新编排，内容标记为“待教师审核”；本次切换不沿用人教版审核结论。"
+      )
+    );
+  }
+
+  if (preview.newTargetPoints?.length) {
+    const added = createElement("section", "curriculum-section");
+    added.append(createElement("h3", "", "新增知识点（待教师审核）"));
+    const tags = createElement("div", "curriculum-tags");
+    for (const point of preview.newTargetPoints) {
+      tags.append(
+        createElement(
+          "span",
+          "tag",
+          `第${point.unitNo}单元 ${point.unitTitle} · ${point.name} · 待教师审核`
+        )
+      );
+    }
+    added.append(tags);
+    target.append(added);
+  }
 
   if (preview.affectedKnowledgePoints.length) {
     const affected = createElement("section", "curriculum-section");

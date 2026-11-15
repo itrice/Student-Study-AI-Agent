@@ -3789,6 +3789,18 @@ svg {
   overflow-wrap: anywhere;
 }
 
+.curriculum-review-banner {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--gold) 38%, transparent);
+  border-radius: 12px;
+  color: var(--gold);
+  background: var(--gold-pale);
+  font-size: var(--text-label);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
 .curriculum-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));

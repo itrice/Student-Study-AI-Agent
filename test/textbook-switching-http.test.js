@@ -120,7 +120,7 @@ test(
       assert.equal(curriculum.currentTextbook.textbookKey, "renjiao-6-all");
       assert.equal(curriculum.textbooks.length, 5);
       const target = curriculum.textbooks.find(
-        (textbook) => textbook.textbookKey === "beishida-6-upper"
+        (textbook) => textbook.textbookKey === "beishida-2024-6-upper"
       );
 
       const createResponse = await fetch(`${baseUrl}/api/mistakes`, {
@@ -145,7 +145,7 @@ test(
         })
       );
       assert.equal(preview.fromTextbook.textbookKey, "renjiao-6-all");
-      assert.equal(preview.targetTextbook.textbookKey, "beishida-6-upper");
+      assert.equal(preview.targetTextbook.textbookKey, "beishida-2024-6-upper");
       assert.equal(preview.items.length, 1);
       assert.equal(preview.items[0].targetKnowledgePoint, "圆");
       const afterPreview = await jsonBody(await fetch(`${baseUrl}/api/curriculum`));
@@ -188,7 +188,7 @@ test(
       const knowledge = await jsonBody(
         await fetch(`${baseUrl}/api/knowledge-points`)
       );
-      assert.ok(knowledge.some((point) => point.name === "数据处理"));
+      assert.ok(knowledge.some((point) => point.name === "数据的表示和分析（三）"));
       assert.equal(
         knowledge.some((point) => String(point.unit).includes("人教版")),
         false
@@ -198,7 +198,7 @@ test(
           `${baseUrl}/api/knowledge-base/search?q=${encodeURIComponent("扇形统计图")}`
         )
       );
-      assert.equal(search.items[0].knowledgePoint, "数据处理");
+      assert.equal(search.items[0].knowledgePoint, "数据的表示和分析（三）");
 
       const trace = await jsonBody(
         await fetch(
@@ -206,7 +206,7 @@ test(
         )
       );
       assert.equal(trace.length, 1);
-      assert.equal(trace[0].toTextbook.textbookKey, "beishida-6-upper");
+      assert.equal(trace[0].toTextbook.textbookKey, "beishida-2024-6-upper");
       assert.equal(trace[0].items[0].beforeKnowledgePoint, "圆");
       assert.equal(trace[0].items[0].afterKnowledgePoint, "圆");
 
@@ -240,14 +240,14 @@ test(
         await fetch(`${baseUrl}/api/feedback/daily?date=${localDateKey()}`)
       );
       assert.equal(daily.textbookScope.note, "当前教材");
-      assert.equal(daily.textbookScope.label, "北师大版六年级上册");
+      assert.equal(daily.textbookScope.label, "北师大版（2024）六年级上册（2026秋）");
       assert.equal(daily.totals.attempts, 1);
 
       const unmapped = await jsonBody(
         await fetch(`${baseUrl}/api/curriculum/unmapped`)
       );
       assert.equal(unmapped.items.length, 0);
-      assert.ok(unmapped.targetPoints.some((point) => point.name === "数据处理"));
+      assert.ok(unmapped.targetPoints.some((point) => point.name === "数据的表示和分析（三）"));
     } finally {
       await stopServer(child);
       fs.rmSync(directory, { recursive: true, force: true });

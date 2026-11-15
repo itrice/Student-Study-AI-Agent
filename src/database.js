@@ -36,8 +36,11 @@ import {
 } from "./attachments.js";
 import {
   CURRICULUM_MAPPING_VERSION,
+  CURRICULUM_MAPPING_OVERRIDES,
+  CURRICULUM_NEW_POINT_NAMES,
   CURRICULUM_POINTS,
   CURRICULUM_SOURCES,
+  LEGACY_BEISHIDA_TEXTBOOKS,
   TEXTBOOK_BY_KEY,
   TEXTBOOK_CATALOGS
 } from "./curriculum/catalog.js";
@@ -1276,6 +1279,15 @@ export class LearningRepository {
         }
       }
 
+      const disableLegacy = this.db.prepare(
+        `UPDATE textbooks
+         SET selectable = 0, updated_at = ?
+         WHERE textbook_key = ?`
+      );
+      for (const legacyKey of LEGACY_BEISHIDA_TEXTBOOKS.keys()) {
+        disableLegacy.run(timestamp, legacyKey);
+      }
+
       const legacyTextbook = this.db
         .prepare("SELECT id FROM textbooks WHERE textbook_key = ?")
         .get("renjiao-6-all");
@@ -1330,6 +1342,54 @@ export class LearningRepository {
       this.db.exec("ROLLBACK");
       throw error;
     }
+    this.migrateLegacyBeishidaSelections(timestamp);
+  }
+
+  migrateLegacyBeishidaSelections(timestamp = nowIso()) {
+    for (const [legacyKey, targetKey] of LEGACY_BEISHIDA_TEXTBOOKS) {
+      const legacy = this.getTextbook(legacyKey);
+      const target = this.getTextbook(targetKey);
+      if (!legacy || !target) continue;
+      const students = this.db
+        .prepare("SELECT id FROM students WHERE textbook_id = ? ORDER BY id")
+        .all(legacy.id);
+      for (const student of students) {
+        const preview = this.buildCurriculumSwitchPreview({
+          studentId: student.id,
+          targetTextbookId: target.id
+        });
+        const targetPoints = preview.targetPoints;
+        const targetByName = new Map(
+          targetPoints.map((point) => [point.name, point])
+        );
+        const choices = {};
+        for (const item of preview.items) {
+          const before = item.beforeCurriculumPointId
+            ? this.getCurriculumPoint(
+                legacy.id,
+                item.beforeCurriculumPointId
+              )
+            : null;
+          const exact = before ? targetByName.get(before.name) : null;
+          const alias = before
+            ? targetPoints.find((point) =>
+                point.aliases.includes(before.name)
+              )
+            : null;
+          choices[item.resolutionKey] = exact?.id || alias?.id || null;
+        }
+        this.executeCurriculumSwitch({
+          studentId: student.id,
+          targetTextbookId: target.id,
+          previewToken: preview.previewToken,
+          mappingChoices: choices,
+          confirmUnmapped: true,
+          idempotencyKey: `legacy-beishida-2024:${student.id}:${legacy.id}:${target.id}`,
+          actor: "system:beishida-2024-migration",
+          confirmer: "system:beishida-2024-migration"
+        });
+      }
+    }
   }
 
   generateCurriculumMappings(timestamp = nowIso()) {
@@ -1369,6 +1429,11 @@ export class LearningRepository {
         if (sourceTextbook.id === targetTextbook.id) continue;
         const sourcePoints = pointsByTextbook.get(sourceTextbook.id) || [];
         const targetPoints = pointsByTextbook.get(targetTextbook.id) || [];
+        const targetByName = new Map(
+          targetPoints.map((point) => [point.name, point])
+        );
+        const overrides =
+          CURRICULUM_MAPPING_OVERRIDES[targetTextbook.textbook_key] || {};
         const matchesBySource = new Map();
         const incomingCount = new Map();
         for (const sourcePoint of sourcePoints) {
@@ -1384,6 +1449,56 @@ export class LearningRepository {
         }
 
         for (const sourcePoint of sourcePoints) {
+          const override = overrides[sourcePoint.name];
+          if (Array.isArray(override)) {
+            if (!override.length) {
+              insertMapping.run(
+                CURRICULUM_MAPPING_VERSION,
+                sourceTextbook.id,
+                targetTextbook.id,
+                sourcePoint.id,
+                null,
+                "uncovered",
+                0,
+                0,
+                "映射表标注为当前教材未覆盖/待归类，不强行对应到其他知识点。",
+                timestamp
+              );
+              continue;
+            }
+            for (const entry of override) {
+              const targetPoint = targetByName.get(entry.targetPointName);
+              if (!targetPoint) {
+                insertMapping.run(
+                  CURRICULUM_MAPPING_VERSION,
+                  sourceTextbook.id,
+                  targetTextbook.id,
+                  sourcePoint.id,
+                  null,
+                  "uncovered",
+                  0,
+                  0,
+                  `映射目标“${entry.targetPointName}”不存在，暂标记为待归类。`,
+                  timestamp
+                );
+                continue;
+              }
+              insertMapping.run(
+                CURRICULUM_MAPPING_VERSION,
+                sourceTextbook.id,
+                targetTextbook.id,
+                sourcePoint.id,
+                targetPoint.id,
+                entry.status,
+                entry.requiresConfirmation ? 1 : 0,
+                entry.confidence,
+                entry.note,
+                timestamp
+              );
+            }
+            continue;
+          }
+
           const matches = matchesBySource.get(sourcePoint.id) || [];
           if (!matches.length) {
             insertMapping.run(
@@ -1825,6 +1940,17 @@ export class LearningRepository {
     const fromByName = new Map(fromPoints.map((point) => [point.name, point]));
     const targetPoints = this.getCurriculumPoints(targetTextbook.id);
     const targetById = new Map(targetPoints.map((point) => [point.id, point]));
+    const newPointNames =
+      CURRICULUM_NEW_POINT_NAMES.get(targetTextbook.textbookKey) || new Set();
+    const newTargetPoints = targetPoints
+      .filter((point) => newPointNames.has(point.name))
+      .map((point) => ({
+        id: point.id,
+        name: point.name,
+        unitNo: point.unitNo,
+        unitTitle: point.unitTitle,
+        reviewStatus: point.reviewStatus
+      }));
     const mappingTable = this.getCurriculumMappingTable(
       fromTextbook.id,
       targetTextbook.id
@@ -1949,7 +2075,15 @@ export class LearningRepository {
       unmapped: items.filter((item) => item.unmapped).length,
       conflicts: items.filter((item) => item.conflict).length,
       manualSelections: items.filter((item) => item.resolutionMode === "manual")
-        .length
+        .length,
+      newPoints: newTargetPoints.length,
+      statusCounts: mappingTable.reduce(
+        (counts, group) => {
+          counts[group.status] = (counts[group.status] || 0) + 1;
+          return counts;
+        },
+        { exact: 0, renamed: 0, merged: 0, split: 0, uncovered: 0 }
+      )
     };
     const impact = this.getMistakeImpactCounts(
       items.map((item) => item.mistakeId)
@@ -1997,6 +2131,7 @@ export class LearningRepository {
       targetTextbook,
       mappingTable,
       targetPoints,
+      newTargetPoints,
       items,
       summary: {
         ...summary,

@@ -178,39 +178,64 @@ test("教材目录同时保留两套教材，12 个知识点映射与北师大�
     assert.deepEqual(
       textbooks.map((textbook) => textbook.textbookKey).sort(),
       [
-        "beishida-6-lower",
-        "beishida-6-upper",
+        "beishida-2024-6-lower",
+        "beishida-2024-6-upper",
         "renjiao-6-all",
         "renjiao-6-lower",
         "renjiao-6-upper"
       ]
     );
+    assert.equal(
+      textbooks.some((textbook) =>
+        textbook.textbookKey.startsWith("beishida-6-")
+      ),
+      false
+    );
     const from = repository.getTextbook("renjiao-6-all");
-    const target = repository.getTextbook("beishida-6-upper");
+    const target = repository.getTextbook("beishida-2024-6-upper");
+    assert.equal(
+      target.displayName,
+      "北师大版（2024）六年级上册（2026秋）"
+    );
+    assert.equal(
+      repository.getTextbook("beishida-2024-6-lower").displayName,
+      "北师大版（2024）六年级下册（2027春）"
+    );
     assert.equal(repository.getStudent().textbookId, from.id);
     const table = repository.getCurriculumMappingTable(from.id, target.id);
     assert.equal(table.length, 12);
     const byName = new Map(table.map((group) => [group.sourcePointName, group]));
     assert.equal(byName.get("圆").status, "exact");
-    assert.equal(byName.get("分数乘除法").status, "merged");
-    assert.equal(byName.get("分数四则混合运算").status, "merged");
+    assert.equal(byName.get("分数乘除法").status, "renamed");
+    assert.equal(byName.get("分数四则混合运算").status, "renamed");
+    assert.equal(byName.get("分数四则混合运算").requiresConfirmation, true);
     assert.equal(byName.get("统计与扇形统计图").status, "renamed");
-    assert.equal(byName.get("数与形").status, "renamed");
-    assert.equal(byName.get("比和比例").status, "split");
-    assert.equal(byName.get("百分数").status, "split");
+    assert.equal(byName.get("统计与扇形统计图").requiresConfirmation, true);
+    assert.equal(byName.get("数与形").status, "uncovered");
+    assert.equal(byName.get("比和比例").status, "renamed");
+    assert.equal(byName.get("百分数").status, "renamed");
+    assert.equal(byName.get("位置与方向").status, "renamed");
+    assert.equal(byName.get("综合应用").status, "merged");
     assert.equal(byName.get("负数").status, "uncovered");
-    assert.equal(byName.get("位置与方向").status, "uncovered");
     assert.equal(byName.get("圆柱与圆锥").status, "uncovered");
+    assert.equal(byName.get("比例与图形").status, "uncovered");
 
     for (const point of repository.getCurriculumPoints(target.id)) {
       assert.equal(point.name.includes("北师大"), false);
     }
+    const upperPointNames = repository
+      .getCurriculumPoints(target.id)
+      .map((point) => point.name);
+    assert.ok(upperPointNames.includes("分数除法"));
+    assert.ok(upperPointNames.includes("确定位置"));
+    assert.equal(upperPointNames.includes("分数混合运算"), false);
+    assert.equal(upperPointNames.includes("百分数的应用"), false);
     const upperCards = repository.getCurriculumKnowledgeCards(target.id);
     const lowerCards = repository.getCurriculumKnowledgeCards(
-      repository.getTextbook("beishida-6-lower").id
+      repository.getTextbook("beishida-2024-6-lower").id
     );
     for (const [name, cards] of [
-      ["观察物体", upperCards],
+      ["观察物体（二）", upperCards],
       ["图形的运动", lowerCards]
     ]) {
       const card = cards.find((entry) => entry.name === name);
@@ -225,7 +250,7 @@ test("教材目录同时保留两套教材，12 个知识点映射与北师大�
       textbookId: target.id,
       limit: 3
     });
-    assert.equal(aliasHit.items[0].knowledgePoint, "数据处理");
+    assert.equal(aliasHit.items[0].knowledgePoint, "数据的表示和分析（三）");
     const uncovered = repository.searchKnowledge({
       query: "负数",
       textbookId: target.id,
@@ -244,17 +269,30 @@ test("切换预演展示影响但不写入任何数据", () => {
     createMistake(repository, "百分数");
     createMistake(repository, "圆");
     createMistake(repository, "负数");
+    createMistake(repository, "统计与扇形统计图");
     const before = snapshotLearningData(repository);
     const studentBefore = repository.getStudent();
-    const target = repository.getTextbook("beishida-6-upper");
+    const target = repository.getTextbook("beishida-2024-6-upper");
     const preview = repository.buildCurriculumSwitchPreview({
       targetTextbookId: target.id
     });
     assert.equal(preview.fromTextbook.textbookKey, "renjiao-6-all");
-    assert.equal(preview.targetTextbook.textbookKey, "beishida-6-upper");
-    assert.equal(preview.summary.totalMistakes, 3);
+    assert.equal(preview.targetTextbook.textbookKey, "beishida-2024-6-upper");
+    assert.equal(preview.summary.totalMistakes, 4);
     assert.equal(preview.summary.unmapped, 1);
     assert.ok(preview.summary.needsConfirmation >= 2);
+    assert.deepEqual(preview.summary.statusCounts, {
+      exact: 1,
+      renamed: 6,
+      merged: 1,
+      split: 0,
+      uncovered: 4
+    });
+    assert.equal(preview.summary.newPoints, 2);
+    assert.deepEqual(
+      preview.newTargetPoints.map((point) => point.name),
+      ["用字母表示（二）", "观察物体（二）"]
+    );
     assert.ok(preview.summary.attachments >= 0);
     assert.deepEqual(snapshotLearningData(repository), before);
     assert.equal(repository.getStudent().textbookId, studentBefore.textbookId);
@@ -298,18 +336,18 @@ test("执行切换保留 15 条现有数据、附件和全部学习证据，并�
       const beforeMistakes = repository.listMistakes();
       assert.equal(beforeMistakes.length, 15);
 
-      const target = repository.getTextbook("beishida-6-upper");
+      const target = repository.getTextbook("beishida-2024-6-upper");
       const preview = repository.buildCurriculumSwitchPreview({
         targetTextbookId: target.id
       });
       assert.equal(preview.items.length, 15);
-      const { result, key } = switchTextbook(repository, "beishida-6-upper");
+      const { result, key } = switchTextbook(repository, "beishida-2024-6-upper");
 
       assert.equal(result.status, "confirmed");
       assert.equal(result.affectedCount, 15);
       assert.equal(result.items.length, 15);
       assert.equal(result.fromTextbook.textbookKey, "renjiao-6-all");
-      assert.equal(result.toTextbook.textbookKey, "beishida-6-upper");
+      assert.equal(result.toTextbook.textbookKey, "beishida-2024-6-upper");
       assert.deepEqual(snapshotLearningData(repository), before);
 
       const afterMistakes = repository.listMistakes();
@@ -343,7 +381,7 @@ test("切换只影响当前学生，另一个学生的教材和错题完全不�
   try {
     const studentOneMistake = createMistake(repository, "圆");
     const from = repository.getTextbook("renjiao-6-all");
-    const target = repository.getTextbook("beishida-6-upper");
+    const target = repository.getTextbook("beishida-2024-6-upper");
     const studentOne = repository.getStudent();
     const studentTwoId = Number(
       repository.db
@@ -379,7 +417,7 @@ test("切换只影响当前学生，另一个学生的教材和错题完全不�
       .prepare("SELECT * FROM mistakes WHERE id = ?")
       .get(studentTwoMistakeId);
 
-    switchTextbook(repository, "beishida-6-upper");
+    switchTextbook(repository, "beishida-2024-6-upper");
     repository.recordAttempt(studentOneMistake.id, "2");
 
     assert.equal(repository.getStudent().id, studentOne.id);
@@ -427,11 +465,11 @@ test("A→B→A 可按审计明细还原，并可逐题追溯", () => {
     const originalKnowledge = new Map(
       repository.listMistakes().map((mistake) => [mistake.id, mistake.knowledgePoint])
     );
-    const first = switchTextbook(repository, "beishida-6-upper");
+    const first = switchTextbook(repository, "beishida-2024-6-upper");
     assert.equal(first.result.items.length, 3);
 
     const second = switchTextbook(repository, "renjiao-6-all");
-    assert.equal(second.result.fromTextbook.textbookKey, "beishida-6-upper");
+    assert.equal(second.result.fromTextbook.textbookKey, "beishida-2024-6-upper");
     assert.equal(second.result.toTextbook.textbookKey, "renjiao-6-all");
     assert.equal(
       second.result.items.every((item) => item.resolutionMode === "restored"),
@@ -448,7 +486,7 @@ test("A→B→A 可按审计明细还原，并可逐题追溯", () => {
       const trace = repository.getCurriculumSwitchLogs({ mistakeId: mistake.id });
       assert.equal(trace.length, 2);
       assert.equal(trace[0].toTextbook.textbookKey, "renjiao-6-all");
-      assert.equal(trace[1].toTextbook.textbookKey, "beishida-6-upper");
+      assert.equal(trace[1].toTextbook.textbookKey, "beishida-2024-6-upper");
     }
   } finally {
     repository.close();
@@ -459,8 +497,8 @@ test("切换后可按北师大知识点编辑和新增错题，重复保存不�
   const repository = new LearningRepository();
   try {
     const mistake = createMistake(repository, "圆");
-    switchTextbook(repository, "beishida-6-upper");
-    const target = repository.getTextbook("beishida-6-upper");
+    switchTextbook(repository, "beishida-2024-6-upper");
+    const target = repository.getTextbook("beishida-2024-6-upper");
     const mathFun = repository
       .getCurriculumPoints(target.id)
       .find((point) => point.name === "数学好玩");
@@ -476,12 +514,12 @@ test("切换后可按北师大知识点编辑和新增错题，重复保存不�
     });
     assert.deepEqual(noop.changedFields, []);
     const alias = repository.updateMistake(mistake.id, {
-      knowledgePoint: "看图找关系"
+      knowledgePoint: "五子棋"
     });
     assert.equal(alias.mistake.knowledgePoint, "数学好玩");
 
-    const created = createMistake(repository, "整理与复习");
-    assert.equal(created.knowledgePoint, "整理与复习");
+    const created = createMistake(repository, "总复习");
+    assert.equal(created.knowledgePoint, "总复习");
     assert.equal(created.textbookId, target.id);
     assert.equal(created.curriculumStatus, "mapped");
     assert.ok(created.curriculumPointId);
@@ -529,7 +567,7 @@ test("切换后旧多小问知识点同步迁移，无改动保存不重置掌�
     assert.equal(attempt.mistake.status, "practicing");
     const before = repository.getMistake(mistake.id, { includeSolution: true });
 
-    switchTextbook(repository, "beishida-6-upper");
+    switchTextbook(repository, "beishida-2024-6-upper");
     const switched = repository.getMistake(mistake.id, {
       includeSolution: true
     });
@@ -612,17 +650,17 @@ test("未映射项保留待归类，人工归类写入审计且审计不可编�
   const repository = new LearningRepository();
   try {
     const mistake = createMistake(repository, "负数");
-    const { result } = switchTextbook(repository, "beishida-6-upper");
+    const { result } = switchTextbook(repository, "beishida-2024-6-upper");
     const unmapped = repository.getUnmappedCurriculumMistakes();
     assert.equal(unmapped.some((item) => item.id === mistake.id), true);
     const current = repository.getMistake(mistake.id);
     assert.equal(current.knowledgePoint, "待归类");
     assert.equal(current.curriculumStatus, "unmapped");
 
-    const target = repository.getTextbook("beishida-6-upper");
+    const target = repository.getTextbook("beishida-2024-6-upper");
     const dataPoint = repository
       .getCurriculumPoints(target.id)
-      .find((point) => point.name === "数据处理");
+      .find((point) => point.name === "数据的表示和分析（三）");
     const resolveKey = randomUUID();
     const resolved = repository.assignMistakeCurriculum({
       mistakeId: mistake.id,
@@ -632,12 +670,12 @@ test("未映射项保留待归类，人工归类写入审计且审计不可编�
       confirmer: "测试确认人"
     });
     assert.equal(resolved.operation, "manual_resolve");
-    assert.equal(resolved.items[0].afterKnowledgePoint, "数据处理");
-    assert.equal(repository.getMistake(mistake.id).knowledgePoint, "数据处理");
+    assert.equal(resolved.items[0].afterKnowledgePoint, "数据的表示和分析（三）");
+    assert.equal(repository.getMistake(mistake.id).knowledgePoint, "数据的表示和分析（三）");
     assert.equal(
       repository.getMistake(mistake.id, { includeSolution: true }).parts[0]
         .knowledgePoint,
-      "数据处理"
+      "数据的表示和分析（三）"
     );
     assert.equal(repository.getUnmappedCurriculumMistakes().length, 0);
 
@@ -685,7 +723,7 @@ test("切换中途失败会完整回滚，不留下部分教材、错题或审�
     createMistake(repository, "百分数");
     const studentBefore = repository.getStudent();
     const mistakesBefore = repository.db.prepare("SELECT * FROM mistakes ORDER BY id").all();
-    const target = repository.getTextbook("beishida-6-upper");
+    const target = repository.getTextbook("beishida-2024-6-upper");
     const preview = repository.buildCurriculumSwitchPreview({
       targetTextbookId: target.id
     });
@@ -747,7 +785,7 @@ test("历史日/周报在切换前生成快照并标注按当时教材，不追�
       .prepare("UPDATE mastery_evidence SET created_at = ? WHERE mistake_id = ?")
       .run(pastIso, mistake.id);
     const bounds = dayBounds(date);
-    switchTextbook(repository, "beishida-6-upper");
+    switchTextbook(repository, "beishida-2024-6-upper");
 
     const daily = repository.buildDailySummary({
       ...bounds,
@@ -775,7 +813,7 @@ test("切换当天和当周反馈保持实时，不用切换快照冻结新作�
   try {
     const mistake = createMistake(repository, "圆");
     const bounds = dayBounds(new Date());
-    switchTextbook(repository, "beishida-6-upper");
+    switchTextbook(repository, "beishida-2024-6-upper");
     const result = repository.recordAttempt(mistake.id, "2");
     assert.equal(result.outcome, "correct");
 
@@ -785,7 +823,7 @@ test("切换当天和当周反馈保持实时，不用切换快照冻结新作�
     });
     assert.equal(daily.totals.attempts, 1);
     assert.equal(daily.textbookScope.note, "当前教材");
-    assert.equal(daily.textbookScope.label, "北师大版六年级上册");
+    assert.equal(daily.textbookScope.label, "北师大版（2024）六年级上册（2026秋）");
     const today = localDateKeyForTest(new Date());
     assert.equal(
       repository.db
@@ -813,16 +851,16 @@ test("切换后知识地图和搜索只显示北师大单元，未覆盖项不�
   try {
     createMistake(repository, "圆");
     createMistake(repository, "统计与扇形统计图");
-    switchTextbook(repository, "beishida-6-upper");
-    const target = repository.getTextbook("beishida-6-upper");
+    switchTextbook(repository, "beishida-2024-6-upper");
+    const target = repository.getTextbook("beishida-2024-6-upper");
     const student = repository.getStudent();
     const summary = repository.getCurriculumKnowledgeSummary(target.id, student.id);
     assert.ok(summary.length > 0);
     for (const point of summary) {
       assert.equal(point.unit.includes("人教版"), false);
-      assert.equal(point.textbookLabel, "北师大版六年级上册");
+      assert.equal(point.textbookLabel, "北师大版（2024）六年级上册（2026秋）");
     }
-    assert.ok(summary.some((point) => point.name === "数据处理"));
+    assert.ok(summary.some((point) => point.name === "数据的表示和分析（三）"));
     assert.equal(summary.some((point) => point.name === "统计与扇形统计图"), false);
 
     const aliasHit = repository.searchKnowledge({
@@ -830,7 +868,7 @@ test("切换后知识地图和搜索只显示北师大单元，未覆盖项不�
       textbookId: target.id,
       limit: 3
     });
-    assert.equal(aliasHit.items[0].knowledgePoint, "数据处理");
+    assert.equal(aliasHit.items[0].knowledgePoint, "数据的表示和分析（三）");
     assert.equal(aliasHit.coverage.status, "covered");
     const noCoverage = repository.searchKnowledge({
       query: "负数",
@@ -852,7 +890,7 @@ test("100 条错题切换预演与执行在可接受时间内完成", () => {
         question: `批量题 ${index + 1}`
       });
     }
-    const target = repository.getTextbook("beishida-6-upper");
+    const target = repository.getTextbook("beishida-2024-6-upper");
     const start = Date.now();
     const preview = repository.buildCurriculumSwitchPreview({
       targetTextbookId: target.id
@@ -881,7 +919,7 @@ test("备份与恢复保留教材选择、错题映射、审计和附件", () =>
       const mistake = createMistake(repository, "圆", {
         attachmentIds: [attachment.id]
       });
-      switchTextbook(repository, "beishida-6-upper");
+      switchTextbook(repository, "beishida-2024-6-upper");
       const beforeLogs = repository.getCurriculumSwitchLogs();
       const storageKey = repository
         .db.prepare("SELECT storage_key FROM attachments WHERE mistake_id = ?")
@@ -906,7 +944,7 @@ test("备份与恢复保留教材选择、错题映射、审计和附件", () =>
       assert.ok(restoredInfo.attachmentCount >= 1);
       const restored = new LearningRepository(restoredDatabase);
       try {
-        assert.equal(restored.getStudent().textbook.textbookKey, "beishida-6-upper");
+        assert.equal(restored.getStudent().textbook.textbookKey, "beishida-2024-6-upper");
         const restoredMistake = restored.getMistake(mistake.id);
         assert.equal(restoredMistake.attachments.length, 1);
         assert.equal(restoredMistake.knowledgePoint, "圆");
@@ -969,6 +1007,108 @@ test("v11 数据库升级到 v12 后旧错题自动绑定人教版且保留原�
       assert.equal(repository.getStudent(studentId).textbookId, textbook.id);
     } finally {
       repository.close();
+    }
+  });
+});
+
+test("旧北师大教材选择迁移到 2024 版，保留旧目录并写入切换审计", () => {
+  withTemporaryDirectory((directory) => {
+    const databasePath = path.join(directory, "learning.sqlite");
+    const repository = new LearningRepository(databasePath);
+    const mistake = createMistake(repository, "圆");
+    const timestamp = "2026-01-01T00:00:00.000Z";
+    const legacyId = Number(
+      repository.db
+        .prepare(
+          `INSERT INTO textbooks (
+            textbook_key, edition_key, publisher, edition, grade, semester,
+            display_name, selectable, review_status, source_key, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'unreviewed', ?, ?, ?)`
+        )
+        .run(
+          "beishida-6-upper",
+          "beishida",
+          "北京师范大学出版社",
+          "北师大版",
+          6,
+          "upper",
+          "北师大版六年级上册",
+          "beishida-self-authored-summary-v1",
+          timestamp,
+          timestamp
+        ).lastInsertRowid
+    );
+    const legacyUnitId = Number(
+      repository.db
+        .prepare(
+          `INSERT INTO textbook_units (
+            textbook_id, unit_no, title, position, review_status, source_key,
+            note, created_at, updated_at
+          ) VALUES (?, 1, '圆', 1, 'unreviewed', ?, '', ?, ?)`
+        )
+        .run(
+          legacyId,
+          "beishida-self-authored-summary-v1",
+          timestamp,
+          timestamp
+        ).lastInsertRowid
+    );
+    const legacyPointId = Number(
+      repository.db
+        .prepare(
+          `INSERT INTO curriculum_points (
+            textbook_id, unit_id, name, slug, aliases_json, semantic_keys_json,
+            source_knowledge_slug, position, review_status, source_key,
+            content_version, created_at, updated_at
+          ) VALUES (?, ?, '圆', 'legacy-circle', '[]', '["circle"]',
+                    'circle', 101, 'unreviewed', ?, 'legacy', ?, ?)`
+        )
+        .run(
+          legacyId,
+          legacyUnitId,
+          "beishida-self-authored-summary-v1",
+          timestamp,
+          timestamp
+        ).lastInsertRowid
+    );
+    repository.db
+      .prepare("UPDATE students SET textbook_id = ?, textbook_selected_at = ?")
+      .run(legacyId, timestamp);
+    repository.db
+      .prepare(
+        `UPDATE mistakes
+         SET textbook_id = ?, curriculum_point_id = ?, curriculum_status = 'mapped'
+         WHERE id = ?`
+      )
+      .run(legacyId, legacyPointId, mistake.id);
+    repository.close();
+
+    const reopened = new LearningRepository(databasePath);
+    try {
+      const student = reopened.getStudent();
+      assert.equal(
+        student.textbook.textbookKey,
+        "beishida-2024-6-upper"
+      );
+      assert.equal(reopened.getTextbook("beishida-6-upper").selectable, false);
+      assert.equal(
+        reopened.getMistake(mistake.id).knowledgePoint,
+        "圆"
+      );
+      assert.equal(
+        reopened.getMistake(mistake.id).textbookId,
+        reopened.getTextbook("beishida-2024-6-upper").id
+      );
+      const logs = reopened.getCurriculumSwitchLogs({ mistakeId: mistake.id });
+      assert.equal(logs.length, 1);
+      assert.equal(logs[0].actor, "system:beishida-2024-migration");
+      assert.equal(logs[0].fromTextbook.textbookKey, "beishida-6-upper");
+      assert.equal(
+        logs[0].toTextbook.textbookKey,
+        "beishida-2024-6-upper"
+      );
+    } finally {
+      reopened.close();
     }
   });
 });
