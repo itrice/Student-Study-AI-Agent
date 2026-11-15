@@ -11,11 +11,11 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261115-5" />
+    <link rel="stylesheet" href="/styles.css?v=20261115-7" />
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar">
+      <aside class="sidebar" id="main-sidebar">
         <a class="brand" href="#home" aria-label="回到首页">
           <span class="brand-mark" aria-hidden="true">
             <img
@@ -32,7 +32,7 @@
         </a>
 
         <nav class="main-nav" aria-label="主要导航">
-          <button class="nav-item is-active" data-view="home">
+          <button class="nav-item is-active" data-view="home" aria-current="page">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 10.5 12 4l8 6.5V20h-5v-6H9v6H4v-9.5Z" />
             </svg>
@@ -94,7 +94,14 @@
 
       <main class="main-content">
         <header class="topbar">
-          <button class="menu-button" id="menu-button" aria-label="打开菜单">
+          <button
+            class="menu-button"
+            id="menu-button"
+            type="button"
+            aria-label="打开菜单"
+            aria-controls="main-sidebar"
+            aria-expanded="false"
+          >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 7h16M4 12h16M4 17h16" />
             </svg>
@@ -660,7 +667,7 @@
       <div class="dialog-header">
         <div>
           <span class="eyebrow">教材切换</span>
-          <h2 id="curriculum-dialog-title">预演切换影响</h2>
+          <h2 id="curriculum-dialog-title" tabindex="-1">预演切换影响</h2>
         </div>
         <button class="icon-button" type="button" id="curriculum-close-button" aria-label="关闭教材切换">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -940,6 +947,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261115-5"></script>
+    <script type="module" src="/app.js?v=20261115-7"></script>
   </body>
 </html>

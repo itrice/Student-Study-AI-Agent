@@ -25,6 +25,7 @@ const state = {
   curriculumConfirmSplits: false,
   curriculumConfirmUnmapped: false,
   curriculumStage: "preview",
+  curriculumTrigger: null,
   curriculumHistory: [],
   curriculumHistoryMistake: null,
   feedback: null,
@@ -910,16 +911,58 @@ function setBusy(button, busy, busyText = "正在处理…") {
   }
 }
 
+function setSidebarState(open, { restoreFocus = false } = {}) {
+  const sidebar = $(".sidebar");
+  const menuButton = $("#menu-button");
+  if (!sidebar || !menuButton) return;
+  const mobile = window.matchMedia("(max-width: 820px)").matches;
+  if (!mobile) {
+    sidebar.classList.remove("is-open");
+    sidebar.inert = false;
+    menuButton.setAttribute("aria-expanded", "false");
+    menuButton.setAttribute("aria-label", "打开菜单");
+    return;
+  }
+  sidebar.classList.toggle("is-open", open);
+  sidebar.inert = !open;
+  menuButton.setAttribute("aria-expanded", String(open));
+  menuButton.setAttribute("aria-label", open ? "关闭菜单" : "打开菜单");
+  if (open) {
+    const target =
+      sidebar.querySelector(".nav-item.is-active") ||
+      sidebar.querySelector("a, button");
+    target?.focus({ preventScroll: true });
+  } else if (restoreFocus || sidebar.contains(document.activeElement)) {
+    menuButton.focus({ preventScroll: true });
+  }
+}
+
+function closeSidebar(options = {}) {
+  setSidebarState(false, options);
+}
+
+function syncSidebarForViewport() {
+  const sidebar = $(".sidebar");
+  if (!sidebar) return;
+  setSidebarState(sidebar.classList.contains("is-open"));
+}
+
 function showView(name, { updateHash = true } = {}) {
   if (!viewLabels[name]) name = "home";
   $$("[data-view-panel]").forEach((panel) => {
     panel.classList.toggle("is-active", panel.dataset.viewPanel === name);
   });
   $$(".nav-item").forEach((item) => {
-    item.classList.toggle("is-active", item.dataset.view === name);
+    const isActive = item.dataset.view === name;
+    item.classList.toggle("is-active", isActive);
+    if (isActive) {
+      item.setAttribute("aria-current", "page");
+    } else {
+      item.removeAttribute("aria-current");
+    }
   });
   $("#page-label").textContent = viewLabels[name];
-  $(".sidebar").classList.remove("is-open");
+  closeSidebar({ restoreFocus: document.activeElement?.closest(".sidebar") != null });
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (updateHash && window.location.hash !== `#${name}`) {
     history.pushState(null, "", `#${name}`);
@@ -1477,6 +1520,7 @@ const textbookSemesterLabels = {
 function curriculumReviewLabel(status) {
   if (status === "unreviewed") return "待教师审核";
   if (status === "self_reviewed") return "已自检";
+  if (status === "teacher_reviewed") return "教师已审核";
   return status || "未记录";
 }
 
@@ -1508,13 +1552,18 @@ function renderSettings() {
         selectable ? "" : " is-retired"
       }`
     );
+    const titleId = `settings-textbook-title-${textbook.id}`;
+    card.setAttribute("aria-labelledby", titleId);
     const head = createElement("div", "settings-textbook-head");
-    const title = createElement("div", "settings-textbook-title");
-    title.append(
-      createElement("strong", "", textbook.displayName),
+    const titleBlock = createElement("div", "settings-textbook-title-block");
+    const title = createElement("h3", "settings-textbook-title");
+    title.id = titleId;
+    title.append(createElement("strong", "", textbook.displayName));
+    titleBlock.append(
+      title,
       createElement(
-        "span",
-        "",
+        "p",
+        "settings-textbook-subtitle",
         `${textbook.publisher} · ${textbook.grade} 年级 · ${
           textbookSemesterLabels[textbook.semester] || textbook.semester
         }`
@@ -1536,7 +1585,7 @@ function renderSettings() {
         createElement("span", "settings-badge is-retired", "已下架 · 不可选")
       );
     }
-    head.append(title, badges);
+    head.append(titleBlock, badges);
     card.append(head);
 
     const meta = createElement(
@@ -1562,6 +1611,7 @@ function renderSettings() {
     } else {
       const button = createElement("button", "secondary-button compact", "切换");
       button.type = "button";
+      button.setAttribute("aria-label", `切换到 ${textbook.displayName}`);
       button.addEventListener("click", () => openCurriculumDialog(textbook.id));
       actions.append(button);
     }
@@ -1571,6 +1621,9 @@ function renderSettings() {
 }
 
 async function loadSettings() {
+  const historyInput = $("#curriculum-history-mistake");
+  if (historyInput) historyInput.value = "";
+  state.curriculumHistoryMistake = null;
   const [curriculumResult, historyResult] = await Promise.allSettled([
     api("/api/curriculum"),
     api("/api/curriculum/switches?limit=10")
@@ -1580,7 +1633,6 @@ async function loadSettings() {
   }
   if (historyResult.status === "fulfilled") {
     state.curriculumHistory = historyResult.value;
-    state.curriculumHistoryMistake = null;
   }
   renderSettings();
   renderCurriculumHistory();
@@ -2110,6 +2162,11 @@ function populateCurriculumTargets(preselectTextbookId = null) {
 
 async function openCurriculumDialog(preselectTextbookId = null) {
   try {
+    const active = document.activeElement;
+    state.curriculumTrigger =
+      active && active !== document.body && !$("#curriculum-dialog").contains(active)
+        ? active
+        : null;
     if (!state.curriculum) {
       state.curriculum = await api("/api/curriculum");
     }
@@ -2124,8 +2181,11 @@ async function openCurriculumDialog(preselectTextbookId = null) {
 
 function closeCurriculumDialog() {
   const dialog = $("#curriculum-dialog");
+  const trigger = state.curriculumTrigger;
+  state.curriculumTrigger = null;
   if (dialog.open) dialog.close();
   resetCurriculumDialog();
+  if (trigger?.isConnected) trigger.focus({ preventScroll: true });
 }
 
 function curriculumMetric(label, value, note = "") {
@@ -2461,6 +2521,13 @@ function setCurriculumStage(stage) {
     $("#curriculum-dialog-footnote").textContent =
       "切换已完成，历史报告已按当时教材保存。";
   }
+  focusCurriculumStageTitle();
+}
+
+function focusCurriculumStageTitle() {
+  const dialog = $("#curriculum-dialog");
+  if (!dialog?.open) return;
+  $("#curriculum-dialog-title")?.focus({ preventScroll: true });
 }
 
 function curriculumSplitChoicesComplete(preview) {
@@ -3994,8 +4061,10 @@ function bindEvents() {
   document.addEventListener("pointerup", endCropDrag);
   document.addEventListener("pointercancel", endCropDrag);
   window.addEventListener("resize", () => {
+    syncSidebarForViewport();
     if (state.cropEditor?.image) renderCropEditor();
   });
+  syncSidebarForViewport();
   $("#run-ocr-button").addEventListener("click", runOcr);
   $("#cancel-ocr-button").addEventListener("click", () => {
     $("#ocr-panel").hidden = true;
@@ -4009,7 +4078,9 @@ function bindEvents() {
   });
   $("#start-review-button").addEventListener("click", () => navigateTo("review"));
   $("#menu-button").addEventListener("click", () => {
-    $(".sidebar").classList.toggle("is-open");
+    setSidebarState(!$(".sidebar").classList.contains("is-open"), {
+      restoreFocus: true
+    });
   });
   $("#refresh-feedback-button").addEventListener("click", async () => {
     const button = $("#refresh-feedback-button");
@@ -4192,7 +4263,7 @@ function bindEvents() {
       closeCropEditor();
       return;
     }
-    if (event.key === "Escape") $(".sidebar").classList.remove("is-open");
+    if (event.key === "Escape") closeSidebar({ restoreFocus: true });
   });
 }
 

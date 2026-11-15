@@ -4205,10 +4205,15 @@ svg {
   gap: 10px;
 }
 
-.settings-textbook-title {
+.settings-textbook-title-block {
   display: grid;
   min-width: 0;
   gap: 3px;
+}
+
+.settings-textbook-title {
+  margin: 0;
+  font-size: var(--text-body);
 }
 
 .settings-textbook-title strong {
@@ -4216,7 +4221,8 @@ svg {
   overflow-wrap: anywhere;
 }
 
-.settings-textbook-title span {
+.settings-textbook-subtitle {
+  margin: 0;
   color: var(--ink-soft);
   font-size: var(--text-label);
   line-height: 1.5;
@@ -4253,6 +4259,12 @@ svg {
   border-color: #ead9b4;
   background: var(--gold-pale);
   color: #7c5a18;
+}
+
+.settings-badge-teacher_reviewed {
+  border-color: #bfd9cb;
+  background: #e3f2e9;
+  color: var(--green-dark);
 }
 
 .settings-badge.is-current {
@@ -4294,6 +4306,12 @@ svg {
   font-size: var(--text-label);
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+
+#curriculum-dialog-title:focus {
+  outline: 2px solid var(--green);
+  outline-offset: 4px;
+  border-radius: 4px;
 }
 
 @media (max-width: 820px) {
