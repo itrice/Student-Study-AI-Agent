@@ -11,7 +11,7 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261115-15" />
+    <link rel="stylesheet" href="/styles.css?v=20261115-16" />
   </head>
   <body>
     <div class="app-shell">
@@ -632,14 +632,21 @@
 
           <div id="settings-index" class="settings-index">
             <section class="settings-entry" aria-labelledby="settings-entry-textbooks-title">
-              <span class="settings-entry-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v16H6.5A2.5 2.5 0 0 0 4 21.5z" />
-                  <path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H19" />
-                </svg>
-              </span>
-              <div class="settings-entry-text">
+              <div class="settings-entry-head">
+                <span class="settings-entry-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v16H6.5A2.5 2.5 0 0 0 4 21.5z" />
+                    <path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H19" />
+                  </svg>
+                </span>
                 <h2 id="settings-entry-textbooks-title">教材管理</h2>
+                <a
+                  class="secondary-button settings-entry-action"
+                  href="#settings/textbooks"
+                  aria-label="管理教材"
+                >管理教材</a>
+              </div>
+              <div class="settings-entry-body">
                 <p class="settings-entry-desc">
                   选择学生当前使用的教材，切换前会预演影响。
                 </p>
@@ -647,31 +654,28 @@
                   当前：<span id="settings-index-textbook" class="settings-entry-textbook-name">加载中…</span>
                 </p>
               </div>
-              <a
-                class="secondary-button settings-entry-action"
-                href="#settings/textbooks"
-                aria-label="管理教材"
-              >管理教材</a>
             </section>
 
             <section class="settings-entry" aria-labelledby="settings-entry-audit-title">
-              <span class="settings-entry-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M9 6h11M9 12h11M9 18h11" />
-                  <path d="M4 6h.01M4 12h.01M4 18h.01" />
-                </svg>
-              </span>
-              <div class="settings-entry-text">
+              <div class="settings-entry-head">
+                <span class="settings-entry-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 6h11M9 12h11M9 18h11" />
+                    <path d="M4 6h.01M4 12h.01M4 18h.01" />
+                  </svg>
+                </span>
                 <h2 id="settings-entry-audit-title">审计日志</h2>
+                <a
+                  class="secondary-button settings-entry-action"
+                  href="#settings/audit"
+                  aria-label="查看审计日志"
+                >查看日志</a>
+              </div>
+              <div class="settings-entry-body">
                 <p class="settings-entry-desc">
                   只读的教材切换与人工归类记录，可按错题追溯。共 <strong id="settings-index-audit-count">0</strong> 条记录
                 </p>
               </div>
-              <a
-                class="secondary-button settings-entry-action"
-                href="#settings/audit"
-                aria-label="查看审计日志"
-              >查看日志</a>
             </section>
           </div>
 
@@ -1018,6 +1022,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261115-15"></script>
+    <script type="module" src="/app.js?v=20261115-16"></script>
   </body>
 </html>

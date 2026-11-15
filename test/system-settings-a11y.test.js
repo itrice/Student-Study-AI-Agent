@@ -242,7 +242,15 @@ test("系统配置索引页提供教材管理与审计日志两个子页面入�
   assert.match(settingsView, /class="settings-entry-current"/);
   assert.match(settingsView, /class="settings-entry-textbook-name"/);
   assert.match(css, /\.settings-index\s*\{[^}]*align-items:\s*stretch/s);
-  assert.match(css, /\.settings-entry-action\s*\{[^}]*align-self:\s*end/s);
+  assert.match(
+    css,
+    /\.settings-entry-head\s*\{[^}]*grid-template-columns:\s*36px minmax\(0, 1fr\) auto/s
+  );
+  assert.match(css, /\.settings-entry-body\s*\{[^}]*min-width:\s*0/s);
+  assert.match(
+    settingsView,
+    /class="settings-entry-head"[\s\S]*?class="settings-entry-body"/
+  );
   assert.match(
     css,
     /\.settings-entry-textbook-name\s*\{[^}]*word-break:\s*keep-all/s

@@ -4428,12 +4428,9 @@ svg {
 }
 
 .settings-entry {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
-  grid-template-areas: "icon text action";
-  grid-template-rows: minmax(0, 1fr);
-  align-items: stretch;
-  gap: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   min-width: 0;
   padding: 20px;
   border: 1px solid rgba(31, 107, 79, 0.14);
@@ -4444,10 +4441,15 @@ svg {
     0 8px 20px -14px rgba(16, 48, 36, 0.28);
 }
 
+.settings-entry-head {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
 .settings-entry-icon {
   display: grid;
-  grid-area: icon;
-  align-self: start;
   place-items: center;
   width: 36px;
   height: 36px;
@@ -4461,21 +4463,21 @@ svg {
   height: 20px;
 }
 
-.settings-entry-text {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  grid-area: text;
-  min-width: 0;
-}
-
-.settings-entry-text h2 {
+.settings-entry-head h2 {
   margin: 0;
+  min-width: 0;
   font-size: 18px;
   line-height: 1.4;
 }
 
-.settings-entry-text p {
+.settings-entry-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-entry-body p {
   margin: 0;
   color: var(--ink-soft);
   font-size: 14px;
@@ -4484,13 +4486,9 @@ svg {
   overflow-wrap: anywhere;
 }
 
-.settings-entry-text strong {
+.settings-entry-body strong {
   color: var(--ink);
   font-weight: 600;
-}
-
-.settings-entry-current {
-  color: var(--ink-soft);
 }
 
 .settings-entry-textbook-name {
@@ -4501,8 +4499,6 @@ svg {
 }
 
 .settings-entry-action {
-  grid-area: action;
-  align-self: end;
   justify-self: end;
   min-height: 44px;
   padding: 0 16px;
@@ -4569,20 +4565,6 @@ svg {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 10px;
-}
-
-@media (max-width: 560px) {
-  .settings-entry {
-    grid-template-columns: 36px minmax(0, 1fr);
-    grid-template-areas:
-      "icon text"
-      "action action";
-    align-items: start;
-  }
-
-  .settings-entry-action {
-    justify-self: start;
-  }
 }
 
 @media (max-width: 900px) {
