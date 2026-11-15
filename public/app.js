@@ -1,5 +1,9 @@
 import { createRequestKey } from "./request-key.js";
 import {
+  normalizeSettingsSubpage,
+  parseSettingsRoute
+} from "./settings-route.js";
+import {
   clampPage,
   getPageSize,
   pageForFirstItem,
@@ -25,6 +29,8 @@ const state = {
   curriculumConfirmSplits: false,
   curriculumConfirmUnmapped: false,
   curriculumStage: "preview",
+  curriculumTrigger: null,
+  settingsSubpage: null,
   curriculumHistory: [],
   curriculumHistoryMistake: null,
   feedback: null,
@@ -61,7 +67,8 @@ const viewLabels = {
   review: "开始复习",
   mistakes: "我的错题",
   feedback: "学习反馈",
-  knowledge: "知识点地图"
+  knowledge: "知识点地图",
+  settings: "系统配置"
 };
 
 const statusLabels = {
@@ -909,16 +916,58 @@ function setBusy(button, busy, busyText = "正在处理…") {
   }
 }
 
+function setSidebarState(open, { restoreFocus = false } = {}) {
+  const sidebar = $(".sidebar");
+  const menuButton = $("#menu-button");
+  if (!sidebar || !menuButton) return;
+  const mobile = window.matchMedia("(max-width: 820px)").matches;
+  if (!mobile) {
+    sidebar.classList.remove("is-open");
+    sidebar.inert = false;
+    menuButton.setAttribute("aria-expanded", "false");
+    menuButton.setAttribute("aria-label", "打开菜单");
+    return;
+  }
+  sidebar.classList.toggle("is-open", open);
+  sidebar.inert = !open;
+  menuButton.setAttribute("aria-expanded", String(open));
+  menuButton.setAttribute("aria-label", open ? "关闭菜单" : "打开菜单");
+  if (open) {
+    const target =
+      sidebar.querySelector(".nav-item.is-active") ||
+      sidebar.querySelector("a, button");
+    target?.focus({ preventScroll: true });
+  } else if (restoreFocus || sidebar.contains(document.activeElement)) {
+    menuButton.focus({ preventScroll: true });
+  }
+}
+
+function closeSidebar(options = {}) {
+  setSidebarState(false, options);
+}
+
+function syncSidebarForViewport() {
+  const sidebar = $(".sidebar");
+  if (!sidebar) return;
+  setSidebarState(sidebar.classList.contains("is-open"));
+}
+
 function showView(name, { updateHash = true } = {}) {
   if (!viewLabels[name]) name = "home";
   $$("[data-view-panel]").forEach((panel) => {
     panel.classList.toggle("is-active", panel.dataset.viewPanel === name);
   });
   $$(".nav-item").forEach((item) => {
-    item.classList.toggle("is-active", item.dataset.view === name);
+    const isActive = item.dataset.view === name;
+    item.classList.toggle("is-active", isActive);
+    if (isActive) {
+      item.setAttribute("aria-current", "page");
+    } else {
+      item.removeAttribute("aria-current");
+    }
   });
   $("#page-label").textContent = viewLabels[name];
-  $(".sidebar").classList.remove("is-open");
+  closeSidebar({ restoreFocus: document.activeElement?.closest(".sidebar") != null });
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (updateHash && window.location.hash !== `#${name}`) {
     history.pushState(null, "", `#${name}`);
@@ -930,7 +979,66 @@ function readRoute() {
   const view = viewLabels[rawView] ? rawView : "home";
   const mistakeId =
     view === "review" && /^\d+$/.test(rawId || "") ? Number(rawId) : null;
-  return { view, mistakeId };
+  const settings =
+    view === "settings"
+      ? parseSettingsRoute(window.location.hash)
+      : { subpage: null, unknown: false };
+  return {
+    view,
+    mistakeId,
+    settingsSubpage: settings.subpage,
+    unknownSettingsSubpage: settings.unknown
+  };
+}
+
+const settingsSubpageMeta = {
+  textbooks: {
+    kicker: "系统配置",
+    title: "教材管理",
+    description: "选择学生当前使用的教材，切换前会预演影响。"
+  },
+  audit: {
+    kicker: "系统配置",
+    title: "审计日志",
+    description: "只读的教材切换与人工归类记录，可按错题追溯。"
+  }
+};
+
+function showSettingsSubpage(subpage, { updateHash = true } = {}) {
+  const normalized = normalizeSettingsSubpage(subpage);
+  state.settingsSubpage = normalized;
+  const index = $("#settings-index");
+  const focusTitle =
+    Boolean(normalized) && Boolean(index?.contains(document.activeElement));
+  if (index) index.hidden = Boolean(normalized);
+  const wrapper = $("#settings-subpage");
+  if (wrapper) wrapper.hidden = !normalized;
+  const textbooks = $("#settings-textbooks");
+  if (textbooks) textbooks.hidden = normalized !== "textbooks";
+  const audit = $("#curriculum-history");
+  if (audit) audit.hidden = normalized !== "audit";
+  if (normalized) {
+    const meta = settingsSubpageMeta[normalized];
+    const kicker = $("#settings-subpage-kicker");
+    if (kicker) kicker.textContent = meta.kicker;
+    const title = $("#settings-subpage-title");
+    if (title) title.textContent = meta.title;
+    const description = $("#settings-subpage-description");
+    if (description) description.textContent = meta.description;
+    if (focusTitle && title) title.focus({ preventScroll: true });
+  }
+  if (updateHash) {
+    const hash = normalized ? `#settings/${normalized}` : "#settings";
+    if (window.location.hash !== hash) history.pushState(null, "", hash);
+  }
+  return normalized;
+}
+
+function applySettingsRoute(route) {
+  if (route.unknownSettingsSubpage) {
+    history.replaceState(null, "", "#settings");
+  }
+  showSettingsSubpage(route.settingsSubpage, { updateHash: false });
 }
 
 function navigateTo(name) {
@@ -939,6 +1047,9 @@ function navigateTo(name) {
     loadNextReview();
   } else if (name === "feedback") {
     loadFeedback();
+  } else if (name === "settings") {
+    showSettingsSubpage(null, { updateHash: false });
+    loadSettings().catch((error) => showToast(error.message, true));
   }
 }
 
@@ -957,6 +1068,7 @@ async function loadBootstrap() {
     };
     $("#student-textbook-label").textContent = `小学数学 · ${data.currentTextbook.displayName}`;
     $("#current-textbook-label").textContent = data.currentTextbook.displayName;
+    syncCurrentTextbookBadge(data.currentTextbook);
   }
 
   const select = $("#knowledge-point-select");
@@ -1403,13 +1515,33 @@ function renderMistakes() {
   renderMistakePagination(items.length);
 }
 
+function applyCurriculumData(data) {
+  if (!data) return;
+  state.curriculum = data;
+  const currentLabel = data.currentTextbook?.displayName || "未设置";
+  const knowledgeLabel = $("#current-textbook-label");
+  if (knowledgeLabel) knowledgeLabel.textContent = currentLabel;
+  syncCurrentTextbookBadge(data.currentTextbook);
+  const settingsLabel = $("#settings-current-textbook");
+  if (settingsLabel) {
+    settingsLabel.textContent = data.currentTextbook
+      ? `当前：${currentLabel}`
+      : "未设置";
+  }
+  const sidebarLabel = $("#student-textbook-label");
+  if (sidebarLabel) {
+    sidebarLabel.textContent = data.currentTextbook
+      ? `小学数学 · ${currentLabel}`
+      : "小学数学";
+  }
+}
+
 async function loadKnowledge() {
-  const [summaryResult, baseResult, curriculumResult, unmappedResult, historyResult] = await Promise.allSettled([
+  const [summaryResult, baseResult, curriculumResult, unmappedResult] = await Promise.allSettled([
     api("/api/knowledge-points"),
     api("/api/knowledge-base"),
     api("/api/curriculum"),
-    api("/api/curriculum/unmapped"),
-    api("/api/curriculum/switches?limit=10")
+    api("/api/curriculum/unmapped")
   ]);
   if (summaryResult.status === "fulfilled") {
     state.knowledge = summaryResult.value;
@@ -1418,23 +1550,14 @@ async function loadKnowledge() {
     state.knowledgeBase = baseResult.value;
   }
   if (curriculumResult.status === "fulfilled") {
-    state.curriculum = curriculumResult.value;
-    $("#current-textbook-label").textContent =
-      curriculumResult.value.currentTextbook?.displayName || "未设置";
-    $("#student-textbook-label").textContent = curriculumResult.value.currentTextbook
-      ? `小学数学 · ${curriculumResult.value.currentTextbook.displayName}`
-      : "小学数学";
+    applyCurriculumData(curriculumResult.value);
   }
   if (unmappedResult.status === "fulfilled") {
     state.curriculumUnmapped = unmappedResult.value;
   }
-  if (historyResult.status === "fulfilled") {
-    state.curriculumHistory = historyResult.value;
-  }
   renderKnowledge();
   renderKnowledgeBase();
   renderCurriculumUnmapped();
-  renderCurriculumHistory();
   renderWeakness();
   const failures = [
     summaryResult.status === "rejected"
@@ -1448,6 +1571,161 @@ async function loadKnowledge() {
       : null,
     unmappedResult.status === "rejected"
       ? `未映射处理：${unmappedResult.reason?.message || "加载失败"}`
+      : null
+  ].filter(Boolean);
+  if (failures.length) {
+    throw new Error(failures.join("；"));
+  }
+}
+
+const textbookSemesterLabels = {
+  upper: "上册",
+  lower: "下册",
+  full: "上册/下册"
+};
+
+function syncCurrentTextbookBadge(textbook) {
+  const badge = $("#current-textbook-review");
+  if (!badge) return;
+  const status = textbook?.reviewStatus;
+  if (!status) {
+    badge.hidden = true;
+    badge.textContent = "";
+    badge.removeAttribute("data-status");
+    return;
+  }
+  badge.hidden = false;
+  badge.textContent = curriculumReviewLabel(status);
+  badge.dataset.status = status;
+}
+
+function curriculumReviewLabel(status) {
+  if (status === "unreviewed") return "待教师审核";
+  if (status === "self_reviewed") return "已自检";
+  if (status === "teacher_reviewed") return "教师已审核";
+  return status || "未记录";
+}
+
+function renderSettings() {
+  const list = $("#settings-textbook-list");
+  if (!list) return;
+  const data = state.curriculum;
+  const currentId = data?.currentTextbook?.id;
+  const textbooks = data?.allTextbooks || data?.textbooks || [];
+  const currentLabel = $("#settings-current-textbook");
+  if (currentLabel) {
+    currentLabel.textContent = data?.currentTextbook
+      ? `当前：${data.currentTextbook.displayName}`
+      : "未设置";
+  }
+  const indexLabel = $("#settings-index-textbook");
+  if (indexLabel) {
+    indexLabel.textContent = data?.currentTextbook?.displayName || "未设置";
+  }
+  list.replaceChildren();
+  if (!textbooks.length) {
+    list.append(
+      createElement("p", "curriculum-history-empty", "还没有可展示的教材目录。")
+    );
+    return;
+  }
+  for (const textbook of textbooks) {
+    const isCurrent = textbook.id === currentId;
+    const selectable = Boolean(textbook.selectable);
+    const card = createElement(
+      "article",
+      `settings-textbook-card${isCurrent ? " is-current" : ""}${
+        selectable ? "" : " is-retired"
+      }`
+    );
+    const titleId = `settings-textbook-title-${textbook.id}`;
+    card.setAttribute("aria-labelledby", titleId);
+    const head = createElement("div", "settings-textbook-head");
+    const titleBlock = createElement("div", "settings-textbook-title-block");
+    const title = createElement("h3", "settings-textbook-title");
+    title.id = titleId;
+    title.tabIndex = -1;
+    title.append(createElement("strong", "", textbook.displayName));
+    titleBlock.append(
+      title,
+      createElement(
+        "p",
+        "settings-textbook-subtitle",
+        `${textbook.publisher} · ${textbook.grade} 年级 · ${
+          textbookSemesterLabels[textbook.semester] || textbook.semester
+        }`
+      )
+    );
+    const badges = createElement("div", "settings-textbook-badges");
+    badges.append(
+      createElement(
+        "span",
+        `settings-badge settings-badge-${textbook.reviewStatus || "unknown"}`,
+        curriculumReviewLabel(textbook.reviewStatus)
+      )
+    );
+    if (isCurrent) {
+      badges.append(createElement("span", "settings-badge is-current", "当前教材"));
+    }
+    if (!selectable) {
+      badges.append(
+        createElement("span", "settings-badge is-retired", "已下架 · 不可选")
+      );
+    }
+    head.append(titleBlock, badges);
+    card.append(head);
+
+    const meta = createElement(
+      "p",
+      "settings-textbook-meta",
+      `审核状态：${curriculumReviewLabel(textbook.reviewStatus)} · 可选状态：${
+        selectable ? "可选" : "不可选（已下架）"
+      }`
+    );
+    card.append(meta);
+
+    const actions = createElement("div", "settings-textbook-actions");
+    if (isCurrent) {
+      actions.append(createElement("span", "settings-current-note", "当前使用中"));
+    } else if (!selectable) {
+      actions.append(
+        createElement(
+          "span",
+          "settings-retired-note",
+          "已下架，不可作为切换目标；历史数据仍可追溯。"
+        )
+      );
+    } else {
+      const button = createElement("button", "secondary-button compact", "切换");
+      button.type = "button";
+      button.setAttribute("aria-label", `切换到 ${textbook.displayName}`);
+      button.addEventListener("click", () => openCurriculumDialog(textbook.id));
+      actions.append(button);
+    }
+    card.append(actions);
+    list.append(card);
+  }
+}
+
+async function loadSettings() {
+  const historyInput = $("#curriculum-history-mistake");
+  if (historyInput) historyInput.value = "";
+  state.curriculumHistoryMistake = null;
+  const [curriculumResult, historyResult] = await Promise.allSettled([
+    api("/api/curriculum"),
+    api("/api/curriculum/switches?limit=10")
+  ]);
+  if (curriculumResult.status === "fulfilled") {
+    applyCurriculumData(curriculumResult.value);
+  }
+  if (historyResult.status === "fulfilled") {
+    state.curriculumHistory = historyResult.value;
+  }
+  renderSettings();
+  renderCurriculumHistory();
+  const failures = [
+    curriculumResult.status === "rejected"
+      ? `教材目录：${curriculumResult.reason?.message || "加载失败"}`
       : null,
     historyResult.status === "rejected"
       ? `切换审计：${historyResult.reason?.message || "加载失败"}`
@@ -1456,6 +1734,35 @@ async function loadKnowledge() {
   if (failures.length) {
     throw new Error(failures.join("；"));
   }
+}
+
+async function syncSettingsAfterSwitch() {
+  const settingsPanel = $('[data-view-panel="settings"]');
+  if (settingsPanel?.classList.contains("is-active")) {
+    try {
+      await loadSettings();
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  }
+}
+
+function focusCurrentTextbookCard() {
+  const currentId = state.curriculum?.currentTextbook?.id;
+  const heading = currentId
+    ? $(`#settings-textbook-title-${currentId}`)
+    : null;
+  const target = heading || $("#settings-title");
+  if (!target) return;
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({ block: "nearest" });
+}
+
+function focusKnowledgeAfterSwitch() {
+  const target = $("#knowledge-title");
+  if (!target) return;
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({ block: "nearest" });
 }
 
 function renderKnowledge() {
@@ -1831,6 +2138,8 @@ function renderCurriculumHistory() {
   const list = $("#curriculum-history-list");
   if (!list) return;
   const logs = state.curriculumHistory || [];
+  const indexCount = $("#settings-index-audit-count");
+  if (indexCount) indexCount.textContent = String(logs.length);
   list.replaceChildren();
   if (!logs.length) {
     list.append(
@@ -1934,35 +2243,47 @@ function resetCurriculumDialog() {
   $("#curriculum-preview-button").hidden = false;
   $("#curriculum-confirm-button").hidden = true;
   $("#curriculum-execute-button").hidden = true;
+  $("#curriculum-stay-button").hidden = true;
   $("#curriculum-done-button").hidden = true;
   state.curriculumStage = "preview";
 }
 
-function populateCurriculumTargets() {
+function populateCurriculumTargets(preselectTextbookId = null) {
   const select = $("#curriculum-target-select");
   select.replaceChildren();
   const textbooks = state.curriculum?.textbooks || [];
   const currentId = state.curriculum?.currentTextbook?.id;
+  const targetId =
+    preselectTextbookId != null ? String(preselectTextbookId) : null;
+  let preselectAvailable = false;
   for (const textbook of textbooks) {
     if (textbook.id === currentId) continue;
     const option = createElement("option", "", textbook.displayName);
     option.value = String(textbook.id);
     select.append(option);
+    if (targetId && option.value === targetId) preselectAvailable = true;
   }
   if (!select.options.length) {
     const option = createElement("option", "", "没有可切换的教材");
     option.value = "";
     select.append(option);
+  } else if (preselectAvailable) {
+    select.value = targetId;
   }
 }
 
-async function openCurriculumDialog() {
+async function openCurriculumDialog(preselectTextbookId = null) {
   try {
+    const active = document.activeElement;
+    state.curriculumTrigger =
+      active && active !== document.body && !$("#curriculum-dialog").contains(active)
+        ? active
+        : null;
     if (!state.curriculum) {
       state.curriculum = await api("/api/curriculum");
     }
-    populateCurriculumTargets();
     resetCurriculumDialog();
+    populateCurriculumTargets(preselectTextbookId);
     $("#curriculum-dialog").showModal();
     $("#curriculum-target-select").focus();
   } catch (error) {
@@ -1972,8 +2293,11 @@ async function openCurriculumDialog() {
 
 function closeCurriculumDialog() {
   const dialog = $("#curriculum-dialog");
+  const trigger = state.curriculumTrigger;
+  state.curriculumTrigger = null;
   if (dialog.open) dialog.close();
   resetCurriculumDialog();
+  if (trigger?.isConnected) trigger.focus({ preventScroll: true });
 }
 
 function curriculumMetric(label, value, note = "") {
@@ -2293,6 +2617,7 @@ function setCurriculumStage(stage) {
   $("#curriculum-confirm-button").hidden =
     stage !== "preview" || !state.curriculumPreview;
   $("#curriculum-execute-button").hidden = stage !== "confirm";
+  $("#curriculum-stay-button").hidden = stage !== "result";
   $("#curriculum-done-button").hidden = stage !== "result";
   if (stage === "preview") {
     updateCurriculumConfirmButton();
@@ -2309,6 +2634,13 @@ function setCurriculumStage(stage) {
     $("#curriculum-dialog-footnote").textContent =
       "切换已完成，历史报告已按当时教材保存。";
   }
+  focusCurriculumStageTitle();
+}
+
+function focusCurriculumStageTitle() {
+  const dialog = $("#curriculum-dialog");
+  if (!dialog?.open) return;
+  $("#curriculum-dialog-title")?.focus({ preventScroll: true });
 }
 
 function curriculumSplitChoicesComplete(preview) {
@@ -2427,15 +2759,24 @@ async function executeCurriculumSwitch() {
   }
 }
 
-async function finishCurriculumSwitch() {
+async function finishCurriculumSwitch(destination = "knowledge") {
   closeCurriculumDialog();
   try {
     await loadBootstrap();
     const refresh = await refreshAll();
+    if (destination === "knowledge") {
+      navigateTo("knowledge");
+      focusKnowledgeAfterSwitch();
+    } else {
+      await syncSettingsAfterSwitch();
+      focusCurrentTextbookCard();
+    }
     if (!refresh.ok) {
       showToast("切换已完成，但部分页面刷新失败，请手动刷新", true);
+    } else if (destination === "knowledge") {
+      showToast("教材已切换，知识点地图已更新");
     } else {
-      showToast("教材已切换，知识地图与搜索已更新");
+      showToast("教材已切换，系统配置已更新");
     }
   } catch (error) {
     showToast(`切换已完成，但页面刷新失败：${error.message}`, true);
@@ -3754,13 +4095,17 @@ function bindEvents() {
 
   $("#top-add-button").addEventListener("click", openAddDialog);
   $("#quick-add-button").addEventListener("click", openAddDialog);
-  $("#curriculum-switch-button").addEventListener("click", openCurriculumDialog);
   $("#curriculum-close-button").addEventListener("click", closeCurriculumDialog);
   $("#curriculum-cancel-button").addEventListener("click", closeCurriculumDialog);
   $("#curriculum-preview-button").addEventListener("click", previewCurriculumSwitch);
   $("#curriculum-confirm-button").addEventListener("click", continueCurriculumConfirm);
   $("#curriculum-execute-button").addEventListener("click", executeCurriculumSwitch);
-  $("#curriculum-done-button").addEventListener("click", finishCurriculumSwitch);
+  $("#curriculum-stay-button").addEventListener("click", () =>
+    finishCurriculumSwitch("settings")
+  );
+  $("#curriculum-done-button").addEventListener("click", () =>
+    finishCurriculumSwitch("knowledge")
+  );
   $("#curriculum-dialog").addEventListener("cancel", (event) => {
     event.preventDefault();
     closeCurriculumDialog();
@@ -3842,8 +4187,10 @@ function bindEvents() {
   document.addEventListener("pointerup", endCropDrag);
   document.addEventListener("pointercancel", endCropDrag);
   window.addEventListener("resize", () => {
+    syncSidebarForViewport();
     if (state.cropEditor?.image) renderCropEditor();
   });
+  syncSidebarForViewport();
   $("#run-ocr-button").addEventListener("click", runOcr);
   $("#cancel-ocr-button").addEventListener("click", () => {
     $("#ocr-panel").hidden = true;
@@ -3857,7 +4204,9 @@ function bindEvents() {
   });
   $("#start-review-button").addEventListener("click", () => navigateTo("review"));
   $("#menu-button").addEventListener("click", () => {
-    $(".sidebar").classList.toggle("is-open");
+    setSidebarState(!$(".sidebar").classList.contains("is-open"), {
+      restoreFocus: true
+    });
   });
   $("#refresh-feedback-button").addEventListener("click", async () => {
     const button = $("#refresh-feedback-button");
@@ -4020,6 +4369,7 @@ function bindEvents() {
 
   window.addEventListener("hashchange", () => {
     const route = readRoute();
+    if (route.view === "settings") applySettingsRoute(route);
     showView(route.view, { updateHash: false });
     if (route.view === "review") {
       if (route.mistakeId) {
@@ -4029,6 +4379,8 @@ function bindEvents() {
       }
     } else if (route.view === "feedback") {
       loadFeedback().catch((error) => showToast(error.message, true));
+    } else if (route.view === "settings") {
+      loadSettings().catch((error) => showToast(error.message, true));
     }
   });
 
@@ -4038,7 +4390,7 @@ function bindEvents() {
       closeCropEditor();
       return;
     }
-    if (event.key === "Escape") $(".sidebar").classList.remove("is-open");
+    if (event.key === "Escape") closeSidebar({ restoreFocus: true });
   });
 }
 
@@ -4056,6 +4408,7 @@ async function init() {
       showToast("部分页面数据加载失败，请刷新重试。", true);
     }
     const initialRoute = readRoute();
+    if (initialRoute.view === "settings") applySettingsRoute(initialRoute);
     showView(initialRoute.view, { updateHash: false });
     if (initialRoute.view === "review") {
       if (initialRoute.mistakeId) {
@@ -4063,6 +4416,8 @@ async function init() {
       } else {
         await loadNextReview();
       }
+    } else if (initialRoute.view === "settings") {
+      await loadSettings();
     }
   } catch (error) {
     showToast(`页面初始化失败：${error.message}`, true);
