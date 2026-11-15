@@ -3568,6 +3568,7 @@ export class LearningRepository {
     assertToolWriteAllowed();
     const current = this.getMistake(id, { includeSolution: true });
     if (!current) return null;
+    const student = this.getStudent();
     const attachmentsProvided = Object.hasOwn(input, "attachmentIds");
     const proposedAttachmentIds = attachmentsProvided
       ? normalizeAttachmentIds(input.attachmentIds)
@@ -3605,15 +3606,11 @@ export class LearningRepository {
       knowledgePoint: input.knowledgePoint ?? current.knowledgePoint,
       errorType: input.errorType ?? current.errorType
     };
-    proposedParts.forEach((part, index) => {
-      if (!part.knowledgePoint) {
-        part.knowledgePoint =
-          current.parts[index]?.knowledgePoint || current.knowledgePoint || "";
-        return;
-      }
+    proposedParts.forEach((part) => {
+      if (!part.knowledgePoint) return;
       const resolvedPart = this.resolveDiagnosisKnowledgePoint(
         part.knowledgePoint,
-        this.getStudent()
+        student
       );
       if (resolvedPart) part.knowledgePoint = resolvedPart.point.name;
     });
@@ -3625,7 +3622,7 @@ export class LearningRepository {
     }
     const { diagnosis } = this.buildCurriculumAwareDiagnosis(
       proposed,
-      this.getStudent()
+      student
     );
     const finalFields = {
       ...proposed,
@@ -3634,12 +3631,17 @@ export class LearningRepository {
     };
     const curriculum = this.resolveMistakeCurriculum(
       finalFields.knowledgePoint,
-      this.getStudent()
+      student
     );
     finalFields.knowledgePoint = curriculum.knowledgePoint;
     finalFields.textbookId = curriculum.textbookId;
     finalFields.curriculumPointId = curriculum.curriculumPointId;
     finalFields.curriculumStatus = curriculum.curriculumStatus;
+    for (const part of proposedParts) {
+      if (!part.knowledgePoint) {
+        part.knowledgePoint = finalFields.knowledgePoint;
+      }
+    }
     const changedFields = Object.keys(finalFields).filter(
       (field) => finalFields[field] !== current[field]
     );

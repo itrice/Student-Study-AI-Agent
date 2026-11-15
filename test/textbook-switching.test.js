@@ -565,6 +565,44 @@ test("切换后旧多小问知识点同步迁移，无改动保存不重置掌�
     assert.equal(after.consecutiveCorrect, before.consecutiveCorrect);
     assert.equal(after.dueAt, before.dueAt);
     assert.equal(after.revision, before.revision);
+
+    const setSecondPartPoint = (knowledgePoint) => {
+      const currentMistake = repository.getMistake(mistake.id, {
+        includeSolution: true
+      });
+      return repository.updateMistake(mistake.id, {
+        question: currentMistake.question,
+        studentAnswer: currentMistake.studentAnswer,
+        correctAnswer: currentMistake.correctAnswer,
+        analysis: currentMistake.analysis,
+        knowledgePoint: currentMistake.knowledgePoint,
+        errorType: currentMistake.errorType,
+        parts: currentMistake.parts.map((part, index) => ({
+          label: part.label,
+          prompt: part.prompt,
+          studentAnswer: part.studentAnswer,
+          answerType: part.answerType,
+          comparisonRule: part.comparisonRule,
+          knowledgePoint:
+            index === 1 ? knowledgePoint : part.knowledgePoint,
+          acceptedAnswers: part.acceptedAnswers,
+          hint: part.hint,
+          explanation: part.explanation
+        }))
+      });
+    };
+
+    const explicitPartPoint = setSecondPartPoint("数学好玩");
+    assert.ok(explicitPartPoint.changedFields.includes("parts"));
+    assert.equal(explicitPartPoint.learningReset, true);
+    const followWhole = setSecondPartPoint("");
+    assert.ok(followWhole.changedFields.includes("parts"));
+    assert.equal(followWhole.learningReset, true);
+    assert.equal(
+      repository.getMistake(mistake.id, { includeSolution: true }).parts[1]
+        .knowledgePoint,
+      "比的认识"
+    );
   } finally {
     repository.close();
   }
