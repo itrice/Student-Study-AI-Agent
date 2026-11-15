@@ -187,3 +187,55 @@ test("知识点地图当前教材卡片：单行结构、审核胶囊与清晰�
   assert.match(app, /badge\.hidden = true;/);
   assert.match(app, /badge\.dataset\.status = status;/);
 });
+
+test("系统配置索引页提供教材管理与审计日志两个子页面入口", () => {
+  const settingsView = html.slice(
+    html.indexOf('id="view-settings"'),
+    html.indexOf('id="curriculum-dialog"')
+  );
+  assert.match(settingsView, /管理教材与查看操作记录/);
+  assert.match(settingsView, /id="settings-index"/);
+  assert.match(settingsView, /id="settings-entry-textbooks-title">教材管理</);
+  assert.match(settingsView, /id="settings-entry-audit-title">审计日志</);
+  assert.match(
+    settingsView,
+    /href="#settings\/textbooks"[\s\S]*?aria-label="管理教材"/
+  );
+  assert.match(
+    settingsView,
+    /href="#settings\/audit"[\s\S]*?aria-label="查看审计日志"/
+  );
+  assert.match(settingsView, /id="settings-subpage-title" tabindex="-1"/);
+  assert.match(settingsView, /class="settings-back-link" href="#settings"/);
+  assert.match(
+    settingsView,
+    /<section class="panel settings-section" id="settings-textbooks" hidden>/
+  );
+  assert.match(settingsView, /id="curriculum-history"[^>]*hidden/);
+  assert.ok(
+    settingsView.indexOf('id="settings-subpage"') <
+      settingsView.indexOf('id="settings-textbooks"')
+  );
+  assert.match(settingsView, /id="settings-index-textbook"/);
+  assert.match(settingsView, /id="settings-index-audit-count"/);
+  assert.match(
+    css,
+    /\.settings-index\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 900px\)[\s\S]*?\.settings-index\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/
+  );
+  assert.match(css, /\.settings-entry\s*\{[^}]*border-radius:\s*16px/s);
+  assert.match(css, /\.settings-entry-icon\s*\{[^}]*width:\s*36px/s);
+  assert.match(css, /\.settings-entry-action\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(
+    css,
+    /\.settings-back-link:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--green\)/s
+  );
+  assert.match(app, /function showSettingsSubpage\(subpage/);
+  assert.match(app, /function applySettingsRoute\(route\)/);
+  assert.match(app, /history\.replaceState\(null, "", "#settings"\)/);
+  assert.match(app, /applySettingsRoute\(initialRoute\)/);
+  assert.match(app, /normalizeSettingsSubpage/);
+});

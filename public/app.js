@@ -1,5 +1,9 @@
 import { createRequestKey } from "./request-key.js";
 import {
+  normalizeSettingsSubpage,
+  parseSettingsRoute
+} from "./settings-route.js";
+import {
   clampPage,
   getPageSize,
   pageForFirstItem,
@@ -26,6 +30,7 @@ const state = {
   curriculumConfirmUnmapped: false,
   curriculumStage: "preview",
   curriculumTrigger: null,
+  settingsSubpage: null,
   curriculumHistory: [],
   curriculumHistoryMistake: null,
   feedback: null,
@@ -974,7 +979,66 @@ function readRoute() {
   const view = viewLabels[rawView] ? rawView : "home";
   const mistakeId =
     view === "review" && /^\d+$/.test(rawId || "") ? Number(rawId) : null;
-  return { view, mistakeId };
+  const settings =
+    view === "settings"
+      ? parseSettingsRoute(window.location.hash)
+      : { subpage: null, unknown: false };
+  return {
+    view,
+    mistakeId,
+    settingsSubpage: settings.subpage,
+    unknownSettingsSubpage: settings.unknown
+  };
+}
+
+const settingsSubpageMeta = {
+  textbooks: {
+    kicker: "系统配置",
+    title: "教材管理",
+    description: "选择学生当前使用的教材，切换前会预演影响。"
+  },
+  audit: {
+    kicker: "系统配置",
+    title: "审计日志",
+    description: "只读的教材切换与人工归类记录，可按错题追溯。"
+  }
+};
+
+function showSettingsSubpage(subpage, { updateHash = true } = {}) {
+  const normalized = normalizeSettingsSubpage(subpage);
+  state.settingsSubpage = normalized;
+  const index = $("#settings-index");
+  const focusTitle =
+    Boolean(normalized) && Boolean(index?.contains(document.activeElement));
+  if (index) index.hidden = Boolean(normalized);
+  const wrapper = $("#settings-subpage");
+  if (wrapper) wrapper.hidden = !normalized;
+  const textbooks = $("#settings-textbooks");
+  if (textbooks) textbooks.hidden = normalized !== "textbooks";
+  const audit = $("#curriculum-history");
+  if (audit) audit.hidden = normalized !== "audit";
+  if (normalized) {
+    const meta = settingsSubpageMeta[normalized];
+    const kicker = $("#settings-subpage-kicker");
+    if (kicker) kicker.textContent = meta.kicker;
+    const title = $("#settings-subpage-title");
+    if (title) title.textContent = meta.title;
+    const description = $("#settings-subpage-description");
+    if (description) description.textContent = meta.description;
+    if (focusTitle && title) title.focus({ preventScroll: true });
+  }
+  if (updateHash) {
+    const hash = normalized ? `#settings/${normalized}` : "#settings";
+    if (window.location.hash !== hash) history.pushState(null, "", hash);
+  }
+  return normalized;
+}
+
+function applySettingsRoute(route) {
+  if (route.unknownSettingsSubpage) {
+    history.replaceState(null, "", "#settings");
+  }
+  showSettingsSubpage(route.settingsSubpage, { updateHash: false });
 }
 
 function navigateTo(name) {
@@ -984,6 +1048,7 @@ function navigateTo(name) {
   } else if (name === "feedback") {
     loadFeedback();
   } else if (name === "settings") {
+    showSettingsSubpage(null, { updateHash: false });
     loadSettings().catch((error) => showToast(error.message, true));
   }
 }
@@ -1553,6 +1618,10 @@ function renderSettings() {
       ? `当前：${data.currentTextbook.displayName}`
       : "未设置";
   }
+  const indexLabel = $("#settings-index-textbook");
+  if (indexLabel) {
+    indexLabel.textContent = data?.currentTextbook?.displayName || "未设置";
+  }
   list.replaceChildren();
   if (!textbooks.length) {
     list.append(
@@ -2069,6 +2138,8 @@ function renderCurriculumHistory() {
   const list = $("#curriculum-history-list");
   if (!list) return;
   const logs = state.curriculumHistory || [];
+  const indexCount = $("#settings-index-audit-count");
+  if (indexCount) indexCount.textContent = String(logs.length);
   list.replaceChildren();
   if (!logs.length) {
     list.append(
@@ -4298,6 +4369,7 @@ function bindEvents() {
 
   window.addEventListener("hashchange", () => {
     const route = readRoute();
+    if (route.view === "settings") applySettingsRoute(route);
     showView(route.view, { updateHash: false });
     if (route.view === "review") {
       if (route.mistakeId) {
@@ -4336,6 +4408,7 @@ async function init() {
       showToast("部分页面数据加载失败，请刷新重试。", true);
     }
     const initialRoute = readRoute();
+    if (initialRoute.view === "settings") applySettingsRoute(initialRoute);
     showView(initialRoute.view, { updateHash: false });
     if (initialRoute.view === "review") {
       if (initialRoute.mistakeId) {

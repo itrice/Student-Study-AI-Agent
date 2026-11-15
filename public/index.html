@@ -11,7 +11,7 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261115-9" />
+    <link rel="stylesheet" href="/styles.css?v=20261115-13" />
   </head>
   <body>
     <div class="app-shell">
@@ -626,52 +626,100 @@
             <div>
               <span class="eyebrow">教材与操作留痕</span>
               <h1 id="settings-title" tabindex="-1">系统配置</h1>
-              <p>管理当前学生的教材，并查看不可编辑的教材切换审计记录。</p>
+              <p>管理教材与查看操作记录。</p>
             </div>
           </div>
 
-          <div class="settings-sections">
-            <section class="panel settings-section" id="settings-textbooks">
-              <div class="panel-heading">
-                <div>
-                  <span class="section-kicker">教材管理</span>
-                  <h2>全部教材与切换入口</h2>
-                </div>
-                <span id="settings-current-textbook" class="tag">加载中…</span>
+          <div id="settings-index" class="settings-index">
+            <section class="settings-entry" aria-labelledby="settings-entry-textbooks-title">
+              <span class="settings-entry-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v16H6.5A2.5 2.5 0 0 0 4 21.5z" />
+                  <path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H19" />
+                </svg>
+              </span>
+              <div class="settings-entry-text">
+                <h2 id="settings-entry-textbooks-title">教材管理</h2>
+                <p>
+                  选择学生当前使用的教材，切换前会预演影响。当前：<strong id="settings-index-textbook">加载中…</strong>
+                </p>
               </div>
-              <p class="curriculum-note">
-                切换教材会影响当前错题的教材与知识点映射，但会保留题目、答案、附件、作答历史、掌握证据和复习到期时间。切换前必须先预演并确认影响。
-              </p>
-              <div id="settings-textbook-list" class="settings-textbook-list"></div>
+              <a
+                class="secondary-button settings-entry-action"
+                href="#settings/textbooks"
+                aria-label="管理教材"
+              >管理教材</a>
             </section>
 
-            <section class="panel curriculum-history settings-section" id="curriculum-history">
-              <div class="panel-heading">
-                <div>
-                  <span class="section-kicker">审计日志</span>
-                  <h2>教材切换记录</h2>
-                </div>
-                <span class="tag">只读 · 不可编辑</span>
+            <section class="settings-entry" aria-labelledby="settings-entry-audit-title">
+              <span class="settings-entry-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 6h11M9 12h11M9 18h11" />
+                  <path d="M4 6h.01M4 12h.01M4 18h.01" />
+                </svg>
+              </span>
+              <div class="settings-entry-text">
+                <h2 id="settings-entry-audit-title">审计日志</h2>
+                <p>
+                  只读的教材切换与人工归类记录，可按错题追溯。共 <strong id="settings-index-audit-count">0</strong> 条记录
+                </p>
               </div>
-              <form class="curriculum-history-filter" id="curriculum-history-filter">
-                <label class="sr-only" for="curriculum-history-mistake">按错题 ID 追溯</label>
-                <input
-                  id="curriculum-history-mistake"
-                  type="number"
-                  min="1"
-                  inputmode="numeric"
-                  placeholder="按错题 ID 追溯"
-                />
-                <button class="secondary-button compact" type="submit">追溯</button>
-                <button class="secondary-button compact" type="button" id="curriculum-history-reset">
-                  全部
-                </button>
-              </form>
-              <p class="curriculum-note">
-                审计记录写入后不可编辑，可按题查看切换前后的教材、知识点与映射结果。
-              </p>
-              <div id="curriculum-history-list" class="curriculum-history-list"></div>
+              <a
+                class="secondary-button settings-entry-action"
+                href="#settings/audit"
+                aria-label="查看审计日志"
+              >查看日志</a>
             </section>
+          </div>
+
+          <div id="settings-subpage" class="settings-subpage" hidden>
+            <a class="settings-back-link" href="#settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m15 6-6 6 6 6" />
+              </svg>
+              返回系统配置
+            </a>
+            <div class="settings-subpage-heading">
+              <span class="section-kicker" id="settings-subpage-kicker">系统配置</span>
+              <h2 id="settings-subpage-title" tabindex="-1">教材管理</h2>
+              <p id="settings-subpage-description">选择学生当前使用的教材，切换前会预演影响。</p>
+            </div>
+
+            <div class="settings-sections">
+              <section class="panel settings-section" id="settings-textbooks" hidden>
+                <div class="settings-section-meta">
+                  <span id="settings-current-textbook" class="tag">加载中…</span>
+                </div>
+                <p class="curriculum-note">
+                  切换教材会影响当前错题的教材与知识点映射，但会保留题目、答案、附件、作答历史、掌握证据和复习到期时间。切换前必须先预演并确认影响。
+                </p>
+                <div id="settings-textbook-list" class="settings-textbook-list"></div>
+              </section>
+
+              <section class="panel curriculum-history settings-section" id="curriculum-history" hidden>
+                <div class="settings-section-meta">
+                  <span class="tag">只读 · 不可编辑</span>
+                </div>
+                <form class="curriculum-history-filter" id="curriculum-history-filter">
+                  <label class="sr-only" for="curriculum-history-mistake">按错题 ID 追溯</label>
+                  <input
+                    id="curriculum-history-mistake"
+                    type="number"
+                    min="1"
+                    inputmode="numeric"
+                    placeholder="按错题 ID 追溯"
+                  />
+                  <button class="secondary-button compact" type="submit">追溯</button>
+                  <button class="secondary-button compact" type="button" id="curriculum-history-reset">
+                    全部
+                  </button>
+                </form>
+                <p class="curriculum-note">
+                  审计记录写入后不可编辑，可按题查看切换前后的教材、知识点与映射结果。
+                </p>
+                <div id="curriculum-history-list" class="curriculum-history-list"></div>
+              </section>
+            </div>
           </div>
         </section>
       </main>
@@ -967,6 +1015,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261115-9"></script>
+    <script type="module" src="/app.js?v=20261115-13"></script>
   </body>
 </html>
