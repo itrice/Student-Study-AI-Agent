@@ -11,7 +11,7 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261115-2" />
+    <link rel="stylesheet" href="/styles.css?v=20261115-18" />
   </head>
   <body>
     <div class="app-shell">
@@ -247,6 +247,21 @@
         </section>
 
         <section class="view" id="view-review" data-view-panel="review">
+          <div class="review-focus-bar" id="review-focus-bar" hidden>
+            <button
+              class="secondary-button review-focus-exit"
+              type="button"
+              id="review-exit-focus-button"
+              aria-label="退出全屏"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+              </svg>
+              退出全屏
+            </button>
+            <span class="review-focus-progress" id="review-focus-progress">第 1 题</span>
+            <span class="knowledge-badge" id="review-focus-point"></span>
+          </div>
           <div class="page-heading">
             <div>
               <span class="eyebrow">独立重做 · 找到缺口</span>
@@ -277,9 +292,22 @@
                   修改题目
                 </button>
               </div>
-              <span class="attempt-label" id="review-attempt"></span>
+              <div class="review-meta-right">
+                <span class="attempt-label" id="review-attempt"></span>
+                <button
+                  class="review-focus-button"
+                  id="review-enter-focus-button"
+                  type="button"
+                  aria-label="进入全屏"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+                  </svg>
+                  全屏
+                </button>
+              </div>
             </div>
-            <div class="question-block">
+            <div class="question-block" id="review-question-block" tabindex="-1">
               <span class="question-label">题目</span>
               <p id="review-question"></p>
               <div id="review-attachments" class="review-attachments" hidden></div>
@@ -815,6 +843,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261115-1"></script>
+    <script type="module" src="/app.js?v=20261115-18"></script>
   </body>
 </html>
