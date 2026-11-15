@@ -1558,6 +1558,7 @@ function renderSettings() {
     const titleBlock = createElement("div", "settings-textbook-title-block");
     const title = createElement("h3", "settings-textbook-title");
     title.id = titleId;
+    title.tabIndex = -1;
     title.append(createElement("strong", "", textbook.displayName));
     titleBlock.append(
       title,
@@ -1649,11 +1650,33 @@ async function loadSettings() {
   }
 }
 
-function syncSettingsAfterSwitch() {
+async function syncSettingsAfterSwitch() {
   const settingsPanel = $('[data-view-panel="settings"]');
   if (settingsPanel?.classList.contains("is-active")) {
-    loadSettings().catch((error) => showToast(error.message, true));
+    try {
+      await loadSettings();
+    } catch (error) {
+      showToast(error.message, true);
+    }
   }
+}
+
+function focusCurrentTextbookCard() {
+  const currentId = state.curriculum?.currentTextbook?.id;
+  const heading = currentId
+    ? $(`#settings-textbook-title-${currentId}`)
+    : null;
+  const target = heading || $("#settings-title");
+  if (!target) return;
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({ block: "nearest" });
+}
+
+function focusKnowledgeAfterSwitch() {
+  const target = $("#knowledge-title");
+  if (!target) return;
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({ block: "nearest" });
 }
 
 function renderKnowledge() {
@@ -2132,6 +2155,7 @@ function resetCurriculumDialog() {
   $("#curriculum-preview-button").hidden = false;
   $("#curriculum-confirm-button").hidden = true;
   $("#curriculum-execute-button").hidden = true;
+  $("#curriculum-stay-button").hidden = true;
   $("#curriculum-done-button").hidden = true;
   state.curriculumStage = "preview";
 }
@@ -2505,6 +2529,7 @@ function setCurriculumStage(stage) {
   $("#curriculum-confirm-button").hidden =
     stage !== "preview" || !state.curriculumPreview;
   $("#curriculum-execute-button").hidden = stage !== "confirm";
+  $("#curriculum-stay-button").hidden = stage !== "result";
   $("#curriculum-done-button").hidden = stage !== "result";
   if (stage === "preview") {
     updateCurriculumConfirmButton();
@@ -2646,16 +2671,24 @@ async function executeCurriculumSwitch() {
   }
 }
 
-async function finishCurriculumSwitch() {
+async function finishCurriculumSwitch(destination = "knowledge") {
   closeCurriculumDialog();
   try {
     await loadBootstrap();
     const refresh = await refreshAll();
-    syncSettingsAfterSwitch();
+    if (destination === "knowledge") {
+      navigateTo("knowledge");
+      focusKnowledgeAfterSwitch();
+    } else {
+      await syncSettingsAfterSwitch();
+      focusCurrentTextbookCard();
+    }
     if (!refresh.ok) {
       showToast("切换已完成，但部分页面刷新失败，请手动刷新", true);
+    } else if (destination === "knowledge") {
+      showToast("教材已切换，知识点地图已更新");
     } else {
-      showToast("教材已切换，知识地图与搜索已更新");
+      showToast("教材已切换，系统配置已更新");
     }
   } catch (error) {
     showToast(`切换已完成，但页面刷新失败：${error.message}`, true);
@@ -3979,7 +4012,12 @@ function bindEvents() {
   $("#curriculum-preview-button").addEventListener("click", previewCurriculumSwitch);
   $("#curriculum-confirm-button").addEventListener("click", continueCurriculumConfirm);
   $("#curriculum-execute-button").addEventListener("click", executeCurriculumSwitch);
-  $("#curriculum-done-button").addEventListener("click", finishCurriculumSwitch);
+  $("#curriculum-stay-button").addEventListener("click", () =>
+    finishCurriculumSwitch("settings")
+  );
+  $("#curriculum-done-button").addEventListener("click", () =>
+    finishCurriculumSwitch("knowledge")
+  );
   $("#curriculum-dialog").addEventListener("cancel", (event) => {
     event.preventDefault();
     closeCurriculumDialog();

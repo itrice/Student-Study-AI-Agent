@@ -11,7 +11,7 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261115-7" />
+    <link rel="stylesheet" href="/styles.css?v=20261115-8" />
   </head>
   <body>
     <div class="app-shell">
@@ -550,7 +550,7 @@
           <div class="page-heading">
             <div>
               <span class="eyebrow">从一道题，看见一类题</span>
-              <h1>知识点地图</h1>
+              <h1 id="knowledge-title" tabindex="-1">知识点地图</h1>
               <p>掌握度由错题状态和连续独立答对情况共同计算。</p>
             </div>
             <div class="curriculum-toolbar">
@@ -606,7 +606,7 @@
           <div class="page-heading">
             <div>
               <span class="eyebrow">教材与操作留痕</span>
-              <h1>系统配置</h1>
+              <h1 id="settings-title" tabindex="-1">系统配置</h1>
               <p>管理当前学生的教材，并查看不可编辑的教材切换审计记录。</p>
             </div>
           </div>
@@ -693,7 +693,8 @@
           <button class="primary-button" type="button" id="curriculum-preview-button">开始预演</button>
           <button class="primary-button" type="button" id="curriculum-confirm-button" hidden>继续确认</button>
           <button class="primary-button" type="button" id="curriculum-execute-button" hidden>确认执行切换</button>
-          <button class="primary-button" type="button" id="curriculum-done-button" hidden>返回知识地图</button>
+          <button class="secondary-button" type="button" id="curriculum-stay-button" hidden>留在系统配置</button>
+          <button class="primary-button" type="button" id="curriculum-done-button" hidden>查看知识点地图</button>
         </div>
       </div>
     </dialog>
@@ -947,6 +948,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261115-7"></script>
+    <script type="module" src="/app.js?v=20261115-8"></script>
   </body>
 </html>

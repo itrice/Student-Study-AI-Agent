@@ -92,3 +92,41 @@ test("教师审核状态与导航当前项使用可读中文和 aria-current", (
   assert.match(app, /item\.removeAttribute\("aria-current"\)/);
   assert.match(css, /\.settings-badge-teacher_reviewed\s*\{/);
 });
+
+test("结果页主按钮导航知识地图，次按钮留在设置并聚焦当前教材", () => {
+  assert.match(
+    html,
+    /id="curriculum-stay-button" hidden>留在系统配置</
+  );
+  assert.match(
+    html,
+    /id="curriculum-done-button" hidden>查看知识点地图</
+  );
+  assert.equal(html.includes("返回知识地图"), false);
+  assert.match(html, /id="knowledge-title" tabindex="-1"/);
+  assert.match(html, /id="settings-title" tabindex="-1"/);
+  assert.match(app, /finishCurriculumSwitch\("settings"\)/);
+  assert.match(app, /finishCurriculumSwitch\("knowledge"\)/);
+
+  const finish = appSection(
+    "async function finishCurriculumSwitch",
+    "function resetKnowledgeSearch"
+  );
+  assert.match(finish, /destination === "knowledge"/);
+  assert.match(finish, /navigateTo\("knowledge"\)/);
+  assert.match(finish, /focusKnowledgeAfterSwitch\(\)/);
+  assert.match(finish, /await syncSettingsAfterSwitch\(\)/);
+  assert.match(finish, /focusCurrentTextbookCard\(\)/);
+
+  const focusCurrent = appSection(
+    "function focusCurrentTextbookCard",
+    "function focusKnowledgeAfterSwitch"
+  );
+  assert.match(focusCurrent, /settings-textbook-title-/);
+  assert.match(focusCurrent, /#settings-title/);
+  assert.match(app, /title\.tabIndex = -1;/);
+  assert.match(
+    css,
+    /\.settings-textbook-title:focus,[\s\S]*#knowledge-title:focus/
+  );
+});

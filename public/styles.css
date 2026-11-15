@@ -4308,6 +4308,9 @@ svg {
   overflow-wrap: anywhere;
 }
 
+.settings-textbook-title:focus,
+#settings-title:focus,
+#knowledge-title:focus,
 #curriculum-dialog-title:focus {
   outline: 2px solid var(--green);
   outline-offset: 4px;
