@@ -2567,6 +2567,18 @@ function renderFeedbackMetrics(target, items) {
   );
 }
 
+function feedbackPointUnitLabel(point) {
+  if (Number.isInteger(point?.teachingUnitNo)) {
+    return `第${point.teachingUnitNo}单元 · ${
+      point.unitTitle || point.knowledgePoint || "当前教材知识点"
+    }`;
+  }
+  if (point?.unitTitle) {
+    return `附加板块 · ${point.unitTitle}`;
+  }
+  return point?.unit || "未匹配单元";
+}
+
 function renderFeedbackPoints(target, points) {
   const container = $(target);
   if (!container) return;
@@ -2582,8 +2594,13 @@ function renderFeedbackPoints(target, points) {
   }
   for (const point of activePoints) {
     const item = createElement("div", "feedback-point-row");
-    item.append(
+    const main = createElement("div", "feedback-point-main");
+    main.append(
       createElement("strong", "", point.knowledgePoint),
+      createElement("small", "feedback-point-unit", feedbackPointUnitLabel(point))
+    );
+    item.append(
+      main,
       createElement(
         "span",
         "",

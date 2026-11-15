@@ -5068,6 +5068,67 @@ export class LearningRepository {
     return result;
   }
 
+  getCurriculumUnitLookup(textbookId) {
+    const textbook = this.getTextbook(textbookId);
+    if (!textbook) return null;
+    const points = this.getCurriculumPoints(textbook.id);
+    const byName = new Map();
+    const entries = new Map();
+    for (const point of points) {
+      const entry = {
+        textbookId: textbook.id,
+        unit: curriculumUnitLabel(textbook, point),
+        unitNo: point.unitNo,
+        teachingUnitNo: point.teachingUnitNo,
+        unitTitle: point.unitTitle,
+        matched: true
+      };
+      entries.set(point.id, entry);
+      byName.set(point.name, entry);
+    }
+    for (const point of points) {
+      const entry = entries.get(point.id);
+      for (const alias of point.aliases) {
+        if (!byName.has(alias)) byName.set(alias, entry);
+      }
+    }
+    return { textbook, byName };
+  }
+
+  enrichReportUnitLabels(report) {
+    if (!report || typeof report !== "object") return report;
+    const textbookId = report.textbookScope?.textbookId;
+    if (!textbookId) return report;
+    const lookup = this.getCurriculumUnitLookup(textbookId);
+    if (!lookup) return report;
+    const enrichPoint = (point) => {
+      if (!point || typeof point !== "object") return point;
+      if (point.unitMatched === true) return point;
+      const unit = lookup.byName.get(String(point.knowledgePoint || "").trim());
+      return {
+        ...point,
+        unit: unit?.unit ?? null,
+        unitNo: unit?.unitNo ?? null,
+        teachingUnitNo: unit?.teachingUnitNo ?? null,
+        unitTitle: unit?.unitTitle ?? null,
+        unitMatched: Boolean(unit)
+      };
+    };
+    const enrichList = (list) =>
+      Array.isArray(list) ? list.map(enrichPoint) : list;
+    return {
+      ...report,
+      knowledgePoints: enrichList(report.knowledgePoints),
+      parentReport:
+        report.parentReport && typeof report.parentReport === "object"
+          ? {
+              ...report.parentReport,
+              knowledgePoints: enrichList(report.parentReport.knowledgePoints)
+            }
+          : report.parentReport
+    };
+  }
+
   buildLearningSummary({
     from,
     to,
@@ -5085,6 +5146,11 @@ export class LearningRepository {
       mistakeClauses.push("m.knowledge_point = ?");
       mistakeParameters.push(knowledgePoint);
     }
+    const unitLookup = student?.textbook
+      ? this.getCurriculumUnitLookup(student.textbook.id)
+      : null;
+    const unitFor = (name) =>
+      unitLookup?.byName.get(String(name || "").trim()) || null;
 
     const mistakes = this.db
       .prepare(
@@ -5197,8 +5263,14 @@ export class LearningRepository {
     const pointStatistics = new Map();
     const ensurePoint = (name) => {
       if (!pointStatistics.has(name)) {
+        const unit = unitFor(name);
         pointStatistics.set(name, {
           knowledgePoint: name,
+          unit: unit?.unit ?? null,
+          unitNo: unit?.unitNo ?? null,
+          teachingUnitNo: unit?.teachingUnitNo ?? null,
+          unitTitle: unit?.unitTitle ?? null,
+          unitMatched: Boolean(unit),
           mistakes: 0,
           activeMistakes: 0,
           masteredMistakes: 0,
@@ -5385,7 +5457,7 @@ export class LearningRepository {
       .get(student.id, reportType, periodKey);
     if (!row) return null;
     try {
-      return JSON.parse(row.payload_json);
+      return this.enrichReportUnitLabels(JSON.parse(row.payload_json));
     } catch {
       return null;
     }

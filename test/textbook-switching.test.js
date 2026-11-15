@@ -808,6 +808,152 @@ test("历史日/周报在切换前生成快照并标注按当时教材，不追�
   }
 });
 
+test("当前周报知识点带教学单元和附加板块归属，未匹配项不伪造", () => {
+  const repository = new LearningRepository();
+  try {
+    switchTextbook(repository, "beishida-2024-6-upper");
+    const ratio = createMistake(repository, "比的认识");
+    const review = createMistake(repository, "总复习");
+    const unmatched = createMistake(repository, "圆");
+    repository.db
+      .prepare(
+        `UPDATE mistakes
+         SET knowledge_point = '未收录知识点', curriculum_point_id = NULL,
+             curriculum_status = 'unmapped'
+         WHERE id = ?`
+      )
+      .run(unmatched.id);
+    for (const mistake of [ratio, review, unmatched]) {
+      repository.recordAttempt(mistake.id, "2");
+    }
+    const now = new Date();
+    const weekly = repository.buildWeeklyReport({
+      from: new Date(now.getTime() - 6 * 86400000).toISOString(),
+      to: now.toISOString(),
+      studentId: repository.getStudent().id
+    });
+    const byName = new Map(
+      weekly.knowledgePoints.map((point) => [point.knowledgePoint, point])
+    );
+    const ratioPoint = byName.get("比的认识");
+    assert.equal(ratioPoint.teachingUnitNo, 5);
+    assert.equal(ratioPoint.unitMatched, true);
+    assert.ok(ratioPoint.unit.includes("第5单元"));
+    const reviewPoint = byName.get("总复习");
+    assert.equal(reviewPoint.teachingUnitNo, null);
+    assert.equal(reviewPoint.unitMatched, true);
+    assert.ok(reviewPoint.unit.includes("附加板块 · 总复习"));
+    const unmatchedPoint = byName.get("未收录知识点");
+    assert.equal(unmatchedPoint.unit, null);
+    assert.equal(unmatchedPoint.unitMatched, false);
+
+    const parentByName = new Map(
+      weekly.parentReport.knowledgePoints.map((point) => [
+        point.knowledgePoint,
+        point
+      ])
+    );
+    assert.equal(parentByName.get("比的认识").teachingUnitNo, 5);
+    assert.equal(parentByName.get("总复习").teachingUnitNo, null);
+    assert.equal(parentByName.get("未收录知识点").unitMatched, false);
+  } finally {
+    repository.close();
+  }
+});
+
+test("历史快照固化当时人教版单元，旧快照缺字段时按 textbook_id 回查", () => {
+  const repository = new LearningRepository();
+  try {
+    const mistake = createMistake(repository, "百分数");
+    repository.recordAttempt(mistake.id, "1");
+    const date = new Date(Date.now() - 2 * 86400000);
+    const pastIso = date.toISOString();
+    repository.db
+      .prepare("UPDATE mistakes SET created_at = ?, updated_at = ? WHERE id = ?")
+      .run(pastIso, pastIso, mistake.id);
+    repository.db
+      .prepare("UPDATE attempts SET created_at = ? WHERE mistake_id = ?")
+      .run(pastIso, mistake.id);
+    repository.db
+      .prepare("UPDATE mastery_evidence SET created_at = ? WHERE mistake_id = ?")
+      .run(pastIso, mistake.id);
+    const bounds = dayBounds(date);
+    switchTextbook(repository, "beishida-2024-6-upper");
+
+    const weekly = repository.buildWeeklyReport({
+      from: new Date(date.getTime() - 6 * 86400000).toISOString(),
+      to: bounds.to,
+      studentId: repository.getStudent().id
+    });
+    assert.equal(weekly.textbookScope.note, "按当时教材");
+    const pastPoint = weekly.knowledgePoints.find(
+      (point) => point.knowledgePoint === "百分数"
+    );
+    assert.equal(pastPoint.unitMatched, true);
+    assert.ok(pastPoint.unit.includes("人教版"));
+    assert.equal(pastPoint.unit.includes("北师大"), false);
+
+    const snapshotRow = repository.db
+      .prepare(
+        `SELECT payload_json FROM report_snapshots
+         WHERE report_type = 'weekly' AND period_key = ?`
+      )
+      .get(localDateKeyForTest(date));
+    const snapshotPayload = JSON.parse(snapshotRow.payload_json);
+    const frozenPoint = snapshotPayload.knowledgePoints.find(
+      (point) => point.knowledgePoint === "百分数"
+    );
+    assert.ok(frozenPoint.unit.includes("人教版"));
+
+    const student = repository.getStudent();
+    const renjiao = repository.getTextbook("renjiao-6-all");
+    const oldDate = new Date(Date.now() - 12 * 86400000);
+    const oldKey = localDateKeyForTest(oldDate);
+    const oldBounds = dayBounds(oldDate);
+    const oldPayload = {
+      period: { from: oldBounds.from, to: oldBounds.to },
+      knowledgePoints: [
+        { knowledgePoint: "百分数", attempts: 1, hints: 0 },
+        { knowledgePoint: "不存在的知识点", attempts: 1, hints: 0 }
+      ],
+      textbookScope: {
+        textbookId: renjiao.id,
+        label: renjiao.displayName,
+        grade: renjiao.grade,
+        semester: renjiao.semester,
+        note: "按当时教材"
+      }
+    };
+    repository.db
+      .prepare(
+        `INSERT INTO report_snapshots (
+          student_id, report_type, period_key, textbook_id, textbook_label,
+          payload_json, created_at
+        ) VALUES (?, 'daily', ?, ?, ?, ?, ?)`
+      )
+      .run(
+        student.id,
+        oldKey,
+        renjiao.id,
+        renjiao.displayName,
+        JSON.stringify(oldPayload),
+        new Date().toISOString()
+      );
+    const hydrated = repository.getReportSnapshot("daily", oldKey, student.id);
+    assert.equal(hydrated.textbookScope.note, "按当时教材");
+    const hydratedByName = new Map(
+      hydrated.knowledgePoints.map((point) => [point.knowledgePoint, point])
+    );
+    assert.equal(hydratedByName.get("百分数").unitMatched, true);
+    assert.ok(hydratedByName.get("百分数").unit.includes("人教版"));
+    assert.equal(hydratedByName.get("百分数").unit.includes("北师大"), false);
+    assert.equal(hydratedByName.get("不存在的知识点").unit, null);
+    assert.equal(hydratedByName.get("不存在的知识点").unitMatched, false);
+  } finally {
+    repository.close();
+  }
+});
+
 test("切换当天和当周反馈保持实时，不用切换快照冻结新作答", () => {
   const repository = new LearningRepository();
   try {
@@ -1363,4 +1509,7 @@ test("教材切换 UI 提供预演/确认/结果、审计追溯和移动端无�
   assert.match(css, /\.curriculum-mapping-row[\s\S]*min-width:\s*0/);
   assert.match(app, /function updateCurriculumConfirmButton\(\)/);
   assert.match(app, /button\.disabled = !ready/);
+  assert.match(app, /feedback-point-unit/);
+  assert.match(app, /未匹配单元/);
+  assert.match(css, /\.feedback-point-unit\s*\{[^}]*font-size:\s*var\(--text-meta\)/s);
 });

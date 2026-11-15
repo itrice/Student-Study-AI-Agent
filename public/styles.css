@@ -3569,6 +3569,18 @@ svg {
   color: var(--ink);
 }
 
+.feedback-point-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.feedback-point-unit {
+  color: var(--ink-soft);
+  font-size: var(--text-meta);
+  line-height: 1.5;
+}
+
 .feedback-change-row time {
   flex: none;
   color: #9aa79f;

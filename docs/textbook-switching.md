@@ -192,9 +192,19 @@ node --test test/textbook-switching.test.js
 | 旧教材不可选：预演/执行返回 `TEXTBOOK_NOT_SELECTABLE` 且无写入 | 通过 |
 | 六上教学单元 1～9、六下 1～4，附加板块不占号 | 通过 |
 | HTTP 预演/执行/幂等/审计/知识地图 | 通过 |
+| 当前日/周报知识点显示教学单元或附加板块，未匹配项不伪造 | 通过 |
+| 历史快照固化当时教材单元，旧快照按 `textbook_id` 回查 | 通过 |
+| 合入 dev：保存接口路由兼容、14px 可读字号基线 | 通过 |
 | 全量 `node --test` | 通过 |
 
 ## 10. 验收修复记录
+
+### 2026-11-15 成绩报告单元归属与 dev 集成
+
+- P2 学习反馈/成绩报告知识点缺单元归属：`buildLearningSummary()` 按当前教材 `curriculum_points` 回查知识点，返回 `unit/unitNo/teachingUnitNo/unitTitle/unitMatched`；当前教材显示“第5单元 · 比的认识”“附加板块 · 总复习”，未匹配知识点保持 `unit=null`，界面显示“未匹配单元”，不伪造归属。
+- 历史报告：`getReportSnapshot()` 读取快照时用快照内的 `textbookScope.textbookId` 回查当时教材的单元标签，旧快照缺字段也能补齐；已写入的新快照直接固化单元字段，`textbookScope.note` 继续为“按当时教材”，不会出现北师大 2024 标签。
+- UI：`renderFeedbackPoints()` 增加单元行，使用 `--text-meta` 字号；补充当前/历史、匹配/未匹配、HTTP 日/周报回归测试。
+- 分支集成：将 `dev` 的 `0b5b11b`（保存接口路由兼容）与 `68e359f`（14px 可读字号基线）合入本分支，避免两个分支各自通过。
 
 ### 2026-11-15 第二轮独立验收
 

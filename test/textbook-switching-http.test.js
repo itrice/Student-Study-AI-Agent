@@ -314,6 +314,21 @@ test(
       assert.equal(daily.textbookScope.note, "当前教材");
       assert.equal(daily.textbookScope.label, "北师大版（2024）六年级上册（2026秋）");
       assert.equal(daily.totals.attempts, 1);
+      const dailyPoint = daily.knowledgePoints.find(
+        (point) => point.knowledgePoint === "数学好玩"
+      );
+      assert.equal(dailyPoint.teachingUnitNo, null);
+      assert.equal(dailyPoint.unitMatched, true);
+      assert.ok(dailyPoint.unit.includes("附加板块"));
+      const weekly = await jsonBody(
+        await fetch(`${baseUrl}/api/feedback/weekly?end=${localDateKey()}`)
+      );
+      const weeklyPoint = weekly.knowledgePoints.find(
+        (point) => point.knowledgePoint === "数学好玩"
+      );
+      assert.equal(weeklyPoint.teachingUnitNo, null);
+      assert.ok(weeklyPoint.unit.includes("附加板块"));
+      assert.equal(weekly.textbookScope.note, "当前教材");
 
       const unmapped = await jsonBody(
         await fetch(`${baseUrl}/api/curriculum/unmapped`)
