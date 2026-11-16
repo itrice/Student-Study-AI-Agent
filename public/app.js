@@ -228,15 +228,23 @@ async function submitMistakeUpdate(id, data, idempotencyKey) {
       method: "POST"
     });
   } catch (error) {
-    const routeMissing =
-      error.status === 405 ||
-      error.code === "ROUTE_NOT_FOUND" ||
-      (error.status === 404 && error.message === "接口不存在");
+    const routeMissing = error.status === 404 || error.status === 405;
     if (!routeMissing) throw error;
-    return api(`/api/mistakes/${id}`, {
-      ...request,
-      method: "PATCH"
-    });
+    try {
+      return await api(`/api/mistakes/${id}`, {
+        ...request,
+        method: "PATCH"
+      });
+    } catch (fallbackError) {
+      const fallbackMissing =
+        fallbackError.status === 404 || fallbackError.status === 405;
+      if (fallbackMissing && fallbackError.message !== "没有找到这道错题") {
+        fallbackError.message =
+          "保存接口不可用，服务端版本可能不一致；请刷新页面后重试，仍失败请联系管理员升级。";
+        fallbackError.code = "MISTAKE_UPDATE_ROUTE_MISMATCH";
+      }
+      throw fallbackError;
+    }
   }
 }
 

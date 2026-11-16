@@ -158,6 +158,25 @@ test(
       await waitForServer(child);
       const baseUrl = `http://127.0.0.1:${port}`;
 
+      const health = await jsonBody(await fetch(`${baseUrl}/api/health`));
+      assert.equal(health.ok, true);
+      assert.match(health.startedAt, /^\d{4}-\d{2}-\d{2}T/);
+      for (const fingerprint of [
+        health.build.server,
+        health.build.appJs,
+        health.build.indexHtml
+      ]) {
+        assert.match(fingerprint, /^[0-9a-f]{12}$/);
+      }
+      assert.equal(
+        health.capabilities.mistakeUpdate.postUpdate,
+        "/api/mistakes/:id/update"
+      );
+      assert.equal(
+        health.capabilities.mistakeUpdate.patch,
+        "/api/mistakes/:id"
+      );
+
       const missingRoute = await fetch(`${baseUrl}/api/not-a-route`, {
         method: "POST"
       });

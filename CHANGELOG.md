@@ -2,6 +2,27 @@
 
 本文件记录项目的重要变更。
 
+## v0.15
+
+### Changed
+
+- UI 辅助文字、状态标签、按钮辅助文案和反馈日历日期/统计字号统一提升到 15px，正文保持 16px 以上。
+- 反馈日历日期格增加 44px 最小宽度；移动端压缩日历卡片内边距和格间距，390×844 下实测日期格 46.58×63px，三档验收尺寸均无横向溢出。
+
+### Added
+
+- `GET /api/health` 新增 `appVersion`、`startedAt`、`build.server/appJs/indexHtml` 指纹和 `capabilities.mistakeUpdate` 路由能力，用于识别正式实例版本与静态资源是否错配。
+
+### Fixed
+
+- 修改错题保存时，对任意 404/405 路由缺失都回退到 `PATCH /api/mistakes/:id`；两种接口都缺失时给出“服务端版本可能不一致”的可操作提示。
+- 新增兼容性回归测试，覆盖 POST `/update`、PATCH、健康检查能力声明和前端回退路径。
+
+### Verified
+
+- `node --test`：204 pass / 0 fail。
+- 隔离实例实测 `POST /api/mistakes/8/update` 与 `PATCH /api/mistakes/8` 均返回 200；UI 修改保存成功并提示“错题信息已更新”。
+
 ## v0.14
 
 ### Added
