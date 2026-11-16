@@ -23,6 +23,13 @@ import {
   reviewResultTitle,
   reviewShouldAutoAdvance
 } from "./review-flow.js";
+import {
+  calendarGridItems,
+  formatDayDetailTitle,
+  formatMonthLabel,
+  monthKeyOf,
+  shiftMonthKey
+} from "./feedback-calendar.js";
 
 const state = {
   student: null,
@@ -43,6 +50,9 @@ const state = {
   curriculumHistory: [],
   curriculumHistoryMistake: null,
   feedback: null,
+  feedbackCalendarMonth: null,
+  dayDetailDate: null,
+  dayDetailTrigger: null,
   knowledgeSearch: null,
   knowledgeSearchRequest: 0,
   filter: "all",
@@ -2972,11 +2982,186 @@ function renderFeedbackPoints(target, points) {
   }
 }
 
+const dayOutcomeLabels = {
+  correct: "全部正确",
+  partial: "部分正确",
+  incorrect: "未通过",
+  ungraded: "待判定"
+};
+
+function currentFeedbackMonth() {
+  return monthKeyOf(state.feedback?.calendar?.today || localDateValue());
+}
+
+function formatDayDetailTime(value) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
+function feedbackDayAriaLabel(dateKey, stats) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || ""));
+  const dayLabel = match
+    ? `${Number(match[2])}月${Number(match[3])}日`
+    : String(dateKey || "");
+  return `${dayLabel}，完成${stats.completedCount}题，答对${stats.correctCount}题`;
+}
+
+function renderCalendar(calendar) {
+  if (!calendar) return;
+  const today = calendar.today;
+  const currentMonth = monthKeyOf(today);
+  state.feedbackCalendarMonth = calendar.month;
+  $("#calendar-month-label").textContent = formatMonthLabel(calendar.month);
+  $("#calendar-summary").textContent =
+    `本月打卡 ${calendar.summary.checkInDays} 天 · 完成 ${calendar.summary.completedCount} 题 · 正确 ${calendar.summary.correctCount} 题`;
+  $("#calendar-next-month").disabled = calendar.month >= currentMonth;
+  $("#calendar-current-month").disabled = calendar.month === currentMonth;
+  $("#calendar-prev-month").disabled = false;
+
+  const grid = $("#calendar-grid");
+  grid.replaceChildren();
+  const statsByDate = new Map(
+    (calendar.days || []).map((day) => [day.date, day])
+  );
+  for (const cell of calendarGridItems(calendar.month, today)) {
+    if (cell.blank) {
+      const blank = createElement("div", "calendar-blank");
+      blank.setAttribute("aria-hidden", "true");
+      grid.append(blank);
+      continue;
+    }
+    const stats = statsByDate.get(cell.date) || {
+      completedCount: 0,
+      correctCount: 0,
+      attemptCount: 0,
+      hintCount: 0,
+      hasActivity: false
+    };
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "calendar-day";
+    button.dataset.calendarDate = cell.date;
+    button.disabled = cell.future;
+    if (cell.today) button.classList.add("is-today");
+    if (cell.future) button.classList.add("is-future");
+    if (!stats.hasActivity) button.classList.add("is-empty");
+    button.setAttribute(
+      "aria-label",
+      feedbackDayAriaLabel(cell.date, stats)
+    );
+    button.append(
+      createElement("span", "calendar-day-number", String(cell.day)),
+      createElement(
+        "span",
+        "calendar-day-stats",
+        `${stats.completedCount}题/对${stats.correctCount}`
+      )
+    );
+    grid.append(button);
+  }
+}
+
+async function loadCalendar(month = state.feedbackCalendarMonth) {
+  const query = month ? `?month=${encodeURIComponent(month)}` : "";
+  const calendar = await api(`/api/feedback/calendar${query}`);
+  state.feedbackCalendarMonth = calendar.month;
+  state.feedback = { ...(state.feedback || {}), calendar };
+  renderCalendar(calendar);
+  return calendar;
+}
+
+async function changeCalendarMonth(delta) {
+  const current = state.feedbackCalendarMonth || currentFeedbackMonth();
+  const next = shiftMonthKey(current, delta);
+  if (next > currentFeedbackMonth()) return;
+  try {
+    await loadCalendar(next);
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+function renderDayDetail(detail) {
+  $("#day-detail-loading").hidden = true;
+  renderFeedbackMetrics("#day-detail-metrics", [
+    { label: "完成题数", value: detail.summary.completedCount },
+    { label: "作答次数", value: detail.summary.attemptCount },
+    { label: "正确题数", value: detail.summary.correctCount },
+    { label: "待订正", value: detail.summary.needsCorrectionCount }
+  ]);
+  const list = $("#day-detail-list");
+  list.replaceChildren();
+  $("#day-detail-empty").hidden = Boolean(detail.items.length);
+  for (const item of detail.items) {
+    const row = createElement("article", "day-detail-item");
+    const unitLabel = item.unitMapped
+      ? item.teachingUnitNo == null
+        ? item.unitTitle
+        : `第 ${item.teachingUnitNo} 单元 · ${item.unitTitle}`
+      : "待归类";
+    row.append(
+      createElement("h3", "day-detail-question", item.question),
+      createElement(
+        "p",
+        "day-detail-meta",
+        `${unitLabel} · ${item.knowledgePoint || "待归类"}`
+      ),
+      createElement(
+        "p",
+        "day-detail-stats",
+        `作答 ${item.attemptCount} 次 · 提示 ${item.hintCount} 次 · ${dayOutcomeLabels[item.lastOutcome] || "待判定"} · ${formatDayDetailTime(item.lastAt)}`
+      )
+    );
+    list.append(row);
+  }
+}
+
+async function loadDayDetail(date) {
+  const detail = await api(`/api/feedback/day?date=${encodeURIComponent(date)}`);
+  if (state.dayDetailDate !== date) return;
+  renderDayDetail(detail);
+}
+
+function openDayDetail(date, trigger = document.activeElement) {
+  if (!date) return;
+  const dialog = $("#day-detail-dialog");
+  state.dayDetailDate = date;
+  state.dayDetailTrigger = trigger;
+  $("#day-detail-title").textContent = formatDayDetailTitle(date);
+  $("#day-detail-metrics").replaceChildren();
+  $("#day-detail-list").replaceChildren();
+  $("#day-detail-empty").hidden = true;
+  $("#day-detail-loading").hidden = false;
+  if (!dialog.open) dialog.showModal();
+  $("#day-detail-title").focus({ preventScroll: true });
+  loadDayDetail(date).catch((error) => {
+    if (state.dayDetailDate !== date) return;
+    $("#day-detail-loading").hidden = true;
+    $("#day-detail-empty").hidden = false;
+    showToast(error.message, true);
+  });
+}
+
+function closeDayDetail() {
+  const dialog = $("#day-detail-dialog");
+  if (dialog.open) dialog.close();
+}
+
 function renderFeedback() {
   const daily = state.feedback?.daily;
   const weekly = state.feedback?.weekly;
+  const calendar = state.feedback?.calendar;
   $("#feedback-loading").hidden = true;
-  const hasAny = Boolean(daily || weekly);
+  const hasAny = Boolean(daily || weekly || calendar);
   $("#feedback-content").hidden = !hasAny;
   $("#feedback-empty").hidden = hasAny;
   if (!hasAny) return;
@@ -2988,13 +3173,10 @@ function renderFeedback() {
       weekday: "long"
     }).format(new Date(daily.period.from));
     $("#daily-status-pill").textContent = daily.hasData ? "有记录" : "暂无记录";
-    const sentences = daily.childSummary?.sentences || [];
-    $("#daily-copy").textContent = [
-      daily.childSummary?.headline || "",
-      ...sentences
-    ]
-      .filter(Boolean)
-      .join(" ");
+    const sentences = (daily.childSummary?.sentences || []).filter(Boolean);
+    $("#daily-copy").textContent = sentences.length
+      ? sentences.join(" ")
+      : daily.childSummary?.headline || "";
     renderFeedbackScope("#daily-scope", daily);
     renderFeedbackMetrics("#daily-metrics", [
       {
@@ -3091,13 +3273,19 @@ function renderFeedback() {
       limitations.append(list);
     }
   }
+
+  if (calendar) renderCalendar(calendar);
 }
 
 async function loadFeedback() {
   const date = localDateValue();
-  const [dailyResult, weeklyResult] = await Promise.allSettled([
+  const calendarQuery = state.feedbackCalendarMonth
+    ? `?month=${encodeURIComponent(state.feedbackCalendarMonth)}`
+    : "";
+  const [dailyResult, weeklyResult, calendarResult] = await Promise.allSettled([
     api(`/api/feedback/daily?date=${date}`),
-    api(`/api/feedback/weekly?end=${date}`)
+    api(`/api/feedback/weekly?end=${date}`),
+    api(`/api/feedback/calendar${calendarQuery}`)
   ]);
   const feedback = { ...(state.feedback || {}) };
   if (dailyResult.status === "fulfilled") {
@@ -3105,6 +3293,10 @@ async function loadFeedback() {
   }
   if (weeklyResult.status === "fulfilled") {
     feedback.weekly = weeklyResult.value;
+  }
+  if (calendarResult.status === "fulfilled") {
+    feedback.calendar = calendarResult.value;
+    state.feedbackCalendarMonth = calendarResult.value.month;
   }
   state.feedback = feedback;
   renderFeedback();
@@ -3114,6 +3306,9 @@ async function loadFeedback() {
       : null,
     weeklyResult.status === "rejected"
       ? `周报：${weeklyResult.reason?.message || "加载失败"}`
+      : null,
+    calendarResult.status === "rejected"
+      ? `打卡月历：${calendarResult.reason?.message || "加载失败"}`
       : null
   ].filter(Boolean);
   if (failures.length) {
@@ -4523,6 +4718,46 @@ function bindEvents() {
     } finally {
       setBusy(button, false);
     }
+  });
+
+  $("#calendar-prev-month").addEventListener("click", () => {
+    changeCalendarMonth(-1);
+  });
+  $("#calendar-next-month").addEventListener("click", () => {
+    changeCalendarMonth(1);
+  });
+  $("#calendar-current-month").addEventListener("click", async () => {
+    const month = currentFeedbackMonth();
+    if (state.feedbackCalendarMonth === month) return;
+    try {
+      await loadCalendar(month);
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
+  $("#calendar-grid").addEventListener("click", (event) => {
+    const day = event.target.closest("[data-calendar-date]");
+    if (!day || day.disabled) return;
+    openDayDetail(day.dataset.calendarDate, day);
+  });
+  $("#daily-detail-button").addEventListener("click", (event) => {
+    openDayDetail(
+      state.feedback?.calendar?.today || localDateValue(),
+      event.currentTarget
+    );
+  });
+  $("#day-detail-close-button").addEventListener("click", closeDayDetail);
+  $("#day-detail-dialog").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeDayDetail();
+  });
+  $("#day-detail-dialog").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeDayDetail();
+  });
+  $("#day-detail-dialog").addEventListener("close", () => {
+    const trigger = state.dayDetailTrigger;
+    state.dayDetailTrigger = null;
+    if (trigger && typeof trigger.focus === "function") trigger.focus();
   });
 
   $("#knowledge-search-form").addEventListener("submit", async (event) => {

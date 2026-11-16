@@ -2,6 +2,21 @@
 
 本文件记录项目的重要变更。
 
+## v0.14
+
+### Added
+
+- 学习反馈新增“打卡记录”全宽月历：默认当前月，可切换上/下月并回到本月，未来日期与月份置灰不可进入。
+- 月历汇总显示本月打卡天数、完成题数和正确题数；每天显示完成/正确题数，当天高亮。
+- 今日小结新增“查看今日完成情况”，点击今天或任意日历日期打开统一的“X月X日完成情况”弹窗。
+- 弹窗按最近作答时间列出当天做过的题，同题多次作答聚合一行，显示知识点/教材单元、作答次数、提示次数、最近结果和时间。
+- 新增 `GET /api/feedback/calendar?month=YYYY-MM` 与 `GET /api/feedback/day?date=YYYY-MM-DD`；统计按 Asia/Shanghai 自然日与当前学生计算，不返回答案或提示正文。
+
+### Verified
+
+- 新增 `test/feedback-calendar.test.js` 与 `test/feedback-calendar-ui.test.js`，覆盖空月、跨月边界、同题聚合、最近一次决定正确、partial 不计正确、日明细与月历一致、无答案泄露、未来日期禁用、44px 触控、Esc/焦点恢复。
+- 日/周报原有统计与 `/api/feedback/daily`、`/api/feedback/weekly` 行为保持不变。
+
 ## v0.13
 
 ### Changed

@@ -25,6 +25,12 @@ import {
   saveAttachmentCrop
 } from "./attachment-crop.js";
 import { createVisionExtractorFromEnvironment } from "./llm/vision.js";
+import {
+  parseDateKey,
+  parseMonthKey,
+  shanghaiDateKey,
+  shanghaiMonthKey
+} from "./feedback-calendar.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, "..");
@@ -775,6 +781,40 @@ async function handleApi(request, response, url) {
           url.searchParams.get("knowledgePoint")
         ),
         at: new Date().toISOString(),
+        studentId: student?.id || null
+      })
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/feedback/calendar") {
+    const rawMonth = String(url.searchParams.get("month") || "").trim();
+    if (rawMonth && !parseMonthKey(rawMonth)) {
+      throw new HttpError(400, "月份格式应为 YYYY-MM");
+    }
+    const month = rawMonth || shanghaiMonthKey();
+    const student = repository.getStudent();
+    return sendJson(
+      response,
+      200,
+      repository.buildFeedbackCalendar({
+        month,
+        studentId: student?.id || null
+      })
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/feedback/day") {
+    const rawDate = String(url.searchParams.get("date") || "").trim();
+    if (rawDate && !parseDateKey(rawDate)) {
+      throw new HttpError(400, "日期格式应为 YYYY-MM-DD");
+    }
+    const date = rawDate || shanghaiDateKey();
+    const student = repository.getStudent();
+    return sendJson(
+      response,
+      200,
+      repository.buildFeedbackDay({
+        date,
         studentId: student?.id || null
       })
     );
