@@ -161,7 +161,7 @@ test("知识点地图当前教材卡片：单行结构、审核胶囊与清晰�
     css,
     /\.curriculum-current-name strong\s*\{[^}]*font-size:\s*16px/s
   );
-  assert.match(css, /\.curriculum-review-badge\s*\{[^}]*font-size:\s*14px/s);
+  assert.match(css, /\.curriculum-review-badge\s*\{[^}]*font-size:\s*15px/s);
   assert.match(
     css,
     /\.curriculum-review-badge\s*\{[^}]*border-radius:\s*999px/s

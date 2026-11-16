@@ -142,14 +142,19 @@ test("完成情况弹窗支持关闭按钮、Esc 与焦点返回", () => {
   assert.match(html, /<dialog[\s\S]*id="day-detail-dialog"/);
 });
 
-test("月历与弹窗满足 44px 触控、14px 字号与滚动边界", () => {
+test("月历与弹窗满足 44px 触控、15px 字号与滚动边界", () => {
   assert.match(
     css,
     /\.calendar-grid \{[\s\S]*?grid-template-columns: repeat\(7, minmax\(0, 1fr\)\)/
   );
   const dayBlock = section(css, ".calendar-day {", "}");
+  assert.match(dayBlock, /min-width: 44px/);
   assert.match(dayBlock, /min-height: 44px/);
   assert.match(dayBlock, /font-size: var\(--text-label\)/);
+  assert.match(
+    css,
+    /@media \(max-width: 389px\) \{[\s\S]*?min-width: 0/
+  );
   assert.match(css, /\.calendar-nav-button \{\s*min-height: 44px/);
   assert.match(css, /\.calendar-today-link \{[\s\S]*?min-height: 44px/);
   const dialogBlock = section(css, ".day-detail-dialog {", "}");
