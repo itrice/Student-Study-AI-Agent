@@ -1775,6 +1775,7 @@ export class LearningRepository {
       student,
       currentTextbook: textbook,
       textbooks: this.getTextbooks({ selectable: true }),
+      allTextbooks: this.getTextbooks(),
       mappingVersion: CURRICULUM_MAPPING_VERSION,
       units: textbook ? this.getCurriculumUnits(textbook.id) : [],
       knowledgePoints: textbook

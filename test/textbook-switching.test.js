@@ -1477,13 +1477,16 @@ test("教材切换 UI 提供预演/确认/结果、审计追溯和移动端无�
     "utf8"
   );
   for (const id of [
-    "curriculum-switch-button",
     "curriculum-dialog",
     "curriculum-preview-button",
     "curriculum-confirm-button",
     "curriculum-execute-button",
     "curriculum-done-button",
     "curriculum-unmapped-list",
+    "settings-textbooks",
+    "settings-textbook-list",
+    "settings-current-textbook",
+    "curriculum-history",
     "curriculum-history-filter",
     "curriculum-history-list"
   ]) {
@@ -1492,16 +1495,53 @@ test("教材切换 UI 提供预演/确认/结果、审计追溯和移动端无�
   assert.match(html, /aria-labelledby="curriculum-dialog-title"/);
   assert.match(html, /id="daily-scope"/);
   assert.match(html, /id="weekly-scope"/);
+  const knowledgeView = html.slice(
+    html.indexOf('id="view-knowledge"'),
+    html.indexOf('id="view-settings"')
+  );
+  assert.equal(knowledgeView.includes('id="curriculum-switch-button"'), false);
+  assert.equal(knowledgeView.includes('id="curriculum-history"'), false);
+  assert.ok(knowledgeView.includes('id="current-textbook-label"'));
+  assert.match(knowledgeView, /href="#settings"[^>]*data-go-view="settings"/);
+  const settingsView = html.slice(
+    html.indexOf('id="view-settings"'),
+    html.indexOf('id="curriculum-dialog"')
+  );
+  assert.ok(settingsView.includes('id="settings-textbooks"'));
+  assert.ok(settingsView.includes('id="curriculum-history"'));
+  assert.match(
+    html,
+    /data-view="knowledge"[\s\S]*data-view="settings"/
+  );
   for (const id of [
-    "curriculum-switch-button",
     "curriculum-preview-button",
     "curriculum-confirm-button",
     "curriculum-execute-button",
     "curriculum-done-button",
-    "curriculum-history-filter"
+    "curriculum-history-filter",
+    "settings-textbook-list",
+    "settings-current-textbook"
   ]) {
     assert.ok(app.includes(`#${id}`), `缺少事件绑定 ${id}`);
   }
+  assert.equal(app.includes("#curriculum-switch-button"), false);
+  assert.match(app, /function renderSettings\(\)/);
+  assert.match(app, /function loadSettings\(\)/);
+  assert.match(app, /openCurriculumDialog\(textbook\.id\)/);
+  assert.match(app, /preselectTextbookId/);
+  assert.match(app, /viewLabels\s*=\s*\{[\s\S]*?settings:\s*"系统配置"/);
+  assert.match(
+    app,
+    /route\.view === "settings"[\s\S]{0,120}loadSettings\(\)/
+  );
+  assert.match(
+    app,
+    /initialRoute\.view === "settings"[\s\S]{0,120}loadSettings\(\)/
+  );
+  assert.match(app, /syncSettingsAfterSwitch\(\)/);
+  assert.match(css, /\.settings-textbook-list\s*\{[^}]*min-width:\s*0/s);
+  assert.match(css, /\.settings-textbook-card\.is-retired\s*\{/);
+  assert.match(css, /@media \(max-width: 820px\)[\s\S]*\.settings-textbook-head/);
   assert.match(css, /\.curriculum-dialog\s*\{[^}]*max-width:\s*calc\(100vw - 32px\)/s);
   assert.match(css, /\.curriculum-toolbar\s*\{[^}]*min-width:\s*0/s);
   assert.match(css, /\.knowledge-unit-heading\s*\{[^}]*grid-column:\s*1 \/ -1/s);
