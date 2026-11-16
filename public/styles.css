@@ -1078,6 +1078,59 @@ svg {
   gap: 9px;
 }
 
+.review-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid #e2e9e3;
+  border-radius: 12px;
+  background: #f9fbf9;
+}
+
+.review-position {
+  color: var(--ink-soft);
+  font-size: var(--text-label);
+  font-weight: 700;
+}
+
+.review-nav-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-nav-button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid #d8e1db;
+  border-radius: 9px;
+  color: var(--ink);
+  background: #fff;
+  font-size: var(--text-label);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.review-nav-button:hover:not(:disabled) {
+  border-color: #a9c5b8;
+  background: #f9fcfa;
+}
+
+.review-nav-button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.review-nav-button:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
 .review-edit-button {
   padding: 5px 8px;
   border: 0;
@@ -4762,6 +4815,10 @@ body.review-focus-mode #view-review .empty-state {
   margin: 0 auto;
 }
 
+body.review-focus-mode #view-review .review-navigation {
+  display: none;
+}
+
 body.review-focus-mode #view-review #review-question-block {
   outline: none;
 }
@@ -4796,5 +4853,18 @@ body.review-focus-mode #view-review .review-attachments img {
   body.review-focus-mode .review-meta-right {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .review-nav-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .review-focus-nav {
+    order: 3;
+  }
+
+  .review-nav-button {
+    min-height: 44px;
   }
 }

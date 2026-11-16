@@ -273,7 +273,25 @@
               </svg>
               退出全屏
             </button>
-            <span class="review-focus-progress" id="review-focus-progress">第 1 题</span>
+            <div class="review-nav-actions review-focus-nav" aria-label="复习题目切换">
+              <button
+                class="review-nav-button"
+                id="review-focus-prev-button"
+                type="button"
+                aria-label="上一题"
+              >
+                上一题
+              </button>
+              <span class="review-focus-progress" id="review-focus-progress">第 1 题</span>
+              <button
+                class="review-nav-button"
+                id="review-focus-next-button"
+                type="button"
+                aria-label="下一题"
+              >
+                下一题
+              </button>
+            </div>
             <span class="knowledge-badge" id="review-focus-point"></span>
           </div>
           <div class="page-heading">
@@ -318,6 +336,27 @@
                     <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
                   </svg>
                   全屏
+                </button>
+              </div>
+            </div>
+            <div class="review-navigation" id="review-navigation">
+              <span class="review-position" id="review-position">第 1 题</span>
+              <div class="review-nav-actions" aria-label="复习题目切换">
+                <button
+                  class="review-nav-button"
+                  id="review-prev-button"
+                  type="button"
+                  aria-label="上一题"
+                >
+                  上一题
+                </button>
+                <button
+                  class="review-nav-button"
+                  id="review-next-button"
+                  type="button"
+                  aria-label="下一题"
+                >
+                  下一题
                 </button>
               </div>
             </div>
@@ -396,7 +435,14 @@
               </form>
             </div>
 
-            <div id="review-result" class="review-result" hidden></div>
+            <div
+              id="review-result"
+              class="review-result"
+              role="status"
+              aria-live="polite"
+              tabindex="-1"
+              hidden
+            ></div>
           </article>
 
           <div id="review-empty" class="empty-state" hidden>
@@ -1050,6 +1096,6 @@
     </dialog>
 
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261115-19"></script>
+    <script type="module" src="/app.js?v=20261116-20"></script>
   </body>
 </html>
