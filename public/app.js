@@ -14,6 +14,15 @@ import {
   matchingMistakeParts,
   normalizeSearchTerms
 } from "./mistake-search.js";
+import {
+  REVIEW_AUTO_ADVANCE_DELAY_MS,
+  reviewNavigationBoundaries,
+  reviewNavigationTarget,
+  reviewQueueIndex,
+  reviewResultStatus,
+  reviewResultTitle,
+  reviewShouldAutoAdvance
+} from "./review-flow.js";
 
 const state = {
   student: null,
@@ -45,6 +54,9 @@ const state = {
   reviewSessionId: null,
   reviewAttemptsThisSession: 0,
   reviewQueue: [],
+  reviewDrafts: new Map(),
+  reviewSubmitted: false,
+  reviewAutoAdvanceTimer: null,
   reviewFocusMode: false,
   reviewFocusScrollY: 0,
   reviewFocusInert: null,
@@ -957,6 +969,7 @@ function syncSidebarForViewport() {
 }
 
 function showView(name, { updateHash = true } = {}) {
+  if (name !== "review") cancelReviewAutoAdvance();
   if (state.reviewFocusMode && name !== "review") {
     exitReviewFocus({ restoreFocus: false });
   }
@@ -3134,6 +3147,7 @@ async function refreshAll() {
 }
 
 async function loadNextReview() {
+  cancelReviewAutoAdvance();
   const loading = $("#review-loading");
   const card = $("#review-card");
   const empty = $("#review-empty");
@@ -3164,6 +3178,8 @@ function showReviewEmpty(
   title = "今天暂时没有要复习的题",
   copy = "可以录入一道最近不会的题，系统会把它放到优先位置。"
 ) {
+  cancelReviewAutoAdvance();
+  state.review = null;
   $("#review-loading").hidden = true;
   $("#review-card").hidden = true;
   const empty = $("#review-empty");
@@ -3172,13 +3188,7 @@ function showReviewEmpty(
   empty.hidden = false;
   $("#review-progress").style.width = "100%";
   $("#review-session-label").textContent = "本轮复习已完成";
-  const focusProgress = $("#review-focus-progress");
-  if (focusProgress) focusProgress.textContent = "本轮复习已完成";
-  const focusPoint = $("#review-focus-point");
-  if (focusPoint) {
-    focusPoint.textContent = "";
-    focusPoint.hidden = true;
-  }
+  syncReviewFocusChrome();
 }
 
 const reviewFocusInertSelectors = [
@@ -3215,9 +3225,195 @@ function reviewFocusProgressText() {
   return "第 1 题";
 }
 
+function syncReviewNavigation() {
+  const review = state.review;
+  const queue = state.reviewQueue || [];
+  const boundaries = reviewNavigationBoundaries(review, queue);
+  const previousButtons = [
+    $("#review-prev-button"),
+    $("#review-focus-prev-button")
+  ];
+  const nextButtons = [
+    $("#review-next-button"),
+    $("#review-focus-next-button")
+  ];
+  for (const button of previousButtons) {
+    if (button) button.disabled = !boundaries.previous;
+  }
+  for (const button of nextButtons) {
+    if (button) button.disabled = !boundaries.next;
+  }
+
+  const position = reviewFocusProgressText();
+  const positionLabel = $("#review-position");
+  if (positionLabel) positionLabel.textContent = position;
+  const focusProgress = $("#review-focus-progress");
+  if (focusProgress) focusProgress.textContent = position;
+  const index = reviewQueueIndex(review, queue);
+  if (index >= 0 && queue.length) {
+    $("#review-progress").style.width = `${Math.round(
+      ((index + 1) / queue.length) * 100
+    )}%`;
+  }
+  if (review) {
+    const sessionState =
+      review.status === "new" ? "优先处理当前不会的题" : "逐步把思路补完整";
+    $("#review-session-label").textContent = `${position} · ${sessionState}`;
+  }
+}
+
+function cancelReviewAutoAdvance() {
+  if (state.reviewAutoAdvanceTimer === null) return;
+  window.clearTimeout(state.reviewAutoAdvanceTimer);
+  state.reviewAutoAdvanceTimer = null;
+}
+
+function completeReviewQueue() {
+  cancelReviewAutoAdvance();
+  state.review = null;
+  if (window.location.hash.startsWith("#review/")) {
+    history.replaceState(null, "", "#review");
+  }
+  showReviewEmpty(
+    "本轮复习已完成",
+    "今天到期的复习已经全部完成。可以回到错题库继续整理。"
+  );
+}
+
+async function advanceReviewAfterCorrect() {
+  if (!state.review || state.busy) return;
+  const index = reviewQueueIndex(state.review, state.reviewQueue || []);
+  if (index < 0) {
+    await loadNextReview();
+    return;
+  }
+  const target = reviewNavigationTarget(
+    state.review,
+    state.reviewQueue || [],
+    "next"
+  );
+  if (target) {
+    await navigateReview("next");
+  } else {
+    completeReviewQueue();
+  }
+}
+
+function scheduleReviewAutoAdvance() {
+  cancelReviewAutoAdvance();
+  state.reviewAutoAdvanceTimer = window.setTimeout(() => {
+    state.reviewAutoAdvanceTimer = null;
+    advanceReviewAfterCorrect().catch((error) => {
+      showToast(error.message, true);
+    });
+  }, REVIEW_AUTO_ADVANCE_DELAY_MS);
+}
+
+function captureReviewDraft() {
+  const review = state.review;
+  if (!review || state.reviewSubmitted) return;
+  const inputs = $$("[data-review-part-id]", $("#review-parts"));
+  const values = inputs.map((input) => ({
+    partId: Number(input.dataset.reviewPartId),
+    value: input.value
+  }));
+  const hasInput = values.some((item) => String(item.value || "").trim());
+  const hintLevel = state.reviewHintLevel || 0;
+  const reviewId = Number(review.id);
+  if (!hasInput && hintLevel === 0) {
+    state.reviewDrafts.delete(reviewId);
+    return;
+  }
+  const draft = {
+    values,
+    hintLevel,
+    hintRequestKey: state.hintRequestKey,
+    followUpRequestKey: state.followUpRequestKey,
+    attemptRequestKey: state.attemptRequestKey,
+    hint: null
+  };
+  const hintPanel = $("#hint-panel");
+  if (hintLevel > 0 && hintPanel && !hintPanel.hidden) {
+    draft.hint = {
+      level: hintLevel,
+      title: $("#review-hint-title")?.textContent || "",
+      content: $("#review-hint")?.textContent || "",
+      steps: $$("#review-steps li").map((item) => item.textContent),
+      nextHidden: Boolean($("#next-hint-button")?.hidden)
+    };
+  }
+  state.reviewDrafts.set(reviewId, draft);
+}
+
+function restoreHintPanel(hint) {
+  const number = $(".hint-number");
+  if (number) number.textContent = `提示 ${hint.level}`;
+  const title = $("#review-hint-title");
+  if (title) title.textContent = hint.title;
+  const content = $("#review-hint");
+  if (content) content.textContent = hint.content;
+  const steps = $("#review-steps");
+  if (steps) {
+    steps.replaceChildren();
+    for (const step of hint.steps || []) {
+      steps.append(createElement("li", "", step));
+    }
+  }
+  const nextButton = $("#next-hint-button");
+  if (nextButton) nextButton.hidden = hint.nextHidden;
+}
+
+function restoreReviewDraft(review) {
+  const draft = state.reviewDrafts.get(Number(review.id));
+  if (!draft) return false;
+  const inputs = $$("[data-review-part-id]", $("#review-parts"));
+  for (const input of inputs) {
+    const saved = draft.values.find(
+      (item) => item.partId === Number(input.dataset.reviewPartId)
+    );
+    if (saved) input.value = saved.value;
+  }
+  state.reviewHintLevel = Number(draft.hintLevel) || 0;
+  state.hintRequestKey = draft.hintRequestKey || null;
+  state.followUpRequestKey = draft.followUpRequestKey || null;
+  state.attemptRequestKey = draft.attemptRequestKey || null;
+  const hasInput = draft.values.some((item) =>
+    String(item.value || "").trim()
+  );
+  if (hasInput) {
+    $("#review-pre-actions").hidden = true;
+    $("#hint-panel").hidden = true;
+    $("#answer-form").hidden = false;
+  } else if (draft.hint) {
+    $("#review-pre-actions").hidden = true;
+    $("#answer-form").hidden = true;
+    $("#hint-panel").hidden = false;
+    restoreHintPanel(draft.hint);
+  }
+  return true;
+}
+
+async function navigateReview(direction) {
+  if (!state.review || state.busy) return false;
+  cancelReviewAutoAdvance();
+  const target = reviewNavigationTarget(
+    state.review,
+    state.reviewQueue || [],
+    direction
+  );
+  if (!target) return false;
+  captureReviewDraft();
+  state.busy = true;
+  try {
+    await openReview(target.id);
+    return true;
+  } finally {
+    state.busy = false;
+  }
+}
+
 function syncReviewFocusChrome() {
-  const progress = $("#review-focus-progress");
-  if (progress) progress.textContent = reviewFocusProgressText();
+  syncReviewNavigation();
   const point = $("#review-focus-point");
   if (point) {
     const label = state.review?.knowledgePoint || "";
@@ -3511,7 +3707,9 @@ function renderReviewPartInputs(review) {
 }
 
 function renderReview() {
+  cancelReviewAutoAdvance();
   const review = state.review;
+  state.reviewSubmitted = false;
   $("#review-loading").hidden = true;
   $("#review-empty").hidden = true;
   $("#review-card").hidden = false;
@@ -3552,12 +3750,7 @@ function renderReview() {
   $("#follow-up-answer").hidden = true;
   $("#follow-up-answer").replaceChildren();
   $("#return-to-answer-button").hidden = true;
-  $("#review-progress").style.width = `${Math.min(
-    90,
-    20 + state.reviewAttemptsThisSession * 18
-  )}%`;
-  $("#review-session-label").textContent =
-    review.status === "new" ? "优先处理当前不会的题" : "逐步把思路补完整";
+  restoreReviewDraft(review);
   syncReviewFocusChrome();
   if (state.reviewFocusMode) {
     const view = $("#view-review");
@@ -3567,6 +3760,7 @@ function renderReview() {
 }
 
 async function openReview(id, { updateHash = true } = {}) {
+  cancelReviewAutoAdvance();
   try {
     const [review, queue] = await Promise.all([
       api(`/api/review/${id}`),
@@ -3617,11 +3811,18 @@ async function loadHintLevel(level) {
   }
 }
 
-function showHint() {
+function showHint({ fromResult = false } = {}) {
+  if (fromResult) {
+    $("#review-answer-area").hidden = false;
+    $("#answer-form").hidden = true;
+    $("#review-result").hidden = true;
+  }
   loadHintLevel(Math.min(4, state.reviewHintLevel + 1));
 }
 
 function showAnswerForm() {
+  $("#review-answer-area").hidden = false;
+  $("#review-result").hidden = true;
   $("#review-pre-actions").hidden = true;
   $("#hint-panel").hidden = true;
   $("#answer-form").hidden = false;
@@ -3678,6 +3879,8 @@ async function submitFollowUp() {
 async function submitAttempt(event) {
   event.preventDefault();
   if (!state.review || state.busy) return;
+  cancelReviewAutoAdvance();
+  const reviewId = Number(state.review.id);
   const answers = $$("[data-review-part-id]", $("#review-parts")).map(
     (input) => ({
       partId: Number(input.dataset.reviewPartId),
@@ -3688,8 +3891,9 @@ async function submitAttempt(event) {
   if (!state.attemptRequestKey) state.attemptRequestKey = createRequestKey();
   state.busy = true;
   setBusy(button, true, "正在判断…");
+  let result = null;
   try {
-    const result = await api(`/api/mistakes/${state.review.id}/attempts`, {
+    result = await api(`/api/mistakes/${reviewId}/attempts`, {
       method: "POST",
       headers: {
         "Idempotency-Key": state.attemptRequestKey,
@@ -3706,6 +3910,8 @@ async function submitAttempt(event) {
     });
     state.reviewAttemptsThisSession += 1;
     state.attemptRequestKey = null;
+    state.reviewSubmitted = true;
+    state.reviewDrafts.delete(reviewId);
     renderReviewResult(result);
     const refresh = await refreshAll();
     if (!refresh.ok) {
@@ -3716,6 +3922,9 @@ async function submitAttempt(event) {
   } finally {
     state.busy = false;
     setBusy(button, false);
+    if (result && reviewShouldAutoAdvance(result)) {
+      scheduleReviewAutoAdvance();
+    }
   }
 }
 
@@ -3743,72 +3952,13 @@ function renderReviewResult(result) {
       : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>';
   const headingText = createElement("span");
   headingText.append(
-    createElement(
-      "strong",
-      "",
-      result.correct
-        ? "这次做对了"
-        : result.outcome === "partial"
-          ? "部分小问答对了"
-          : "先把这个缺口补上"
-    ),
-    createElement(
-      "small",
-      "",
-      result.correct
-        ? result.mastered
-          ? "你已经能独立、稳定地做对这道题"
-          : "离真正掌握还差一次独立重做"
-        : result.nextStatus === "relearning"
-          ? `已回到巩固阶段，下次复习：${formatRelativeDate(result.nextReviewAt)}`
-          : `下次复习：${formatRelativeDate(result.nextReviewAt)}`
-    )
+    createElement("strong", "", reviewResultTitle(result)),
+    createElement("small", "", reviewResultStatus(result))
   );
   heading.append(mark, headingText);
   target.append(heading);
 
-  const firstError = readableText(result.firstError);
-  const finalAnswerAssessment = readableText(result.finalAnswerAssessment);
-  const stepAssessment = (Array.isArray(result.stepAssessment)
-    ? result.stepAssessment
-    : []
-  )
-    .map((step) => ({
-      partNo: step.partNo,
-      assessment: readableText(step.assessment)
-    }))
-    .filter((step) => step.assessment);
-
-  target.append(
-    createElement("p", "result-copy", readableText(result.feedback))
-  );
-  if (stepAssessment.length || finalAnswerAssessment || firstError) {
-    const stepFeedback = createElement("div", "result-step-feedback");
-    stepFeedback.append(
-      createElement(
-        "p",
-        "result-step-label",
-        "步骤分析（最终结果以系统判定为准）"
-      )
-    );
-    if (finalAnswerAssessment) {
-      stepFeedback.append(
-        createElement("p", "", finalAnswerAssessment)
-      );
-    }
-    for (const step of stepAssessment) {
-      stepFeedback.append(
-        createElement("p", "", `第 ${step.partNo} 个小问：${step.assessment}`)
-      );
-    }
-    if (firstError) {
-      stepFeedback.append(
-        createElement("p", "", `最早出现的错误：${firstError}`)
-      );
-    }
-    target.append(stepFeedback);
-  }
-  if (result.partResults?.length) {
+  if (!result.correct && result.partResults?.length) {
     const partList = createElement("div", "result-parts");
     for (const part of result.partResults) {
       const item = createElement(
@@ -3832,52 +3982,41 @@ function renderReviewResult(result) {
         itemHeading,
         createElement("p", "", `你的答案：${part.rawAnswer || "未填写"}`)
       );
-      if (part.outcome !== "correct") {
-        item.append(
-          createElement(
-            "p",
-            "",
-            `参考答案：${(part.acceptedAnswers || []).join(" 或 ")}`
-          )
-        );
-      }
       partList.append(item);
     }
     target.append(partList);
-  } else if (!result.correct) {
-    const answer = createElement("div", "result-answer");
-    answer.append(
-      document.createTextNode("正确答案"),
-      createElement("b", "", result.answer)
-    );
-    target.append(answer);
-    if (result.analysis) {
-      target.append(createElement("p", "result-copy", `订正思路：${result.analysis}`));
-    }
-    if (result.diagnosis) {
-      target.append(createElement("p", "result-copy", result.diagnosis));
-    }
   }
-  if (result.correct && result.mastered) {
+
+  if (result.correct) {
     target.append(
       createElement(
         "p",
         "result-copy",
-        "掌握不是永远不忘。7 天后系统会安排一次简短回顾。"
+        "整题全部答对。系统会短暂停留后自动切换；若已是最后一题，则进入完成状态。"
       )
     );
+    target.focus({ preventScroll: true });
+    return;
   }
 
   const actions = createElement("div", "result-actions");
-  const next = createElement("button", "primary-button", "继续下一题");
-  next.type = "button";
-  next.id = "next-review-button";
-  const library = createElement("button", "secondary-button", "回到错题库");
-  library.type = "button";
-  library.dataset.goView = "mistakes";
-  actions.append(next, library);
-  target.append(actions);
-  $("#review-progress").style.width = result.mastered ? "100%" : "72%";
+  const retry = createElement("button", "primary-button", "再试一次");
+  retry.type = "button";
+  retry.id = "review-result-retry-button";
+  const hint = createElement("button", "secondary-button", "查看提示");
+  hint.type = "button";
+  hint.id = "review-result-hint-button";
+  hint.setAttribute("aria-label", "主动查看提示");
+  actions.append(retry, hint);
+  target.append(
+    actions,
+    createElement(
+      "p",
+      "result-copy",
+      "答案、步骤分析、诊断和订正思路不会自动展示；只有主动点击提示后才会加载分级提示。"
+    )
+  );
+  target.focus({ preventScroll: true });
 }
 
 function openAddDialog() {
@@ -4454,17 +4593,30 @@ function bindEvents() {
     });
   });
 
-  $("#show-hint-button").addEventListener("click", showHint);
-  $("#next-hint-button").addEventListener("click", showHint);
+  $("#show-hint-button").addEventListener("click", () => showHint());
+  $("#next-hint-button").addEventListener("click", () => showHint());
   $("#retry-button").addEventListener("click", showAnswerForm);
   $("#retry-after-hint-button").addEventListener("click", showAnswerForm);
   $("#return-to-answer-button").addEventListener("click", showAnswerForm);
   $("#follow-up-button").addEventListener("click", submitFollowUp);
   $("#review-edit-button").addEventListener("click", () => {
+    cancelReviewAutoAdvance();
     if (state.review) {
       openEditDialog(state.review.id, { context: "review" });
     }
   });
+  $("#review-prev-button").addEventListener("click", () =>
+    navigateReview("previous")
+  );
+  $("#review-next-button").addEventListener("click", () =>
+    navigateReview("next")
+  );
+  $("#review-focus-prev-button").addEventListener("click", () =>
+    navigateReview("previous")
+  );
+  $("#review-focus-next-button").addEventListener("click", () =>
+    navigateReview("next")
+  );
   $("#review-enter-focus-button").addEventListener("click", enterReviewFocus);
   $("#review-exit-focus-button").addEventListener("click", () =>
     exitReviewFocus()
@@ -4477,8 +4629,12 @@ function bindEvents() {
     state.followUpRequestKey = null;
   });
   $("#review-result").addEventListener("click", (event) => {
-    if (event.target.closest("#next-review-button")) {
-      loadNextReview();
+    if (event.target.closest("#review-result-retry-button")) {
+      showAnswerForm();
+      return;
+    }
+    if (event.target.closest("#review-result-hint-button")) {
+      showHint({ fromResult: true });
     }
   });
 
