@@ -4868,3 +4868,11 @@ body.review-focus-mode #view-review .review-attachments img {
     min-height: 44px;
   }
 }
+
+@media (max-width: 900px), (pointer: coarse) {
+  .review-focus-button,
+  .review-nav-button,
+  .review-edit-button {
+    min-height: 44px;
+  }
+}

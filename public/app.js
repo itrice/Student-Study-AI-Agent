@@ -3312,26 +3312,55 @@ function scheduleReviewAutoAdvance() {
 function captureReviewDraft() {
   const review = state.review;
   if (!review || state.reviewSubmitted) return;
-  const form = $("#answer-form");
-  if (!form || form.hidden) return;
   const inputs = $$("[data-review-part-id]", $("#review-parts"));
   const values = inputs.map((input) => ({
     partId: Number(input.dataset.reviewPartId),
     value: input.value
   }));
   const hasInput = values.some((item) => String(item.value || "").trim());
+  const hintLevel = state.reviewHintLevel || 0;
   const reviewId = Number(review.id);
-  if (!hasInput && state.reviewHintLevel === 0) {
+  if (!hasInput && hintLevel === 0) {
     state.reviewDrafts.delete(reviewId);
     return;
   }
-  state.reviewDrafts.set(reviewId, {
+  const draft = {
     values,
-    hintLevel: state.reviewHintLevel,
+    hintLevel,
     hintRequestKey: state.hintRequestKey,
     followUpRequestKey: state.followUpRequestKey,
-    attemptRequestKey: state.attemptRequestKey
-  });
+    attemptRequestKey: state.attemptRequestKey,
+    hint: null
+  };
+  const hintPanel = $("#hint-panel");
+  if (hintLevel > 0 && hintPanel && !hintPanel.hidden) {
+    draft.hint = {
+      level: hintLevel,
+      title: $("#review-hint-title")?.textContent || "",
+      content: $("#review-hint")?.textContent || "",
+      steps: $$("#review-steps li").map((item) => item.textContent),
+      nextHidden: Boolean($("#next-hint-button")?.hidden)
+    };
+  }
+  state.reviewDrafts.set(reviewId, draft);
+}
+
+function restoreHintPanel(hint) {
+  const number = $(".hint-number");
+  if (number) number.textContent = `提示 ${hint.level}`;
+  const title = $("#review-hint-title");
+  if (title) title.textContent = hint.title;
+  const content = $("#review-hint");
+  if (content) content.textContent = hint.content;
+  const steps = $("#review-steps");
+  if (steps) {
+    steps.replaceChildren();
+    for (const step of hint.steps || []) {
+      steps.append(createElement("li", "", step));
+    }
+  }
+  const nextButton = $("#next-hint-button");
+  if (nextButton) nextButton.hidden = hint.nextHidden;
 }
 
 function restoreReviewDraft(review) {
@@ -3355,6 +3384,11 @@ function restoreReviewDraft(review) {
     $("#review-pre-actions").hidden = true;
     $("#hint-panel").hidden = true;
     $("#answer-form").hidden = false;
+  } else if (draft.hint) {
+    $("#review-pre-actions").hidden = true;
+    $("#answer-form").hidden = true;
+    $("#hint-panel").hidden = false;
+    restoreHintPanel(draft.hint);
   }
   return true;
 }

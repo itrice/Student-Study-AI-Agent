@@ -264,6 +264,108 @@ test("切换离开再返回时恢复本次会话未提交输入和提示等级",
   assert.equal(elements.get("#review-pre-actions").hidden, true);
 });
 
+test("只看提示后切题返回也会恢复提示等级与提示面板", () => {
+  const capture = section(
+    app,
+    "function captureReviewDraft() {",
+    "function restoreHintPanel(hint) {"
+  );
+  const restore = section(
+    app,
+    "function restoreHintPanel(hint) {",
+    "async function navigateReview(direction) {"
+  );
+  assert.doesNotMatch(capture, /form\.hidden/);
+  assert.match(capture, /hint:/);
+  assert.match(restore, /draft\.hint/);
+
+  const stepList = {
+    children: [],
+    replaceChildren() {
+      this.children = [];
+    },
+    append(item) {
+      this.children.push(item);
+    }
+  };
+  const stepItems = [{ textContent: "先求总份数" }];
+  const elements = new Map([
+    ["#answer-form", { hidden: true }],
+    ["#review-pre-actions", { hidden: true }],
+    ["#hint-panel", { hidden: false }],
+    ["#review-parts", {}],
+    ["#review-hint-title", { textContent: "先补上关键的一步" }],
+    ["#review-hint", { textContent: "把总份数先算出来。" }],
+    ["#review-steps", stepList],
+    ["#next-hint-button", { hidden: false }],
+    [".hint-number", { textContent: "提示 2" }]
+  ]);
+  const state = {
+    review: { id: 7 },
+    reviewSubmitted: false,
+    reviewDrafts: new Map(),
+    reviewHintLevel: 2,
+    hintRequestKey: null,
+    followUpRequestKey: null,
+    attemptRequestKey: null
+  };
+  const fakeQuery = (selector) => elements.get(selector) || null;
+  const fakeQueryAll = (selector, root) => {
+    if (String(selector).includes("data-review-part-id")) return [];
+    if (selector === "#review-steps li") return stepItems;
+    return [];
+  };
+  const createElement = (tag, className, text) => ({
+    tag,
+    className,
+    textContent: text
+  });
+  const factory = new Function(
+    "state",
+    "$",
+    "$$",
+    "createElement",
+    `${capture}\n${restore}\nreturn { captureReviewDraft, restoreReviewDraft };`
+  );
+  const { captureReviewDraft, restoreReviewDraft } = factory(
+    state,
+    fakeQuery,
+    fakeQueryAll,
+    createElement
+  );
+
+  captureReviewDraft();
+  const draft = state.reviewDrafts.get(7);
+  assert.ok(draft);
+  assert.equal(draft.hintLevel, 2);
+  assert.deepEqual(draft.hint.steps, ["先求总份数"]);
+  assert.equal(draft.hint.title, "先补上关键的一步");
+  assert.equal(draft.hint.content, "把总份数先算出来。");
+
+  state.reviewHintLevel = 0;
+  elements.get("#hint-panel").hidden = true;
+  elements.get("#review-hint-title").textContent = "";
+  elements.get("#review-hint").textContent = "";
+  elements.get("#next-hint-button").hidden = false;
+  assert.equal(restoreReviewDraft({ id: 7 }), true);
+  assert.equal(state.reviewHintLevel, 2);
+  assert.equal(elements.get("#hint-panel").hidden, false);
+  assert.equal(elements.get("#answer-form").hidden, true);
+  assert.equal(elements.get("#review-pre-actions").hidden, true);
+  assert.equal(elements.get("#review-hint-title").textContent, "先补上关键的一步");
+  assert.equal(elements.get("#review-hint").textContent, "把总份数先算出来。");
+  assert.equal(stepList.children.length, 1);
+  assert.equal(stepList.children[0].textContent, "先求总份数");
+});
+
+test("移动端与平板的复习操作按钮触控高度至少 44px", () => {
+  assert.match(
+    css,
+    /@media \(max-width: 900px\), \(pointer: coarse\) \{[\s\S]*?\.review-focus-button[\s\S]*?\.review-nav-button[\s\S]*?\.review-edit-button[\s\S]*?min-height: 44px;/
+  );
+});
+
+
 test("复习页与全屏专注层使用同一套上一题/下一题边界", () => {
   for (const id of [
     "review-prev-button",
