@@ -996,6 +996,111 @@ const weeklyFeedbackSchema = {
   additionalProperties: true
 };
 
+const feedbackCalendarSchema = {
+  type: "object",
+  description: "按 Asia/Shanghai 自然月聚合的打卡日历；不含答案或提示正文。",
+  required: ["month", "today", "days", "summary"],
+  additionalProperties: false,
+  properties: {
+    month: { type: "string", pattern: "^\\d{4}-\\d{2}$" },
+    today: { type: "string", format: "date" },
+    days: {
+      type: "array",
+      items: {
+        type: "object",
+        required: [
+          "date",
+          "completedCount",
+          "correctCount",
+          "attemptCount",
+          "hintCount",
+          "hasActivity"
+        ],
+        additionalProperties: false,
+        properties: {
+          date: { type: "string", format: "date" },
+          completedCount: { type: "integer", minimum: 0 },
+          correctCount: { type: "integer", minimum: 0 },
+          attemptCount: { type: "integer", minimum: 0 },
+          hintCount: { type: "integer", minimum: 0 },
+          hasActivity: { type: "boolean" }
+        }
+      }
+    },
+    summary: {
+      type: "object",
+      required: ["checkInDays", "completedCount", "correctCount"],
+      additionalProperties: false,
+      properties: {
+        checkInDays: { type: "integer", minimum: 0 },
+        completedCount: { type: "integer", minimum: 0 },
+        correctCount: { type: "integer", minimum: 0 }
+      }
+    }
+  }
+};
+
+const feedbackDaySchema = {
+  type: "object",
+  description:
+    "按 Asia/Shanghai 自然日聚合的完成明细；同题多次作答合并为一行，不返回答案或提示正文。",
+  required: ["date", "summary", "items"],
+  additionalProperties: false,
+  properties: {
+    date: { type: "string", format: "date" },
+    summary: {
+      type: "object",
+      required: [
+        "completedCount",
+        "attemptCount",
+        "correctCount",
+        "needsCorrectionCount"
+      ],
+      additionalProperties: false,
+      properties: {
+        completedCount: { type: "integer", minimum: 0 },
+        attemptCount: { type: "integer", minimum: 0 },
+        correctCount: { type: "integer", minimum: 0 },
+        needsCorrectionCount: { type: "integer", minimum: 0 }
+      }
+    },
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        required: [
+          "mistakeId",
+          "question",
+          "knowledgePoint",
+          "unitTitle",
+          "teachingUnitNo",
+          "unitMapped",
+          "attemptCount",
+          "hintCount",
+          "lastOutcome",
+          "lastAt"
+        ],
+        additionalProperties: false,
+        properties: {
+          mistakeId: { type: "integer", minimum: 1 },
+          question: { type: "string" },
+          knowledgePoint: { type: "string" },
+          unitTitle: { type: "string" },
+          teachingUnitNo: anyOfNullable({ type: "integer", minimum: 1 }),
+          unitMapped: { type: "boolean" },
+          attemptCount: { type: "integer", minimum: 1 },
+          hintCount: { type: "integer", minimum: 0 },
+          lastOutcome: {
+            type: "string",
+            enum: ["correct", "partial", "incorrect", "ungraded"]
+          },
+          lastAt: { type: "string", format: "date-time" }
+        }
+      }
+    }
+  }
+};
+
 const dashboardSchema = {
   type: "object",
   required: ["stats", "nextReview", "recent"],
@@ -1417,6 +1522,8 @@ const components = {
     KnowledgeSearchResult: knowledgeSearchSchema,
     DailyFeedback: dailyFeedbackSchema,
     WeeklyFeedback: weeklyFeedbackSchema,
+    FeedbackCalendar: feedbackCalendarSchema,
+    FeedbackDay: feedbackDaySchema,
     Dashboard: dashboardSchema,
     OperationsMetrics: operationsMetricsSchema,
     Tool: toolSchema,
@@ -2373,6 +2480,50 @@ Object.assign(paths, {
       }
     }
   },
+  "/api/feedback/calendar": {
+    get: {
+      tags: ["反馈"],
+      summary: "读取打卡月历",
+      description:
+        "按 Asia/Shanghai 自然月返回每天完成题数、正确题数、作答次数和提示次数，并返回本月打卡汇总。未来日期由客户端置灰，不返回答案或提示正文。",
+      operationId: "getFeedbackCalendar",
+      parameters: [
+        {
+          name: "month",
+          in: "query",
+          required: false,
+          description: "YYYY-MM；默认当前月份",
+          schema: { type: "string", pattern: "^\\d{4}-\\d{2}$" }
+        }
+      ],
+      responses: {
+        200: jsonResponse("打卡月历", ref("FeedbackCalendar")),
+        400: errorResponse("月份格式无效")
+      }
+    }
+  },
+  "/api/feedback/day": {
+    get: {
+      tags: ["反馈"],
+      summary: "读取当日完成情况",
+      description:
+        "按 Asia/Shanghai 自然日返回题目级完成明细。同题多次作答聚合为一行，最近一次结果决定是否正确；不返回正确答案、原始作答或提示正文。",
+      operationId: "getFeedbackDay",
+      parameters: [
+        {
+          name: "date",
+          in: "query",
+          required: false,
+          description: "YYYY-MM-DD；默认今天",
+          schema: { type: "string", format: "date" }
+        }
+      ],
+      responses: {
+        200: jsonResponse("当日完成情况", ref("FeedbackDay")),
+        400: errorResponse("日期格式无效")
+      }
+    }
+  },
 
   "/api/dashboard": {
     get: {
@@ -2482,6 +2633,7 @@ const INFO_DESCRIPTION = [
   "",
   "- 当前服务未内置账号体系或 API Key。默认只监听 `127.0.0.1`；对第三方开放时请放在反向代理/API 网关之后，并补上 TLS、鉴权和访问日志。",
   "- 浏览器跨域调用默认不被允许；第三方前端应使用同源代理或服务端调用。",
+  "- 正式路径不带尾斜杠。服务兼容 `/api/.../` 写法；`/api`、`/api-docs`、`/docs` 会 308 重定向到 `/api/docs`，`/openapi.json` 会重定向到 `/api/openapi.json`。",
   "- 所有 JSON 错误统一为 `{ error, code? }`；路由不存在时为 404 + `ROUTE_NOT_FOUND`。",
   "- 写接口使用 `Idempotency-Key` 时，同键重放返回首次结果；不同请求复用同键会冲突。",
   "- 图片上传、裁剪使用图片二进制请求体；读取图片返回二进制，不返回本地路径。",
@@ -2492,12 +2644,12 @@ const INFO_DESCRIPTION = [
   "1. `GET /api/health` 检查服务；`GET /api/bootstrap` 读取当前学生和教材。",
   "2. 文字题直接 `POST /api/mistakes`；图片题先 `POST /api/attachments`，再带 `attachmentIds` 保存。",
   "3. 通过 `GET /api/review/queue` 取题，`POST /api/mistakes/{id}/attempts` 提交作答。",
-  "4. 使用 `GET /api/feedback/daily` 和 `/weekly` 展示学习反馈。"
+  "4. 使用 `GET /api/feedback/daily`、`/weekly`、`/calendar` 和 `/day` 展示学习反馈。"
 ].join("\n");
 
 export function buildOpenApiDocument({
   baseUrl = "/",
-  version = "0.14.0"
+  version = "0.16.0"
 } = {}) {
   return {
     openapi: "3.1.0",

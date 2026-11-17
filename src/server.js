@@ -90,6 +90,16 @@ const API_DOCS_HEADERS = {
   "Cache-Control": "no-cache"
 };
 
+const API_DOC_REDIRECTS = new Map([
+  ["/api", "/api/docs"],
+  ["/api-docs", "/api/docs"],
+  ["/api-docs/", "/api/docs"],
+  ["/docs", "/api/docs"],
+  ["/docs/", "/api/docs"],
+  ["/openapi.json", "/api/openapi.json"],
+  ["/openapi.json/", "/api/openapi.json"]
+]);
+
 class HttpError extends Error {
   constructor(status, message, { code = null } = {}) {
     super(message);
@@ -122,6 +132,21 @@ function requestBaseUrl(request) {
   const protocol = forwardedProto === "https" ? "https" : "http";
   if (!host || !/^[A-Za-z0-9._:[\]-]+$/.test(host)) return "/";
   return `${protocol}://${host}`;
+}
+
+function canonicalApiPathname(pathname) {
+  if (!pathname.startsWith("/api/")) return pathname;
+  return pathname.replace(/\/+$/, "");
+}
+
+function sendRedirect(response, location) {
+  response.writeHead(308, {
+    Location: location,
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff"
+  });
+  response.end(`Redirecting to ${location}\n`);
 }
 
 async function readJson(request) {
@@ -521,6 +546,16 @@ async function getBuildInfo() {
 }
 
 async function handleApi(request, response, url) {
+  const canonicalPathname = canonicalApiPathname(url.pathname);
+  if (canonicalPathname !== url.pathname) url.pathname = canonicalPathname;
+
+  if (
+    (request.method === "GET" || request.method === "HEAD") &&
+    API_DOC_REDIRECTS.has(url.pathname)
+  ) {
+    return sendRedirect(response, API_DOC_REDIRECTS.get(url.pathname));
+  }
+
   if (request.method === "GET" && url.pathname === "/api/openapi.json") {
     return sendJson(
       response,
@@ -1291,7 +1326,10 @@ async function serveStatic(response, pathname, extraHeaders = {}) {
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host}`);
   try {
-    if (url.pathname.startsWith("/api/")) {
+    if (
+      url.pathname.startsWith("/api/") ||
+      API_DOC_REDIRECTS.has(url.pathname)
+    ) {
       await handleApi(request, response, url);
     } else if (request.method === "GET") {
       await serveStatic(response, decodeURIComponent(url.pathname));

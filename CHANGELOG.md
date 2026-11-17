@@ -7,11 +7,15 @@
 ### Added
 
 - 新增 OpenAPI 3.1 契约接口 `GET /api/openapi.json`，覆盖系统、教材、附件、错题、
-  复习、知识库、反馈和运维共 40 条路径、45 个操作。
+  复习、知识库、反馈和运维共 42 条路径、47 个操作。
 - 新增交互式 API 文档页 `GET /api/docs`，支持搜索、分类筛选、参数与响应说明、
   请求示例、Try it out、cURL 复制、深色模式和移动端布局。
 - 新增 `test/api-docs.test.js`，校验契约完整性、`$ref` 可解析、路径参数声明、
   操作编号唯一、二进制响应说明、文档页 CSP 和无外部依赖加载。
+- 补齐 `GET /api/feedback/calendar` 与 `GET /api/feedback/day` 的参数、响应 Schema 和示例入口。
+- API 兼容尾斜杠写法；`/api`、`/api-docs`、`/docs` 308 重定向到 `/api/docs`，
+  `/openapi.json` 308 重定向到 `/api/openapi.json`。
+- 新增服务端已注册路由与 OpenAPI paths 的双向覆盖测试，避免新增路由漏进契约。
 
 ### Security
 
