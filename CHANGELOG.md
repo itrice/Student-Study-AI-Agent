@@ -2,6 +2,24 @@
 
 本文件记录项目的重要变更。
 
+## v0.16
+
+### Added
+
+- 新增 OpenAPI 3.1 契约接口 `GET /api/openapi.json`，覆盖系统、教材、附件、错题、
+  复习、知识库、反馈和运维共 40 条路径、45 个操作。
+- 新增交互式 API 文档页 `GET /api/docs`，支持搜索、分类筛选、参数与响应说明、
+  请求示例、Try it out、cURL 复制、深色模式和移动端布局。
+- 新增 `test/api-docs.test.js`，校验契约完整性、`$ref` 可解析、路径参数声明、
+  操作编号唯一、二进制响应说明、文档页 CSP 和无外部依赖加载。
+
+### Security
+
+- 文档页不加载 CDN 资源，使用自包含 HTML/CSS/JS，并设置
+  `default-src 'self'` CSP、`nosniff`、`no-referrer` 和 `frame-ancestors 'none'`。
+- OpenAPI 契约按请求 Host 生成服务器地址，兼容 `X-Forwarded-Proto` /
+  `X-Forwarded-Host`；文档中明确说明服务未内置鉴权，对第三方开放需经网关补鉴权。
+
 ## v0.15
 
 ### Changed

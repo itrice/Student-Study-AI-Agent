@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>子鱼学习AI · API 文档</title>
+    <link rel="icon" href="/assets/brand/ziyu-mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/api-docs.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">子</span>
+        <div class="brand-copy">
+          <strong>子鱼学习AI</strong>
+          <span>API 文档</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <a class="btn" href="/api/openapi.json" target="_blank" rel="noopener">
+          OpenAPI JSON
+        </a>
+        <button class="btn" id="expand-all" type="button">全部展开</button>
+        <button
+          class="btn btn-icon"
+          id="theme-toggle"
+          type="button"
+          aria-label="切换深色模式"
+          title="切换深色模式"
+        >
+          ◐
+        </button>
+      </div>
+    </header>
+
+    <main class="page">
+      <section class="hero" aria-labelledby="doc-title">
+        <p class="eyebrow">OpenAPI 3.1 · Third-party integration</p>
+        <h1 id="doc-title">学习数据 API</h1>
+        <p class="lead" id="api-summary">正在加载接口契约…</p>
+        <div class="base-card">
+          <div class="base-main">
+            <span class="base-label">Base URL</span>
+            <code id="base-url">—</code>
+          </div>
+          <button class="copy" id="copy-base" type="button">复制</button>
+        </div>
+        <div class="notice" role="note">
+          <strong>接入前请阅读</strong>
+          <p id="access-note">
+            当前 API 无内置鉴权；对第三方开放时请经反向代理/网关加 TLS、鉴权和限流。
+          </p>
+        </div>
+      </section>
+
+      <section class="toolbar" aria-label="筛选接口">
+        <label class="search">
+          <span class="sr-only">搜索接口</span>
+          <input
+            id="search"
+            type="search"
+            placeholder="搜索路径、方法、说明…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </label>
+        <span class="count" id="result-count" aria-live="polite"></span>
+      </section>
+
+      <nav class="tag-nav" id="tag-nav" aria-label="接口分类"></nav>
+
+      <div class="loading" id="loading">正在加载 OpenAPI 契约…</div>
+      <div class="error-box" id="error" role="alert" hidden></div>
+      <div id="operations"></div>
+
+      <footer class="page-footer">
+        <p>
+          机器可读契约：
+          <a href="/api/openapi.json">/api/openapi.json</a>
+          · 可直接导入 Swagger Editor、Postman 或 Insomnia。
+        </p>
+      </footer>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <script src="/api-docs.js"></script>
+  </body>
+</html>

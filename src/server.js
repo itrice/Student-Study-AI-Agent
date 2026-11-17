@@ -31,6 +31,7 @@ import {
   shanghaiDateKey,
   shanghaiMonthKey
 } from "./feedback-calendar.js";
+import { buildOpenApiDocument } from "./openapi.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, "..");
@@ -78,6 +79,17 @@ const REVIEW_SESSION_TTL_MS = 30 * 60 * 1000;
 const editSessions = new Map();
 const reviewSessions = new Map();
 
+const API_DOCS_HEADERS = {
+  "Content-Security-Policy":
+    "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; " +
+    "script-src 'self'; connect-src 'self'; base-uri 'none'; " +
+    "form-action 'none'; frame-ancestors 'none'",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+  "X-Frame-Options": "DENY",
+  "Cache-Control": "no-cache"
+};
+
 class HttpError extends Error {
   constructor(status, message, { code = null } = {}) {
     super(message);
@@ -92,6 +104,24 @@ function sendJson(response, status, value) {
     "Cache-Control": "no-store"
   });
   response.end(JSON.stringify(value));
+}
+
+function firstHeaderValue(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return String(raw || "").split(",")[0].trim();
+}
+
+function requestBaseUrl(request) {
+  const forwardedProto = firstHeaderValue(
+    request.headers["x-forwarded-proto"]
+  );
+  const forwardedHost = firstHeaderValue(
+    request.headers["x-forwarded-host"]
+  );
+  const host = forwardedHost || firstHeaderValue(request.headers.host);
+  const protocol = forwardedProto === "https" ? "https" : "http";
+  if (!host || !/^[A-Za-z0-9._:[\]-]+$/.test(host)) return "/";
+  return `${protocol}://${host}`;
 }
 
 async function readJson(request) {
@@ -491,6 +521,21 @@ async function getBuildInfo() {
 }
 
 async function handleApi(request, response, url) {
+  if (request.method === "GET" && url.pathname === "/api/openapi.json") {
+    return sendJson(
+      response,
+      200,
+      buildOpenApiDocument({ baseUrl: requestBaseUrl(request) })
+    );
+  }
+
+  if (
+    request.method === "GET" &&
+    (url.pathname === "/api/docs" || url.pathname === "/api/docs/")
+  ) {
+    return serveStatic(response, "/api-docs.html", API_DOCS_HEADERS);
+  }
+
   if (request.method === "GET" && url.pathname === "/api/health") {
     return sendJson(response, 200, {
       ok: true,
@@ -1218,7 +1263,7 @@ async function handleApi(request, response, url) {
   throw new HttpError(404, "接口不存在", { code: "ROUTE_NOT_FOUND" });
 }
 
-async function serveStatic(response, pathname) {
+async function serveStatic(response, pathname, extraHeaders = {}) {
   const requested = pathname === "/" ? "/index.html" : pathname;
   const resolved = path.resolve(publicDir, `.${requested}`);
   if (!resolved.startsWith(`${publicDir}${path.sep}`)) {
@@ -1231,7 +1276,8 @@ async function serveStatic(response, pathname) {
       "Content-Type":
         MIME_TYPES[path.extname(resolved).toLowerCase()] ||
         "application/octet-stream",
-      "Cache-Control": "no-cache"
+      "Cache-Control": "no-cache",
+      ...extraHeaders
     });
     response.end(content);
   } catch (error) {

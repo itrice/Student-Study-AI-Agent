@@ -71,6 +71,26 @@ npm test
 
 等价的直接运行方式是 `node --test`。
 
+## API 文档
+
+服务启动后可直接打开交互式 API 文档：
+
+- 文档页：<http://127.0.0.1:3000/api/docs>
+- OpenAPI 3.1 契约：<http://127.0.0.1:3000/api/openapi.json>
+
+文档页自带搜索、参数说明、请求/响应示例、Try it out 和 cURL 复制，
+不依赖 CDN 或第三方运行时包。`/api/openapi.json` 可直接导入 Swagger Editor、
+Postman 或 Insomnia，也可用于生成客户端代码。
+
+当前 API 覆盖系统、教材、附件、错题、复习、知识库、反馈和运维共 45 个操作。
+服务本身没有内置账号体系或 API Key，默认只监听 `127.0.0.1`；对第三方开放时，
+请放在反向代理/API 网关之后，补充 TLS、鉴权、限流和访问日志。浏览器跨域调用
+默认不被允许，第三方前端应使用同源代理或服务端调用。
+
+写接口的幂等键放在 `Idempotency-Key` 请求头；错误统一返回
+`{ "error": "...", "code": "..." }`。`DELETE /api/learning-data` 会不可逆删除
+全部学习数据，调用前必须先备份。
+
 运行知识库检索评测：
 
 ```powershell
