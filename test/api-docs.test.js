@@ -31,6 +31,9 @@ const DOCUMENTED_PATHS = [
   "/api/attachments/{id}/extract",
   "/api/attachments/{id}/crop",
   "/api/dashboard",
+  "/api/eink/queue",
+  "/api/eink/page",
+  "/api/eink/preview",
   "/api/operations/metrics",
   "/api/learning-data",
   "/api/feedback/daily",
@@ -204,7 +207,7 @@ test(
       assert.equal(Object.keys(document.paths).length, DOCUMENTED_PATHS.length);
 
       const operations = collectOperations(document);
-      assert.equal(operations.length, 47);
+      assert.equal(operations.length, 50);
       const operationIds = operations.map(
         ({ operation }) => operation.operationId
       );
@@ -407,11 +410,21 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   assert.match(document.info.description, /Idempotency-Key/);
   assert.match(document.info.description, /未内置账号体系|无内置鉴权|鉴权/);
   assert.match(document.info.description, /尾斜杠/);
-  assert.equal(document.info.version, "0.16.0");
+  assert.equal(document.info.version, "0.17.0");
   assert.equal(document.servers[0].url, "https://example.test");
   assert.deepEqual(
     TAGS.map((tag) => tag.name),
-    ["系统", "教材", "附件", "错题", "复习", "知识库", "反馈", "运维"]
+    [
+      "系统",
+      "教材",
+      "附件",
+      "错题",
+      "复习",
+      "知识库",
+      "反馈",
+      "墨水屏",
+      "运维"
+    ]
   );
   assert.equal(
     Object.keys(document.paths).length,
@@ -419,7 +432,7 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   );
   assert.equal(
     collectOperations(document).length,
-    47
+    50
   );
 });
 

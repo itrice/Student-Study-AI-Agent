@@ -1,5 +1,4 @@
 import { createCanvas, loadImage } from "@napi-rs/canvas";
-import { orientation as readOrientation } from "exifr";
 
 export const PHOTO_AREA = Object.freeze({
   x: 6,
@@ -52,43 +51,6 @@ function isEmptyOrFull(bounds, width, height) {
     bounds.maxX === width - 1 &&
     bounds.maxY === height - 1
   );
-}
-
-export async function readImageOrientation(buffer) {
-  try {
-    const value = await readOrientation(buffer);
-    const number = Number(value);
-    return number >= 1 && number <= 8 ? number : 1;
-  } catch {
-    return 1;
-  }
-}
-
-export function transposeImage(image, orientation = 1) {
-  const value = Number(orientation);
-  if (value <= 1 || value > 8) return image;
-  const sourceWidth = image.width;
-  const sourceHeight = image.height;
-  const swapsAxes = value >= 5;
-  const width = swapsAxes ? sourceHeight : sourceWidth;
-  const height = swapsAxes ? sourceWidth : sourceHeight;
-  const canvas = createCanvas(width, height);
-  const context = canvas.getContext("2d");
-  context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = "high";
-  const transforms = {
-    2: [-1, 0, 0, 1, width, 0],
-    3: [-1, 0, 0, -1, width, height],
-    4: [1, 0, 0, -1, 0, height],
-    5: [0, 1, 1, 0, 0, 0],
-    6: [0, 1, -1, 0, height, 0],
-    7: [0, -1, -1, 0, height, width],
-    8: [0, -1, 1, 0, 0, width]
-  };
-  const [a, b, c, d, e, f] = transforms[value] || [1, 0, 0, 1, 0, 0];
-  context.setTransform(a, b, c, d, e, f);
-  context.drawImage(image, 0, 0);
-  return canvas;
 }
 
 export function findPaperCropBounds(image) {
@@ -191,8 +153,7 @@ export async function prepareEinkPhoto(buffer, { skipPaperCrop = false } = {}) {
   }
   let prepared = image;
   if (!skipPaperCrop) {
-    const orientation = await readImageOrientation(buffer);
-    prepared = transposeImage(prepared, orientation);
+    // @napi-rs/canvas applies EXIF Orientation while decoding loadImage().
     prepared = cropImage(prepared, findPaperCropBounds(prepared));
   }
   return padImage(prepared);

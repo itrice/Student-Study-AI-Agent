@@ -20,10 +20,6 @@ function clean(value) {
   return String(value || "").replace(/\r\n?/g, "\n").trim();
 }
 
-function unique(values) {
-  return [...new Set(values.filter(Boolean))];
-}
-
 export function buildQuestionText(mistake) {
   const blocks = [];
   const question = clean(mistake.question);
@@ -58,11 +54,6 @@ export function buildAnswerText(mistake) {
   const blocks = parts.map((part) => {
     const lines = [];
     if (multiple) lines.push(`第${part.partNo}小问`);
-    const prompt =
-      clean(part.prompt) ||
-      clean(part.label) ||
-      (parts.length === 1 ? clean(mistake.question) : "");
-    if (prompt) lines.push(`题目：${prompt}`);
     const studentAnswer =
       clean(part.studentAnswer) ||
       (parts.length === 1 ? clean(mistake.studentAnswer) : "") ||
@@ -74,12 +65,11 @@ export function buildAnswerText(mistake) {
       accepted.join(" / ") ||
       (parts.length === 1 ? clean(mistake.correctAnswer) : "") ||
       "（暂无）";
-    const reason = unique([
-      clean(part.explanation),
-      clean(mistake.analysis),
-      clean(mistake.errorType),
-      clean(part.hint)
-    ]).join("；");
+    const reason =
+      clean(part.explanation) ||
+      clean(mistake.analysis) ||
+      clean(mistake.errorType) ||
+      clean(part.hint);
     const knowledgePoint =
       clean(part.knowledgePoint) || clean(mistake.knowledgePoint);
     lines.push(`你的答案：${studentAnswer}`);

@@ -26,6 +26,10 @@ import {
 } from "./attachment-crop.js";
 import { createVisionExtractorFromEnvironment } from "./llm/vision.js";
 import {
+  EinkPageService,
+  etagMatches
+} from "./eink/service.js";
+import {
   parseDateKey,
   parseMonthKey,
   shanghaiDateKey,
@@ -52,6 +56,10 @@ const learningTools = createLearningTools(repository);
 const llmGateway = createGatewayFromEnvironment(process.env);
 const attachmentStore = new AttachmentStore({
   directory: repository.attachmentDirectory
+});
+const einkPageService = new EinkPageService({
+  repository,
+  attachmentStore
 });
 const visionExtractor = createVisionExtractorFromEnvironment(process.env);
 const diagnosisAgent = createDiagnosisAgent({
@@ -272,6 +280,37 @@ function parseId(value) {
     throw new HttpError(400, "题目编号无效");
   }
   return id;
+}
+
+function parseEinkId(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d+$/.test(text)) {
+    throw new HttpError(400, "题目编号必须是正整数");
+  }
+  const id = Number(text);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new HttpError(400, "题目编号必须是正整数");
+  }
+  return id;
+}
+
+function parseEinkLimit(value) {
+  if (value === null) return 20;
+  const text = String(value);
+  if (!/^\d+$/.test(text)) {
+    throw new HttpError(400, "limit 必须是 1～20 的整数");
+  }
+  const limit = Number(text);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 20) {
+    throw new HttpError(400, "limit 必须是 1～20 的整数");
+  }
+  return limit;
+}
+
+function parseEinkMode(value) {
+  if (value === null) return "question";
+  if (value === "question" || value === "answer") return value;
+  throw new HttpError(400, "mode 只能是 question 或 answer");
 }
 
 function issueEditSession(mistakeId, context) {
@@ -850,6 +889,88 @@ async function handleApi(request, response, url) {
         costPer1kOutput: Number(url.searchParams.get("costPer1kOutput") || 0)
       })
     );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/eink/queue") {
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    return sendJson(
+      response,
+      200,
+      einkPageService.getQueue(
+        parseEinkLimit(url.searchParams.get("limit"))
+      )
+    );
+  }
+
+  if (
+    request.method === "GET" &&
+    (url.pathname === "/api/eink/page" ||
+      url.pathname === "/api/eink/preview")
+  ) {
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    const startedAt = Date.now();
+    const id = parseEinkId(url.searchParams.get("id"));
+    const mode = parseEinkMode(url.searchParams.get("mode"));
+    let page;
+    try {
+      page = await einkPageService.getPage({ id, mode });
+    } catch (error) {
+      console.info(
+        `[eink] id=${id} mode=${mode} status=${error.status || 500} ` +
+          `cache=miss duration=${Date.now() - startedAt}ms`
+      );
+      throw error;
+    }
+    if (page.warning) {
+      console.warn(
+        `[eink] id=${id} mode=${mode} warning=${page.warning}`
+      );
+    }
+
+    if (url.pathname === "/api/eink/page") {
+      if (etagMatches(request.headers["if-none-match"], page.etag)) {
+        response.writeHead(304, {
+          ETag: page.etag,
+          "X-Etag": page.etag,
+          "Cache-Control": "no-transform",
+          "X-Content-Type-Options": "nosniff"
+        });
+        response.end();
+      } else {
+        response.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": page.frame.length,
+          ETag: page.etag,
+          "X-Etag": page.etag,
+          "Cache-Control": "no-transform",
+          "X-Content-Type-Options": "nosniff"
+        });
+        response.end(page.frame);
+      }
+      console.info(
+        `[eink] id=${id} mode=${mode} status=${
+          etagMatches(request.headers["if-none-match"], page.etag)
+            ? 304
+            : 200
+        } cache=${page.cacheHit ? "hit" : "miss"} ` +
+          `duration=${Date.now() - startedAt}ms`
+      );
+      return;
+    }
+
+    response.writeHead(200, {
+      "Content-Type": "image/png",
+      "Content-Length": page.png.length,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    });
+    response.end(page.png);
+    console.info(
+      `[eink] id=${id} mode=${mode} status=200 ` +
+        `cache=${page.cacheHit ? "hit" : "miss"} ` +
+        `duration=${Date.now() - startedAt}ms`
+    );
+    return;
   }
 
   if (request.method === "DELETE" && url.pathname === "/api/learning-data") {

@@ -1,0 +1,577 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import net from "node:net";
+import os from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { LearningRepository } from "../src/database.js";
+import { AttachmentStore } from "../src/attachments.js";
+import {
+  EINK_FRAME_BYTES,
+  EINK_HEIGHT,
+  EINK_WIDTH,
+  binarizeAndPack,
+  buildAnswerText,
+  buildQuestionText,
+  renderEinkPage
+} from "../src/eink/render.js";
+import { EinkPageService } from "../src/eink/service.js";
+import { PHOTO_AREA, prepareEinkPhoto } from "../src/eink/photo.js";
+
+const projectRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".."
+);
+
+function makePhoto() {
+  const canvas = createCanvas(480, 260);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#777";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#eee";
+  context.fillRect(18, 14, canvas.width - 36, canvas.height - 28);
+  context.fillStyle = "#111";
+  context.font = "28px sans-serif";
+  context.fillText("圆的半径是 3 厘米", 46, 76);
+  context.fillText("求圆的面积。", 46, 132);
+  context.strokeRect(170, 158, 126, 48);
+  return canvas.toBuffer("image/png");
+}
+
+function makeOrientedJpeg() {
+  const canvas = createCanvas(60, 30);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "white";
+  context.fillRect(0, 0, 60, 30);
+  context.fillStyle = "black";
+  context.fillRect(0, 0, 30, 30);
+  const jpeg = canvas.toBuffer("image/jpeg");
+  const exif = Buffer.from([
+    0x45, 0x78, 0x69, 0x66, 0, 0,
+    0x49, 0x49, 0x2a, 0, 8, 0, 0, 0,
+    1, 0,
+    0x12, 0x01, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0,
+    0, 0, 0, 0
+  ]);
+  const segment = Buffer.alloc(4);
+  segment[0] = 0xff;
+  segment[1] = 0xe1;
+  segment.writeUInt16BE(exif.length + 2, 2);
+  return Buffer.concat([
+    jpeg.subarray(0, 2),
+    segment,
+    exif,
+    jpeg.subarray(2)
+  ]);
+}
+
+async function freePort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const port = server.address().port;
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+function waitForServer(child) {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    let errors = "";
+    const timer = setTimeout(() => {
+      reject(new Error(`服务启动超时：${errors || output}`));
+    }, 10_000);
+    child.stdout.on("data", (chunk) => {
+      output += chunk.toString();
+      if (output.includes("已启动")) {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      errors += chunk.toString();
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`服务提前退出（${code}）：${errors || output}`));
+    });
+  });
+}
+
+async function stopServer(child) {
+  if (child.exitCode !== null) return;
+  child.kill("SIGTERM");
+  await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve();
+    }, 3_000);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+async function createMistake(baseUrl, input) {
+  const response = await fetch(`${baseUrl}/api/mistakes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  assert.equal(response.status, 201);
+  return response.json();
+}
+
+async function previewPixels(response) {
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "image/png");
+  const image = await loadImage(Buffer.from(await response.arrayBuffer()));
+  const canvas = createCanvas(image.width, image.height);
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0);
+  return {
+    width: image.width,
+    height: image.height,
+    pixels: context.getImageData(0, 0, image.width, image.height).data
+  };
+}
+
+function assertFrameMatchesPixels(frame, width, height, pixels) {
+  assert.equal(frame.length, EINK_FRAME_BYTES);
+  const rowBytes = width / 8;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const black = (frame[y * rowBytes + Math.floor(x / 8)] &
+        (0x80 >> (x % 8))) === 0;
+      const pixel = (y * width + x) * 4;
+      const expected = black ? 0 : 255;
+      assert.equal(pixels[pixel], expected);
+      assert.equal(pixels[pixel + 1], expected);
+      assert.equal(pixels[pixel + 2], expected);
+      assert.equal(pixels[pixel + 3], 255);
+    }
+  }
+}
+
+test("1bpp 打包使用每行 MSB 在左且 0 表示黑色", () => {
+  const canvas = createCanvas(8, 1);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "white";
+  context.fillRect(0, 0, 8, 1);
+  context.fillStyle = "black";
+  context.fillRect(0, 0, 1, 1);
+  assert.deepEqual([...binarizeAndPack(canvas)], [0x7f]);
+
+  const rendered = renderEinkPage({
+    mistake: {
+      question: "纯文字题",
+      knowledgePoint: "圆"
+    },
+    mode: "question",
+    index: 1,
+    total: 1
+  });
+  assert.equal(rendered.frame.length, 48_000);
+  assert.equal(rendered.frame instanceof Buffer, true);
+  assert.deepEqual(PHOTO_AREA, {
+    x: 6,
+    y: 56,
+    width: 788,
+    height: 420
+  });
+  assert.equal(PHOTO_AREA.y + PHOTO_AREA.height, 476);
+});
+
+test("手机 JPEG 的 EXIF Orientation 只应用一次", async () => {
+  const prepared = await prepareEinkPhoto(makeOrientedJpeg(), {
+    skipPaperCrop: true
+  });
+  assert.equal(prepared.width, 46);
+  assert.equal(prepared.height, 76);
+});
+
+test("题目页不包含答案，答案页按小问组织完整信息", () => {
+  const mistake = {
+    question: "先求半径，再求面积。",
+    studentAnswer: "18.84",
+    correctAnswer: "28.26",
+    analysis: "把半径平方后再乘圆周率。",
+    errorType: "忘记平方",
+    knowledgePoint: "圆",
+    parts: [
+      {
+        partNo: 1,
+        prompt: "圆的半径",
+        studentAnswer: "3",
+        knowledgePoint: "圆",
+        acceptedAnswers: ["3"]
+      },
+      {
+        partNo: 2,
+        prompt: "圆的面积",
+        studentAnswer: "18.84",
+        knowledgePoint: "圆",
+        acceptedAnswers: ["28.26"],
+        explanation: "使用 S = πr²"
+      }
+    ]
+  };
+  const question = buildQuestionText(mistake);
+  const answer = buildAnswerText(mistake);
+  assert.match(question, /第1小问/);
+  assert.match(question, /第2小问/);
+  assert.doesNotMatch(question, /28\.26|18\.84|忘记平方/);
+  assert.match(answer, /你的答案：18\.84/);
+  assert.match(answer, /正确答案：28\.26/);
+  assert.match(answer, /把半径平方后再乘圆周率/);
+});
+
+test(
+  "电子墨水屏 HTTP 接口满足帧格式、缓存和照片回退契约",
+  { timeout: 60_000 },
+  async () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "math-coach-eink-api-")
+    );
+    const databasePath = path.join(directory, "learning.sqlite");
+    const attachmentsDirectory = path.join(directory, "attachments");
+    const port = await freePort();
+    const child = spawn(process.execPath, ["src/server.js"], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        HOST: "127.0.0.1",
+        PORT: String(port),
+        DB_PATH: databasePath,
+        ATTACHMENTS_DIR: attachmentsDirectory,
+        VISION_BASE_URL: "",
+        VISION_API_KEY: "",
+        VISION_MODEL: ""
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    try {
+      await waitForServer(child);
+      const baseUrl = `http://127.0.0.1:${port}`;
+      const textMistake = await createMistake(baseUrl, {
+        question: "一个圆的半径是 3 厘米，求它的面积。",
+        studentAnswer: "18.84 平方厘米",
+        correctAnswer: "28.26 平方厘米",
+        analysis: "使用圆面积公式 S = πr²。",
+        knowledgePoint: "圆",
+        errorType: "忘记平方"
+      });
+      const multipart = await createMistake(baseUrl, {
+        question: "计算下面各题。",
+        correctAnswer: "答案一；答案二",
+        knowledgePoint: "百分数",
+        errorType: "计算错误",
+        parts: [
+          {
+            label: "第1题",
+            prompt: "把 3/4 化成百分数",
+            studentAnswer: "70%",
+            acceptedAnswers: ["75%"]
+          },
+          {
+            label: "第2题",
+            prompt: "计算 20% 的 50",
+            studentAnswer: "5",
+            acceptedAnswers: ["10"]
+          }
+        ]
+      });
+
+      const photo = makePhoto();
+      const upload = await fetch(
+        `${baseUrl}/api/attachments?kind=question`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "image/png" },
+          body: photo
+        }
+      );
+      assert.equal(upload.status, 201);
+      const attachment = await upload.json();
+      const photoMistake = await createMistake(baseUrl, {
+        question: "",
+        correctAnswer: "28.26 平方厘米",
+        knowledgePoint: "圆",
+        errorType: "读题不完整",
+        attachmentIds: [attachment.id]
+      });
+
+      const queueResponse = await fetch(`${baseUrl}/api/eink/queue`);
+      assert.equal(queueResponse.status, 200);
+      assert.equal(queueResponse.headers.get("content-encoding"), null);
+      assert.equal(queueResponse.headers.get("x-content-type-options"), "nosniff");
+      const queue = await queueResponse.json();
+      assert.equal(queue.count, 3);
+      assert.equal(queue.items.length, 3);
+      assert.match(queue.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+      assert.deepEqual(
+        queue.items.map((item) => item.index),
+        [1, 2, 3]
+      );
+      assert.equal(
+        queue.items.find((item) => item.id === multipart.id).partCount,
+        2
+      );
+      assert.equal(
+        queue.items.find((item) => item.id === photoMistake.id).hasPhoto,
+        true
+      );
+      for (const item of queue.items) {
+        assert.deepEqual(
+          Object.keys(item).sort(),
+          ["hasPhoto", "id", "index", "kp", "partCount"]
+        );
+      }
+
+      const limited = await (
+        await fetch(`${baseUrl}/api/eink/queue?limit=1`)
+      ).json();
+      assert.equal(limited.count, 3);
+      assert.equal(limited.items.length, 1);
+      assert.equal(limited.items[0].index, 1);
+      for (const limit of ["0", "21", "abc", "1.5", ""]) {
+        const response = await fetch(
+          `${baseUrl}/api/eink/queue?limit=${limit}`
+        );
+        assert.equal(response.status, 400);
+        assert.equal(response.headers.get("content-encoding"), null);
+        assert.equal((await response.json()).error.length > 0, true);
+      }
+
+      const page = await fetch(
+        `${baseUrl}/api/eink/page?id=${textMistake.id}`
+      );
+      assert.equal(page.status, 200);
+      assert.equal(
+        page.headers.get("content-type"),
+        "application/octet-stream"
+      );
+      assert.equal(page.headers.get("content-length"), "48000");
+      assert.equal(page.headers.get("content-encoding"), null);
+      assert.equal(page.headers.get("cache-control"), "no-transform");
+      assert.equal(page.headers.get("x-content-type-options"), "nosniff");
+      const etag = page.headers.get("etag");
+      assert.match(etag, /^"[0-9a-f]{64}"$/);
+      assert.equal(page.headers.get("x-etag"), etag);
+      const frame = Buffer.from(await page.arrayBuffer());
+      assert.equal(frame.length, 48_000);
+
+      const cached = await fetch(
+        `${baseUrl}/api/eink/page?id=${textMistake.id}`,
+        { headers: { "If-None-Match": etag } }
+      );
+      assert.equal(cached.status, 304);
+      assert.equal(cached.headers.get("content-length"), null);
+      assert.equal((await cached.arrayBuffer()).byteLength, 0);
+
+      const previewResponse = await fetch(
+        `${baseUrl}/api/eink/preview?id=${textMistake.id}`
+      );
+      assert.equal(previewResponse.headers.get("cache-control"), "no-store");
+      const preview = await previewPixels(previewResponse);
+      assert.equal(preview.width, EINK_WIDTH);
+      assert.equal(preview.height, EINK_HEIGHT);
+      assertFrameMatchesPixels(
+        frame,
+        preview.width,
+        preview.height,
+        preview.pixels
+      );
+
+      const update = await fetch(
+        `${baseUrl}/api/mistakes/${textMistake.id}/update`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": "eink-answer-change-1"
+          },
+          body: JSON.stringify({
+            question: textMistake.question,
+            studentAnswer: "18.84",
+            correctAnswer: "28.26",
+            analysis: "先平方半径，再乘圆周率。",
+            knowledgePoint: "圆",
+            errorType: "忘记平方"
+          })
+        }
+      );
+      assert.equal(update.status, 200);
+      const answer = await fetch(
+        `${baseUrl}/api/eink/page?id=${textMistake.id}&mode=answer`
+      );
+      assert.equal(answer.status, 200);
+      assert.notEqual(answer.headers.get("etag"), etag);
+      assert.equal((await answer.arrayBuffer()).byteLength, 48_000);
+
+      const photoPage = await fetch(
+        `${baseUrl}/api/eink/page?id=${photoMistake.id}`
+      );
+      assert.equal(photoPage.status, 200);
+      const photoEtag = photoPage.headers.get("etag");
+      assert.equal((await photoPage.arrayBuffer()).byteLength, 48_000);
+
+      const cropBuffer = createCanvas(120, 64)
+        .toBuffer("image/png");
+      const cropped = await fetch(
+        `${baseUrl}/api/attachments/${attachment.id}/crop`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "image/png",
+            "X-Crop-X": "20",
+            "X-Crop-Y": "20",
+            "X-Crop-Width": "240",
+            "X-Crop-Height": "128",
+            "X-Crop-Rotation": "0",
+            "X-Crop-Source-Width": "480",
+            "X-Crop-Source-Height": "260"
+          },
+          body: cropBuffer
+        }
+      );
+      assert.equal(cropped.status, 200);
+      const afterCrop = await fetch(
+        `${baseUrl}/api/eink/page?id=${photoMistake.id}`
+      );
+      assert.equal(afterCrop.status, 200);
+      assert.notEqual(afterCrop.headers.get("etag"), photoEtag);
+      await afterCrop.arrayBuffer();
+
+      const photoFiles = fs.readdirSync(attachmentsDirectory);
+      for (const filename of photoFiles) {
+        fs.unlinkSync(path.join(attachmentsDirectory, filename));
+      }
+      const invalidatePhotoPage = await fetch(
+        `${baseUrl}/api/mistakes/${photoMistake.id}/update`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": "eink-photo-fallback-1"
+          },
+          body: JSON.stringify({
+            question: "附件缺失后的文字回退题",
+            studentAnswer: "",
+            correctAnswer: "28.26 平方厘米",
+            analysis: "附件文件缺失时应继续显示文字页。",
+            knowledgePoint: "圆",
+            errorType: "读题不完整",
+            attachmentIds: [attachment.id]
+          })
+        }
+      );
+      assert.equal(invalidatePhotoPage.status, 200);
+      const fallback = await fetch(
+        `${baseUrl}/api/eink/page?id=${photoMistake.id}`
+      );
+      assert.equal(fallback.status, 200);
+      assert.equal(
+        fallback.headers.get("content-type"),
+        "application/octet-stream"
+      );
+      assert.equal((await fallback.arrayBuffer()).byteLength, 48_000);
+
+      for (const query of [
+        "id=abc",
+        "id=0",
+        `id=${textMistake.id}&mode=hint`,
+        `id=${textMistake.id}&mode=QUESTION`
+      ]) {
+        const response = await fetch(`${baseUrl}/api/eink/page?${query}`);
+        assert.equal(response.status, 400);
+        assert.match(
+          response.headers.get("content-type"),
+          /^application\/json/
+        );
+        await response.arrayBuffer();
+      }
+      const missing = await fetch(`${baseUrl}/api/eink/page?id=999999`);
+      assert.equal(missing.status, 404);
+      assert.match(missing.headers.get("content-type"), /^application\/json/);
+      assert.equal((await missing.json()).code, "MISTAKE_NOT_FOUND");
+
+      const persistedLog = `${stdout}\n${stderr}`;
+      assert.match(persistedLog, /\[eink\]/);
+      assert.match(persistedLog, /warning=EINK_PHOTO_FALLBACK/);
+      assert.doesNotMatch(persistedLog, /28\.26|18\.84/);
+      assert.doesNotMatch(persistedLog, /storageKey|cropStorageKey/);
+    } finally {
+      await stopServer(child);
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
+);
+
+test("服务从缓存复用同一帧，且只读请求不写入学习数据", async () => {
+  const repository = new LearningRepository();
+  const store = new AttachmentStore({
+    directory: repository.attachmentDirectory || fs.mkdtempSync(
+      path.join(os.tmpdir(), "math-coach-eink-store-")
+    )
+  });
+  const mistake = repository.createMistake({
+    question: "求 3/4 的 20%。",
+    studentAnswer: "20%",
+    correctAnswer: "15%",
+    analysis: "先算 3/4，再乘 20%。",
+    knowledgePoint: "百分数",
+    errorType: "计算错误"
+  });
+  const before = repository.db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM attempts) AS attempts,
+        (SELECT COUNT(*) FROM hint_events) AS hints,
+        (SELECT COUNT(*) FROM review_schedule) AS schedules`
+    )
+    .get();
+  const service = new EinkPageService({
+    repository,
+    attachmentStore: store
+  });
+  const first = await service.getPage({
+    id: mistake.id,
+    mode: "question"
+  });
+  const second = await service.getPage({
+    id: mistake.id,
+    mode: "question"
+  });
+  assert.equal(first.cacheHit, false);
+  assert.equal(second.cacheHit, true);
+  assert.equal(first.frame, second.frame);
+  assert.equal(first.png, second.png);
+  assert.equal(first.etag, second.etag);
+  const after = repository.db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM attempts) AS attempts,
+        (SELECT COUNT(*) FROM hint_events) AS hints,
+        (SELECT COUNT(*) FROM review_schedule) AS schedules`
+    )
+    .get();
+  assert.deepEqual(after, before);
+  repository.close();
+});
