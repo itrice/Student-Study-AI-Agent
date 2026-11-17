@@ -25,12 +25,19 @@ import {
   saveAttachmentCrop
 } from "./attachment-crop.js";
 import { createVisionExtractorFromEnvironment } from "./llm/vision.js";
+import {
+  parseDateKey,
+  parseMonthKey,
+  shanghaiDateKey,
+  shanghaiMonthKey
+} from "./feedback-calendar.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, "..");
 loadEnvFile(path.join(projectRoot, ".env"));
 const publicDir = path.join(projectRoot, "public");
 const port = Number(process.env.PORT || 3000);
+const serverStartedAt = new Date().toISOString();
 const host = process.env.HOST || "127.0.0.1";
 const databasePath =
   process.env.DB_PATH || path.join(projectRoot, "data", "learning.sqlite");
@@ -459,12 +466,46 @@ async function handleMistakeUpdate(request, response, mistakeId) {
   });
 }
 
+let buildInfoPromise;
+async function getBuildInfo() {
+  if (!buildInfoPromise) {
+    buildInfoPromise = Promise.all([
+      fs.readFile(path.join(currentDir, "server.js")),
+      fs.readFile(path.join(publicDir, "app.js")),
+      fs.readFile(path.join(publicDir, "index.html"))
+    ])
+      .then(([serverSource, appSource, indexSource]) => ({
+        server: createHash("sha256")
+          .update(serverSource)
+          .digest("hex")
+          .slice(0, 12),
+        appJs: createHash("sha256").update(appSource).digest("hex").slice(0, 12),
+        indexHtml: createHash("sha256")
+          .update(indexSource)
+          .digest("hex")
+          .slice(0, 12)
+      }))
+      .catch(() => null);
+  }
+  return buildInfoPromise;
+}
+
 async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     return sendJson(response, 200, {
       ok: true,
+      appVersion: process.env.APP_VERSION || null,
+      startedAt: serverStartedAt,
       schemaVersion: repository.getSchemaVersion(),
-      toolCount: learningTools.listTools("ui").length
+      toolCount: learningTools.listTools("ui").length,
+      build: await getBuildInfo(),
+      capabilities: {
+        mistakeUpdate: {
+          postUpdate: "/api/mistakes/:id/update",
+          patch: "/api/mistakes/:id"
+        },
+        feedbackCalendar: true
+      }
     });
   }
 
@@ -775,6 +816,40 @@ async function handleApi(request, response, url) {
           url.searchParams.get("knowledgePoint")
         ),
         at: new Date().toISOString(),
+        studentId: student?.id || null
+      })
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/feedback/calendar") {
+    const rawMonth = String(url.searchParams.get("month") || "").trim();
+    if (rawMonth && !parseMonthKey(rawMonth)) {
+      throw new HttpError(400, "月份格式应为 YYYY-MM");
+    }
+    const month = rawMonth || shanghaiMonthKey();
+    const student = repository.getStudent();
+    return sendJson(
+      response,
+      200,
+      repository.buildFeedbackCalendar({
+        month,
+        studentId: student?.id || null
+      })
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/feedback/day") {
+    const rawDate = String(url.searchParams.get("date") || "").trim();
+    if (rawDate && !parseDateKey(rawDate)) {
+      throw new HttpError(400, "日期格式应为 YYYY-MM-DD");
+    }
+    const date = rawDate || shanghaiDateKey();
+    const student = repository.getStudent();
+    return sendJson(
+      response,
+      200,
+      repository.buildFeedbackDay({
+        date,
         studentId: student?.id || null
       })
     );

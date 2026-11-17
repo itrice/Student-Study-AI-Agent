@@ -2,6 +2,42 @@
 
 本文件记录项目的重要变更。
 
+## v0.15
+
+### Changed
+
+- UI 辅助文字、状态标签、按钮辅助文案和反馈日历日期/统计字号统一提升到 15px，正文保持 16px 以上。
+- 反馈日历日期格增加 44px 最小宽度；移动端压缩日历卡片内边距和格间距，390×844 下实测日期格 46.58×63px，三档验收尺寸均无横向溢出。
+
+### Added
+
+- `GET /api/health` 新增 `appVersion`、`startedAt`、`build.server/appJs/indexHtml` 指纹和 `capabilities.mistakeUpdate` 路由能力，用于识别正式实例版本与静态资源是否错配。
+
+### Fixed
+
+- 修改错题保存时，对任意 404/405 路由缺失都回退到 `PATCH /api/mistakes/:id`；两种接口都缺失时给出“服务端版本可能不一致”的可操作提示。
+- 新增兼容性回归测试，覆盖 POST `/update`、PATCH、健康检查能力声明和前端回退路径。
+
+### Verified
+
+- `node --test`：204 pass / 0 fail。
+- 隔离实例实测 `POST /api/mistakes/8/update` 与 `PATCH /api/mistakes/8` 均返回 200；UI 修改保存成功并提示“错题信息已更新”。
+
+## v0.14
+
+### Added
+
+- 学习反馈新增“打卡记录”全宽月历：默认当前月，可切换上/下月并回到本月，未来日期与月份置灰不可进入。
+- 月历汇总显示本月打卡天数、完成题数和正确题数；每天显示完成/正确题数，当天高亮。
+- 今日小结新增“查看今日完成情况”，点击今天或任意日历日期打开统一的“X月X日完成情况”弹窗。
+- 弹窗按最近作答时间列出当天做过的题，同题多次作答聚合一行，显示知识点/教材单元、作答次数、提示次数、最近结果和时间。
+- 新增 `GET /api/feedback/calendar?month=YYYY-MM` 与 `GET /api/feedback/day?date=YYYY-MM-DD`；统计按 Asia/Shanghai 自然日与当前学生计算，不返回答案或提示正文。
+
+### Verified
+
+- 新增 `test/feedback-calendar.test.js` 与 `test/feedback-calendar-ui.test.js`，覆盖空月、跨月边界、同题聚合、最近一次决定正确、partial 不计正确、日明细与月历一致、无答案泄露、未来日期禁用、44px 触控、Esc/焦点恢复。
+- 日/周报原有统计与 `/api/feedback/daily`、`/api/feedback/weekly` 行为保持不变。
+
 ## v0.13
 
 ### Changed

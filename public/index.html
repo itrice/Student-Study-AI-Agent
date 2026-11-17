@@ -11,7 +11,7 @@
     <title>子鱼学习AI · 全学科学习伙伴</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/ziyu-app-icon.svg" />
     <link rel="apple-touch-icon" href="/assets/brand/ziyu-app-icon.png" />
-    <link rel="stylesheet" href="/styles.css?v=20261116-21" />
+    <link rel="stylesheet" href="/styles.css?v=20261116-22" />
   </head>
   <body>
     <div class="app-shell">
@@ -592,6 +592,13 @@
               <div class="feedback-metrics" id="daily-metrics"></div>
               <div class="feedback-points" id="daily-points"></div>
               <p class="feedback-next" id="daily-next"></p>
+              <button
+                class="text-button calendar-today-link"
+                id="daily-detail-button"
+                type="button"
+              >
+                查看今日完成情况 ›
+              </button>
             </section>
 
             <section class="panel feedback-card">
@@ -608,6 +615,59 @@
               <div class="feedback-points" id="weekly-points"></div>
               <div class="feedback-changes" id="weekly-changes"></div>
               <div class="feedback-limitations" id="weekly-limitations"></div>
+            </section>
+
+            <section
+              class="panel feedback-card feedback-calendar-card"
+              id="feedback-calendar-card"
+              aria-labelledby="calendar-heading"
+            >
+              <div class="panel-heading">
+                <div>
+                  <span class="section-kicker">打卡记录</span>
+                  <h2 id="calendar-heading">学习打卡月历</h2>
+                </div>
+                <div class="calendar-toolbar" role="group" aria-label="切换月份">
+                  <button
+                    class="secondary-button calendar-nav-button"
+                    id="calendar-prev-month"
+                    type="button"
+                    aria-label="上个月"
+                  >
+                    上个月
+                  </button>
+                  <span
+                    class="calendar-month-label"
+                    id="calendar-month-label"
+                    aria-live="polite"
+                  ></span>
+                  <button
+                    class="secondary-button calendar-nav-button"
+                    id="calendar-next-month"
+                    type="button"
+                    aria-label="下个月"
+                  >
+                    下个月
+                  </button>
+                  <button
+                    class="text-button calendar-month-reset"
+                    id="calendar-current-month"
+                    type="button"
+                  >
+                    回到本月
+                  </button>
+                </div>
+              </div>
+              <p class="calendar-summary" id="calendar-summary" aria-live="polite"></p>
+              <div class="calendar-weekdays" aria-hidden="true">
+                <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+              </div>
+              <div
+                class="calendar-grid"
+                id="calendar-grid"
+                role="group"
+                aria-label="打卡月历日期"
+              ></div>
             </section>
           </div>
 
@@ -1095,7 +1155,38 @@
       </form>
     </dialog>
 
+    <dialog
+      id="day-detail-dialog"
+      class="day-detail-dialog"
+      aria-labelledby="day-detail-title"
+    >
+      <div class="dialog-header">
+        <div>
+          <span class="section-kicker">当日完成情况</span>
+          <h2 id="day-detail-title" tabindex="-1">今日完成情况</h2>
+        </div>
+        <button
+          class="icon-button day-detail-close"
+          id="day-detail-close-button"
+          type="button"
+          aria-label="关闭完成情况"
+        >
+          ×
+        </button>
+      </div>
+      <div class="dialog-body">
+        <div class="feedback-metrics day-detail-metrics" id="day-detail-metrics"></div>
+        <p class="day-detail-loading" id="day-detail-loading" hidden>
+          正在加载…
+        </p>
+        <div class="day-detail-list" id="day-detail-list"></div>
+        <p class="day-detail-empty" id="day-detail-empty" hidden>
+          这一天还没有作答记录
+        </p>
+      </div>
+    </dialog>
+
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
-    <script type="module" src="/app.js?v=20261116-21"></script>
+    <script type="module" src="/app.js?v=20261116-22"></script>
   </body>
 </html>

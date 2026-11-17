@@ -44,9 +44,22 @@ import {
   TEXTBOOK_BY_KEY,
   TEXTBOOK_CATALOGS
 } from "./curriculum/catalog.js";
+import {
+  shanghaiDateKey,
+  shanghaiDayBounds,
+  shanghaiMonthBounds
+} from "./feedback-calendar.js";
 
 const nowIso = () => new Date().toISOString();
 const toolWriteLeaseStorage = new AsyncLocalStorage();
+
+function normalizeAttemptOutcome(outcome, isCorrect) {
+  if (outcome === "correct") return "correct";
+  if (outcome === "partial") return "partial";
+  if (outcome === "incorrect") return "incorrect";
+  if (outcome === "ungraded") return "ungraded";
+  return isCorrect ? "correct" : "incorrect";
+}
 
 function safeRatio(numerator, denominator) {
   return denominator > 0 ? numerator / denominator : null;
@@ -5651,6 +5664,192 @@ export class LearningRepository {
     };
     const student = this.getStudent(studentId);
     return withTextbookScope(report, student?.textbook, "当前教材");
+  }
+
+  buildFeedbackCalendar({ month, studentId = null }) {
+    const bounds = shanghaiMonthBounds(month);
+    const student = this.getStudent(studentId);
+    const studentClause = student ? " AND m.student_id = ?" : "";
+    const parameters = student
+      ? [bounds.from, bounds.to, student.id]
+      : [bounds.from, bounds.to];
+    const attemptRows = this.db
+      .prepare(
+        `SELECT date(a.created_at, '+8 hours') AS day,
+          COUNT(*) AS attempt_count,
+          COUNT(DISTINCT a.mistake_id) AS completed_count
+         FROM attempts a
+         JOIN mistakes m ON m.id = a.mistake_id
+         WHERE a.created_at >= ? AND a.created_at < ?${studentClause}
+         GROUP BY day`
+      )
+      .all(...parameters);
+    const latestRows = this.db
+      .prepare(
+        `WITH ranked AS (
+          SELECT a.mistake_id,
+            date(a.created_at, '+8 hours') AS day,
+            a.outcome,
+            a.is_correct,
+            ROW_NUMBER() OVER (
+              PARTITION BY date(a.created_at, '+8 hours'), a.mistake_id
+              ORDER BY a.created_at DESC, a.id DESC
+            ) AS row_no
+          FROM attempts a
+          JOIN mistakes m ON m.id = a.mistake_id
+          WHERE a.created_at >= ? AND a.created_at < ?${studentClause}
+        )
+        SELECT day,
+          SUM(
+            CASE
+              WHEN outcome = 'correct' THEN 1
+              WHEN outcome IS NULL AND is_correct = 1 THEN 1
+              ELSE 0
+            END
+          ) AS correct_count
+        FROM ranked
+        WHERE row_no = 1
+        GROUP BY day`
+      )
+      .all(...parameters);
+    const hintRows = this.db
+      .prepare(
+        `SELECT date(h.created_at, '+8 hours') AS day,
+          COUNT(*) AS hint_count
+         FROM hint_events h
+         JOIN mistakes m ON m.id = h.mistake_id
+         WHERE h.created_at >= ? AND h.created_at < ?${studentClause}
+         GROUP BY day`
+      )
+      .all(...parameters);
+
+    const attemptByDay = new Map(
+      attemptRows.map((row) => [
+        row.day,
+        {
+          attemptCount: row.attempt_count,
+          completedCount: row.completed_count
+        }
+      ])
+    );
+    const correctByDay = new Map(
+      latestRows.map((row) => [row.day, row.correct_count])
+    );
+    const hintByDay = new Map(
+      hintRows.map((row) => [row.day, row.hint_count])
+    );
+
+    const days = bounds.days.map((date) => {
+      const attempt = attemptByDay.get(date) || {};
+      return {
+        date,
+        completedCount: attempt.completedCount || 0,
+        correctCount: correctByDay.get(date) || 0,
+        attemptCount: attempt.attemptCount || 0,
+        hintCount: hintByDay.get(date) || 0,
+        hasActivity: (attempt.attemptCount || 0) > 0
+      };
+    });
+    const summary = days.reduce(
+      (total, day) => ({
+        checkInDays: total.checkInDays + (day.hasActivity ? 1 : 0),
+        completedCount: total.completedCount + day.completedCount,
+        correctCount: total.correctCount + day.correctCount
+      }),
+      { checkInDays: 0, completedCount: 0, correctCount: 0 }
+    );
+
+    return {
+      month,
+      today: shanghaiDateKey(),
+      days,
+      summary
+    };
+  }
+
+  buildFeedbackDay({ date, studentId = null }) {
+    const bounds = shanghaiDayBounds(date);
+    const student = this.getStudent(studentId);
+    const studentClause = student ? " AND m.student_id = ?" : "";
+    const parameters = student
+      ? [bounds.from, bounds.to, student.id]
+      : [bounds.from, bounds.to];
+    const rows = this.db
+      .prepare(
+        `SELECT a.mistake_id,
+          a.created_at,
+          a.outcome,
+          a.is_correct,
+          m.question,
+          m.knowledge_point,
+          m.curriculum_status,
+          m.curriculum_point_id,
+          cp.unit_id,
+          tu.title AS unit_title,
+          tu.teaching_unit_no
+         FROM attempts a
+         JOIN mistakes m ON m.id = a.mistake_id
+         LEFT JOIN curriculum_points cp ON cp.id = m.curriculum_point_id
+         LEFT JOIN textbook_units tu ON tu.id = cp.unit_id
+         WHERE a.created_at >= ? AND a.created_at < ?${studentClause}
+         ORDER BY a.created_at DESC, a.id DESC`
+      )
+      .all(...parameters);
+    const hintRows = this.db
+      .prepare(
+        `SELECT h.mistake_id, COUNT(*) AS hint_count
+         FROM hint_events h
+         JOIN mistakes m ON m.id = h.mistake_id
+         WHERE h.created_at >= ? AND h.created_at < ?${studentClause}
+         GROUP BY h.mistake_id`
+      )
+      .all(...parameters);
+    const hintByMistake = new Map(
+      hintRows.map((row) => [row.mistake_id, row.hint_count])
+    );
+
+    const grouped = new Map();
+    for (const row of rows) {
+      if (!grouped.has(row.mistake_id)) {
+        const unitMapped =
+          row.curriculum_status === "mapped" &&
+          Boolean(row.curriculum_point_id) &&
+          Boolean(row.unit_title);
+        grouped.set(row.mistake_id, {
+          mistakeId: row.mistake_id,
+          question: row.question,
+          knowledgePoint: row.knowledge_point || "待归类",
+          unitTitle: unitMapped ? row.unit_title : "",
+          teachingUnitNo: unitMapped ? row.teaching_unit_no ?? null : null,
+          unitMapped,
+          attemptCount: 0,
+          hintCount: hintByMistake.get(row.mistake_id) || 0,
+          lastOutcome: normalizeAttemptOutcome(row.outcome, row.is_correct),
+          lastAt: row.created_at
+        });
+      }
+      grouped.get(row.mistake_id).attemptCount += 1;
+    }
+
+    const items = [...grouped.values()].sort((left, right) =>
+      right.lastAt.localeCompare(left.lastAt)
+    );
+    const correctCount = items.filter(
+      (item) => item.lastOutcome === "correct"
+    ).length;
+    return {
+      date,
+      summary: {
+        completedCount: items.length,
+        attemptCount: items.reduce(
+          (sum, item) => sum + item.attemptCount,
+          0
+        ),
+        correctCount,
+        needsCorrectionCount: items.length - correctCount
+      },
+      items
+    };
   }
 
   buildWeeklyReport({
