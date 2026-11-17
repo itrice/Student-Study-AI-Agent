@@ -152,3 +152,23 @@ test("知识库检索结果提供返回默认视图的重置入口", () => {
   assert.match(app, /"返回默认视图"/);
   assert.match(app, /state\.knowledgeSearchRequest \+= 1/);
 });
+
+test("日总结正文只使用 sentences，不重复拼接 headline", () => {
+  const app = fs.readFileSync(
+    new URL("../public/app.js", import.meta.url),
+    "utf8"
+  );
+  const start = app.indexOf("if (daily) {");
+  assert.notEqual(start, -1);
+  const end = app.indexOf("if (weekly) {", start);
+  assert.notEqual(end, -1);
+  const block = app.slice(start, end);
+  assert.equal((block.match(/headline/g) || []).length, 1);
+  assert.doesNotMatch(block, /\.\.\.sentences/);
+  assert.match(
+    block,
+    /const sentences = \(daily\.childSummary\?\.sentences \|\| \[\]\)\.filter\(Boolean\);/
+  );
+  assert.match(block, /#daily-copy"\)\.textContent = sentences\.length/);
+  assert.match(block, /sentences\.join\(" "\)/);
+});

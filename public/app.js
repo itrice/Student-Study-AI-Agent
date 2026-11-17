@@ -2988,13 +2988,10 @@ function renderFeedback() {
       weekday: "long"
     }).format(new Date(daily.period.from));
     $("#daily-status-pill").textContent = daily.hasData ? "有记录" : "暂无记录";
-    const sentences = daily.childSummary?.sentences || [];
-    $("#daily-copy").textContent = [
-      daily.childSummary?.headline || "",
-      ...sentences
-    ]
-      .filter(Boolean)
-      .join(" ");
+    const sentences = (daily.childSummary?.sentences || []).filter(Boolean);
+    $("#daily-copy").textContent = sentences.length
+      ? sentences.join(" ")
+      : daily.childSummary?.headline || "";
     renderFeedbackScope("#daily-scope", daily);
     renderFeedbackMetrics("#daily-metrics", [
       {
