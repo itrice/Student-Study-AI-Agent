@@ -35,6 +35,8 @@ const DOCUMENTED_PATHS = [
   "/api/learning-data",
   "/api/feedback/daily",
   "/api/feedback/weekly",
+  "/api/feedback/calendar",
+  "/api/feedback/day",
   "/api/knowledge-points",
   "/api/knowledge-base",
   "/api/knowledge-base/search",
@@ -130,6 +132,26 @@ function pathParameters(template) {
   return [...template.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]);
 }
 
+function normalizeRoutePath(pathname) {
+  return pathname.replace(/\/+$/, "").replace(/\{[^}]+\}/g, "{param}");
+}
+
+function collectServerRoutePaths(source) {
+  const routes = new Set();
+  for (const match of source.matchAll(/url\.pathname\s*===\s*"(\/api\/[^"]+)"/g)) {
+    routes.add(normalizeRoutePath(match[1]));
+  }
+  for (const match of source.matchAll(
+    /url\.pathname\.match\(\s*\/\^([^\n]+?)\$\/?\s*\)/g
+  )) {
+    const converted = match[1]
+      .replace(/\\\//g, "/")
+      .replace(/\((?:\?:)?[^)]*\)/g, "{param}");
+    routes.add(normalizeRoutePath(converted));
+  }
+  return routes;
+}
+
 test(
   "OpenAPI 契约和交互式 API 文档可离线使用",
   { timeout: 30_000 },
@@ -182,7 +204,7 @@ test(
       assert.equal(Object.keys(document.paths).length, DOCUMENTED_PATHS.length);
 
       const operations = collectOperations(document);
-      assert.equal(operations.length, 45);
+      assert.equal(operations.length, 47);
       const operationIds = operations.map(
         ({ operation }) => operation.operationId
       );
@@ -235,6 +257,89 @@ test(
         document.paths["/api/attachments"].post.requestBody.required,
         true
       );
+      assert.equal(
+        document.paths["/api/feedback/calendar"].get.parameters[0].schema
+          .pattern,
+        "^\\d{4}-\\d{2}$"
+      );
+      assert.equal(
+        document.paths["/api/feedback/day"].get.parameters[0].schema.format,
+        "date"
+      );
+
+      const calendarResponse = await fetch(
+        `${baseUrl}/api/feedback/calendar?month=2026-11`
+      );
+      assert.equal(calendarResponse.status, 200);
+      const calendar = await calendarResponse.json();
+      assert.equal(calendar.month, "2026-11");
+      assert.match(calendar.today, /^\d{4}-\d{2}-\d{2}$/);
+      assert.ok(Array.isArray(calendar.days) && calendar.days.length > 0);
+      assert.deepEqual(Object.keys(calendar.summary).sort(), [
+        "checkInDays",
+        "completedCount",
+        "correctCount"
+      ]);
+
+      const dayResponse = await fetch(
+        `${baseUrl}/api/feedback/day?date=2026-11-15`
+      );
+      assert.equal(dayResponse.status, 200);
+      const day = await dayResponse.json();
+      assert.equal(day.date, "2026-11-15");
+      assert.ok(Array.isArray(day.items));
+      assert.deepEqual(Object.keys(day.summary).sort(), [
+        "attemptCount",
+        "completedCount",
+        "correctCount",
+        "needsCorrectionCount"
+      ]);
+
+      for (const invalidPath of [
+        "/api/feedback/calendar?month=2026-13",
+        "/api/feedback/day?date=2026-02-30"
+      ]) {
+        const invalid = await fetch(`${baseUrl}${invalidPath}`);
+        assert.equal(invalid.status, 400, `${invalidPath} 应返回 400`);
+      }
+
+      for (const trailingPath of [
+        "/api/health/",
+        "/api/mistakes/",
+        "/api/feedback/daily/",
+        "/api/feedback/weekly/",
+        "/api/feedback/calendar/?month=2026-11",
+        "/api/feedback/day/?date=2026-11-15",
+        "/api/review/queue/?limit=1"
+      ]) {
+        const normalized = await fetch(`${baseUrl}${trailingPath}`);
+        assert.equal(normalized.status, 200, `${trailingPath} 应正常工作`);
+      }
+
+      const normalizedPost = await fetch(`${baseUrl}/api/diagnose/`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}"
+      });
+      assert.equal(normalizedPost.status, 400);
+      assert.notEqual(normalizedPost.status, 404);
+
+      for (const [aliasPath, canonicalPath] of [
+        ["/api", "/api/docs"],
+        ["/api/", "/api/docs"],
+        ["/api-docs", "/api/docs"],
+        ["/api-docs/", "/api/docs"],
+        ["/docs", "/api/docs"],
+        ["/docs/", "/api/docs"],
+        ["/openapi.json", "/api/openapi.json"],
+        ["/openapi.json/", "/api/openapi.json"]
+      ]) {
+        const redirected = await fetch(`${baseUrl}${aliasPath}`, {
+          redirect: "manual"
+        });
+        assert.equal(redirected.status, 308, `${aliasPath} 应重定向`);
+        assert.equal(redirected.headers.get("location"), canonicalPath);
+      }
 
       const forwarded = await fetch(`${baseUrl}/api/openapi.json`, {
         headers: {
@@ -301,6 +406,8 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   assert.match(document.info.description, /第三方/);
   assert.match(document.info.description, /Idempotency-Key/);
   assert.match(document.info.description, /未内置账号体系|无内置鉴权|鉴权/);
+  assert.match(document.info.description, /尾斜杠/);
+  assert.equal(document.info.version, "0.16.0");
   assert.equal(document.servers[0].url, "https://example.test");
   assert.deepEqual(
     TAGS.map((tag) => tag.name),
@@ -312,6 +419,29 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   );
   assert.equal(
     collectOperations(document).length,
-    45
+    47
+  );
+});
+
+test("OpenAPI paths 与服务端已注册 API 路由双向覆盖", async () => {
+  const { buildOpenApiDocument } = await import("../src/openapi.js");
+  const serverSource = fs.readFileSync(
+    path.join(projectRoot, "src/server.js"),
+    "utf8"
+  );
+  const registered = collectServerRoutePaths(serverSource);
+  const documented = new Set(
+    Object.keys(buildOpenApiDocument().paths).map(normalizeRoutePath)
+  );
+
+  assert.deepEqual(
+    [...registered].filter((route) => !documented.has(route)).sort(),
+    [],
+    "存在已注册但未写入 OpenAPI paths 的路由"
+  );
+  assert.deepEqual(
+    [...documented].filter((route) => !registered.has(route)).sort(),
+    [],
+    "OpenAPI paths 中存在服务端未注册的路由"
   );
 });
