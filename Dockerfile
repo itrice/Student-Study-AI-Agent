@@ -12,7 +12,13 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-COPY --chown=node:node package.json ./
+COPY --chown=node:node package.json pnpm-lock.yaml ./
+
+RUN corepack enable \
+    && corepack prepare pnpm@11.25.0 --activate \
+    && pnpm install --prod --frozen-lockfile \
+    && chown -R node:node /app/node_modules
+
 COPY --chown=node:node src ./src
 COPY --chown=node:node public ./public
 COPY --chown=node:node scripts ./scripts

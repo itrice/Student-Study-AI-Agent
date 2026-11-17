@@ -2,6 +2,45 @@
 
 本文件记录项目的重要变更。
 
+## v0.17
+
+### Added
+
+- 新增 `GET /api/eink/queue`：返回全部到期数量和最多 20 条最小摘要，不包含题干、
+  答案、提示、附件内容或附件 URL。
+- 新增 `GET /api/eink/page`：返回固定 800×480、48000 字节的 1bpp 设备帧；
+  每行 100 字节、MSB 在左、0=黑、1=白，不压缩。
+- 新增强 ETag、兼容头 `X-Etag` 和 `If-None-Match` 304 响应；ETag 基于最终帧内容，
+  答案、小问、附件、裁剪或布局变化都会失效。
+- 新增 `GET /api/eink/preview`：返回与设备帧逐像素一致的 800×480 PNG。
+- 新增文字页、多小问答案页、整页照片页和附件缺失文字回退；照片区固定为
+  788×420（`x=6..794、y=56..476`），不画分隔线、页脚或电量区。
+- 新增随仓库打包的 Noto Sans SC Regular/Bold 与 SIL OFL 1.1 许可证。
+- 新增 `@napi-rs/canvas` 预编译图像工具链、32 页 LRU 缓存和本地照片
+  白纸裁剪/局部自适应二值化。
+- 新增 `scripts/generate-eink-previews.mjs`，可复现 8 张分类预览和冷热耗时证据。
+- OpenAPI 新增三条墨水屏路径，API 契约升级为 v0.17.0。
+
+### Fixed
+
+- 修复临时渲染代码中 `exifr` ESM 导入不兼容导致渲染模块无法加载的问题。
+- 移除 `@napi-rs/canvas` 已自动完成的二次 EXIF 旋转，避免手机照片横竖错误。
+- 修复多小问答案页重复题干并把第二个小问截断的问题。
+
+### Changed
+
+- Docker 构建改为按 `pnpm-lock.yaml` 安装生产依赖；构建上下文重新包含锁文件。
+- 运行说明更新为需要先安装锁定依赖。
+
+### Verified
+
+- `node --test`：213 pass / 0 fail。
+- 电子墨水屏专项：5 pass / 0 fail。
+- HTTP 页帧 48000 字节、304 无 body、ETag 内容失效、预览逐像素一致、
+  EXIF 单次旋转、缺图回退和只读无写入均已验证。
+- 预览与耗时证据见 `docs/reports/eink-api-2026-11-17.md` 和
+  `docs/reports/eink-previews/`。
+
 ## v0.16
 
 ### Added

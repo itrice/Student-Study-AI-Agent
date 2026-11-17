@@ -1488,6 +1488,7 @@ const TAGS = [
   { name: "复习", description: "复习队列、分级提示与追问。" },
   { name: "知识库", description: "知识点统计、可追溯知识卡片与全文检索。" },
   { name: "反馈", description: "日总结、周报和家长可读报告。" },
+  { name: "墨水屏", description: "匿名只读的到期队列、1bpp 整页帧和 PNG 预览。" },
   { name: "运维", description: "仪表盘、运营指标、演示数据与学习数据删除。" }
 ];
 
@@ -2536,6 +2537,183 @@ Object.assign(paths, {
       }
     }
   },
+  "/api/eink/queue": {
+    get: {
+      tags: ["墨水屏"],
+      summary: "读取墨水屏到期队列",
+      description:
+        "返回全部到期错题数和最多 20 条最小摘要，不返回题干、答案、提示、附件内容或附件 URL。响应不得压缩。",
+      operationId: "getEinkQueue",
+      parameters: [
+        {
+          name: "limit",
+          in: "query",
+          required: false,
+          description: "返回条数，缺省 20",
+          schema: {
+            type: "integer",
+            minimum: 1,
+            maximum: 20,
+            default: 20
+          }
+        }
+      ],
+      responses: {
+        200: jsonResponse(
+          "到期队列",
+          {
+            type: "object",
+            required: ["count", "updatedAt", "items"],
+            properties: {
+              count: {
+                type: "integer",
+                minimum: 0,
+                description: "全部到期错题数，不是 items.length"
+              },
+              updatedAt: { type: "string", format: "date-time" },
+              items: {
+                type: "array",
+                maxItems: 20,
+                items: {
+                  type: "object",
+                  required: ["id", "index", "hasPhoto", "partCount"],
+                  properties: {
+                    id: { type: "integer", minimum: 1 },
+                    index: { type: "integer", minimum: 1 },
+                    kp: { type: "string" },
+                    hasPhoto: { type: "boolean" },
+                    partCount: { type: "integer", minimum: 1 }
+                  },
+                  additionalProperties: false
+                }
+              }
+            },
+            additionalProperties: false
+          },
+          {
+            count: 16,
+            updatedAt: "2026-11-17T10:00:00.000Z",
+            items: [
+              {
+                id: 9,
+                index: 1,
+                kp: "圆",
+                hasPhoto: false,
+                partCount: 1
+              }
+            ]
+          }
+        ),
+        400: errorResponse("limit 不是 1～20 的整数")
+      }
+    }
+  },
+  "/api/eink/page": {
+    get: {
+      tags: ["墨水屏"],
+      summary: "读取 800×480 1bpp 设备帧",
+      description:
+        "固定返回 48000 字节裸帧：每行 100 字节、MSB 在左、0=黑、1=白，不压缩。带 If-None-Match 命中时返回 304。",
+      operationId: "getEinkPage",
+      parameters: [
+        {
+          name: "id",
+          in: "query",
+          required: true,
+          description: "错题编号",
+          schema: { type: "integer", minimum: 1 }
+        },
+        {
+          name: "mode",
+          in: "query",
+          required: false,
+          description: "页面模式，缺省 question",
+          schema: {
+            type: "string",
+            enum: ["question", "answer"],
+            default: "question"
+          }
+        },
+        {
+          name: "If-None-Match",
+          in: "header",
+          required: false,
+          description: "上一次响应的强 ETag",
+          schema: { type: "string" }
+        }
+      ],
+      responses: {
+        200: {
+          description: "48000 字节无压缩设备帧",
+          headers: {
+            "Content-Length": {
+              description: "固定为 48000",
+              schema: { type: "integer", enum: [48000] }
+            },
+            ETag: {
+              description: "基于最终帧内容计算的强校验值",
+              schema: { type: "string" }
+            },
+            "X-Etag": {
+              description: "与 ETag 相同的兼容头",
+              schema: { type: "string" }
+            },
+            "Cache-Control": {
+              schema: { type: "string", enum: ["no-transform"] }
+            }
+          },
+          content: {
+            "application/octet-stream": {
+              schema: { type: "string", format: "binary" }
+            }
+          }
+        },
+        304: { description: "内容未变化，无响应体" },
+        400: errorResponse("id 或 mode 非法"),
+        404: errorResponse("错题不存在", {
+          error: "没有找到这道错题",
+          code: "MISTAKE_NOT_FOUND"
+        })
+      }
+    }
+  },
+  "/api/eink/preview": {
+    get: {
+      tags: ["墨水屏"],
+      summary: "读取设备帧对应的 PNG 预览",
+      description:
+        "返回 800×480 PNG，与同参数 page 帧逐像素一致；仅供人工查看和验收。",
+      operationId: "getEinkPreview",
+      parameters: [
+        {
+          name: "id",
+          in: "query",
+          required: true,
+          description: "错题编号",
+          schema: { type: "integer", minimum: 1 }
+        },
+        {
+          name: "mode",
+          in: "query",
+          required: false,
+          description: "页面模式，缺省 question",
+          schema: {
+            type: "string",
+            enum: ["question", "answer"],
+            default: "question"
+          }
+        }
+      ],
+      responses: {
+        200: binaryResponse("与设备帧逐像素一致的 PNG 预览", "image/png"),
+        400: errorResponse("id 或 mode 非法"),
+        404: errorResponse("错题不存在", {
+          error: "没有找到这道错题",
+          code: "MISTAKE_NOT_FOUND"
+        })
+      }
+    }
+  },
   "/api/operations/metrics": {
     get: {
       tags: ["运维"],
@@ -2649,7 +2827,7 @@ const INFO_DESCRIPTION = [
 
 export function buildOpenApiDocument({
   baseUrl = "/",
-  version = "0.16.0"
+  version = "0.17.0"
 } = {}) {
   return {
     openapi: "3.1.0",

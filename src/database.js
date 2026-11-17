@@ -4246,6 +4246,92 @@ export class LearningRepository {
       );
   }
 
+  getDueReviewQueue({ limit = 20, at = nowIso() } = {}) {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 20));
+    const total = Number(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM mistakes m
+           LEFT JOIN review_schedule rs
+             ON rs.mistake_id = m.id AND rs.active = 1
+           WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?`
+        )
+        .get(at).count
+    );
+    const items = this.db
+      .prepare(
+        `SELECT m.id,
+                COALESCE(k.name, m.knowledge_point) AS kp,
+                EXISTS(
+                  SELECT 1 FROM attachments a WHERE a.mistake_id = m.id
+                ) AS has_photo,
+                COALESCE((
+                  SELECT COUNT(*) FROM mistake_parts p
+                  WHERE p.mistake_id = m.id AND p.active = 1
+                ), 0) AS part_count
+         FROM mistakes m
+         LEFT JOIN knowledge_points k ON k.name = m.knowledge_point
+         LEFT JOIN review_schedule rs
+           ON rs.mistake_id = m.id AND rs.active = 1
+         WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
+         ORDER BY
+           CASE m.status
+             WHEN 'new' THEN 0
+             WHEN 'relearning' THEN 1
+             WHEN 'practicing' THEN 2
+             ELSE 3
+           END,
+           COALESCE(rs.next_review_at, m.due_at, m.created_at) ASC,
+           m.id ASC
+         LIMIT ?`
+      )
+      .all(at, safeLimit)
+      .map((row, index) => ({
+        id: row.id,
+        index: index + 1,
+        hasPhoto: Boolean(row.has_photo),
+        partCount: Math.max(1, Number(row.part_count) || 0),
+        ...(row.kp ? { kp: row.kp } : {})
+      }));
+    return { count: total, items };
+  }
+
+  getDueReviewPosition(id, { at = nowIso() } = {}) {
+    const row = this.db
+      .prepare(
+        `WITH due AS (
+           SELECT m.id,
+                  CASE m.status
+                    WHEN 'new' THEN 0
+                    WHEN 'relearning' THEN 1
+                    WHEN 'practicing' THEN 2
+                    ELSE 3
+                  END AS status_rank,
+                  COALESCE(rs.next_review_at, m.due_at, m.created_at) AS due_at
+           FROM mistakes m
+           LEFT JOIN review_schedule rs
+             ON rs.mistake_id = m.id AND rs.active = 1
+           WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
+         ),
+         numbered AS (
+           SELECT id,
+                  ROW_NUMBER() OVER (
+                    ORDER BY status_rank ASC, due_at ASC, id ASC
+                  ) AS position,
+                  COUNT(*) OVER () AS total
+           FROM due
+         )
+         SELECT position, total FROM numbered WHERE id = ?`
+      )
+      .get(at, id);
+    if (!row) return { index: 1, total: 1 };
+    return {
+      index: Number(row.position),
+      total: Number(row.total)
+    };
+  }
+
   recordAttempt(
     id,
     answer,

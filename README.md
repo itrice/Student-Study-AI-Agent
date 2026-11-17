@@ -20,6 +20,7 @@
 - 诊断、提示和作答评价只引用检索到的知识来源；覆盖不足时明确提示，不编造来源。
 - 建立 90 条 M7 评测与安全样本，覆盖知识点识别、错因诊断、提示有效性、步骤评价和提示注入。
 - 提供上下文长度、限流、模型异常降级、运营指标和全量学习数据删除能力。
+- 提供电子墨水屏只读队列、800×480 1bpp 设备帧、PNG 预览和 ETag/304 增量响应。
 - 数据默认保存在本机 SQLite 文件，不依赖云服务。
 
 M3 已接入 OpenAI-compatible LLM 网关、知识检索工具和结构化诊断，真实 DeepSeek 模型 30/30 题自测已通过并完成验收；
@@ -39,6 +40,9 @@ M7 已加入评测、安全与稳定性能力：90 条已标注评测样本、�
 M9.1 + M9.2 最小切片已完成：图片附件、人工裁剪、可选文字识别、人工确认、附件清理和
 包含原图与裁剪图的备份恢复已可用。本轮不包含图形推理、复杂手写公式识别和多图批注。
 
+电子墨水屏帧接口已完成：终端可直接读取到期队列和 48000 字节裸帧，服务端负责中文字体、
+照片方向纠正、白纸区域裁剪、局部自适应二值化、排序和预览；照片缺失时自动回退文字页。
+
 LLM 未配置时系统自动使用本地规则；配置方式、诊断链路和安全边界见
 [LLM 接入说明](docs/LLM_SETUP.md)。
 
@@ -49,27 +53,28 @@ LLM 未配置时系统自动使用本地规则；配置方式、诊断链路和�
 
 ## 运行
 
-需要 Node.js 22.5 或更高版本。
+需要 Node.js 22.5 或更高版本和 pnpm。
 
 ```powershell
-npm start
+pnpm install --frozen-lockfile
+node src/server.js
 ```
 
-打开 <http://127.0.0.1:3000>。项目没有第三方运行时依赖，不需要先执行 `npm install`。
+打开 <http://127.0.0.1:3000>。
 
-如果当前环境没有提供 `npm` 命令，也可以直接运行：
+如果当前环境通过 `pnpm start` 运行脚本，也可以使用等价命令：
 
 ```powershell
-node src/server.js
+pnpm start
 ```
 
 运行测试：
 
 ```powershell
-npm test
+node --test
 ```
 
-等价的直接运行方式是 `node --test`。
+等价脚本是 `pnpm test`。
 
 ## API 文档
 
@@ -82,7 +87,8 @@ npm test
 不依赖 CDN 或第三方运行时包。`/api/openapi.json` 可直接导入 Swagger Editor、
 Postman 或 Insomnia，也可用于生成客户端代码。
 
-当前 API 覆盖系统、教材、附件、错题、复习、知识库、反馈和运维共 42 条路径、47 个操作。
+当前 API 覆盖系统、教材、附件、错题、复习、知识库、反馈、墨水屏和运维共 45 条路径、
+50 个操作。
 正式路径不带尾斜杠；服务兼容 `/api/.../` 写法，并将 `/api`、`/api-docs`、`/docs`
 重定向到 `/api/docs`，将 `/openapi.json` 重定向到 `/api/openapi.json`。
 服务本身没有内置账号体系或 API Key，默认只监听 `127.0.0.1`；对第三方开放时，
@@ -92,6 +98,27 @@ Postman 或 Insomnia，也可用于生成客户端代码。
 写接口的幂等键放在 `Idempotency-Key` 请求头；错误统一返回
 `{ "error": "...", "code": "..." }`。`DELETE /api/learning-data` 会不可逆删除
 全部学习数据，调用前必须先备份。
+
+## 电子墨水屏接口
+
+三个接口均为匿名只读，不写学习数据：
+
+- `GET /api/eink/queue?limit=20`：全部到期数量和最多 20 条最小摘要；
+- `GET /api/eink/page?id=9&mode=question|answer`：恰好 48000 字节的设备帧；
+- `GET /api/eink/preview?id=9&mode=question|answer`：与设备帧逐像素一致的 PNG。
+
+设备帧每行 100 字节、共 480 行，MSB 在左，`0=黑`、`1=白`，不压缩。响应带强 `ETag`
+和兼容头 `X-Etag`；再次请求带上 `If-None-Match` 时，内容未变化返回无 body 的 `304`。
+照片题整页使用 `x=6..794、y=56..476` 的 788×420 区域，只保留页眉，不画分隔线和页脚。
+
+运行画面验收材料生成脚本：
+
+```powershell
+node scripts/generate-eink-previews.mjs
+```
+
+预览和冷热耗时证据写入 `docs/reports/eink-previews/`。实现和已知限制见
+[电子墨水屏接口说明](docs/eink/eink-frame-api.md)。
 
 运行知识库检索评测：
 

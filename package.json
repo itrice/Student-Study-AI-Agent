@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "面向六年级学生的数学错题诊断与掌握练习 MVP",
+  "packageManager": "pnpm@11.25.0",
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
@@ -12,6 +13,7 @@
     "backup:db": "node scripts/backup-database.mjs",
     "restore": "node scripts/restore-learning-data.mjs",
     "deploy:remote": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-remote.ps1",
+    "eink:previews": "node scripts/generate-eink-previews.mjs",
     "evaluate:knowledge": "node scripts/evaluate-m5-knowledge.js",
     "evaluate:m7": "node scripts/evaluate-m7.js"
   },
@@ -20,7 +22,6 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "1.1.1",
-    "exifr": "7.1.3",
     "lru-cache": "11.5.3"
   }
 }
