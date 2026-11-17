@@ -134,6 +134,9 @@ npm run dev
 
 ## Docker 部署
 
+完整的目标机部署、更新、验证、备份与回滚步骤见
+[docs/DEPLOYMENT_RUNBOOK.md](docs/DEPLOYMENT_RUNBOOK.md)。
+
 镜像只包含程序。SQLite 数据库不放进镜像，而是挂载到**运行容器的那台主机**的持久目录。
 重建镜像、升级版本或删除容器都不会影响数据。
 
