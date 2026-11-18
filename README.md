@@ -389,6 +389,7 @@ docs/TOOL_CONTRACTS.md
                      九项受控工具的输入、输出、权限和错误契约
 docs/M9_IMAGE_INTAKE.md
                      图片附件、人工裁剪、识别确认、附件生命周期和备份恢复契约
+docs/题库/           拍照批量导入、统一题库、产品设计、开发计划和 QA 验收计划
 docs/LLM_SETUP.md    LLM 环境配置、诊断链路和降级策略
 docs/KNOWLEDGE_BASE.md
                      知识库结构、来源、检索策略和扩展方式
