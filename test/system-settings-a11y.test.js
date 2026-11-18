@@ -159,9 +159,12 @@ test("知识点地图当前教材卡片：单行结构、审核胶囊与清晰�
   assert.match(css, /\.curriculum-current-icon\s*\{[^}]*width:\s*36px/s);
   assert.match(
     css,
-    /\.curriculum-current-name strong\s*\{[^}]*font-size:\s*16px/s
+    /\.curriculum-current-name strong\s*\{[^}]*font-size:\s*var\(--text-label\)/s
   );
-  assert.match(css, /\.curriculum-review-badge\s*\{[^}]*font-size:\s*15px/s);
+  assert.match(
+    css,
+    /\.curriculum-review-badge\s*\{[^}]*font-size:\s*var\(--text-label\)/s
+  );
   assert.match(
     css,
     /\.curriculum-review-badge\s*\{[^}]*border-radius:\s*999px/s

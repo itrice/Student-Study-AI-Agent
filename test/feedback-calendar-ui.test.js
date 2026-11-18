@@ -142,7 +142,7 @@ test("完成情况弹窗支持关闭按钮、Esc 与焦点返回", () => {
   assert.match(html, /<dialog[\s\S]*id="day-detail-dialog"/);
 });
 
-test("月历与弹窗满足 44px 触控、15px 字号与滚动边界", () => {
+test("月历与弹窗满足 44px 触控、16px 字号与滚动边界", () => {
   assert.match(
     css,
     /\.calendar-grid \{[\s\S]*?grid-template-columns: repeat\(7, minmax\(0, 1fr\)\)/
