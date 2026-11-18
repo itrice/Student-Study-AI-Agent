@@ -21,7 +21,7 @@
     "node": ">=22.5.0"
   },
   "dependencies": {
-    "@napi-rs/canvas": "1.1.1",
-    "lru-cache": "11.5.3"
+    "lru-cache": "11.5.3",
+    "sharp": "0.34.5"
   }
 }

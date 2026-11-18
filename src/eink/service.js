@@ -131,7 +131,7 @@ export class EinkPageService {
 
     let rendered;
     try {
-      rendered = this.renderer({
+      rendered = await this.renderer({
         mistake,
         mode,
         index,
@@ -141,7 +141,7 @@ export class EinkPageService {
     } catch (error) {
       if (!photo) throw error;
       warning = "EINK_PHOTO_FALLBACK";
-      rendered = this.renderer({
+      rendered = await this.renderer({
         mistake,
         mode,
         index,

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createCanvas } from "@napi-rs/canvas";
+import sharp from "sharp";
 import { LearningRepository } from "../src/database.js";
 import { AttachmentStore } from "../src/attachments.js";
 import { EinkPageService } from "../src/eink/service.js";
@@ -31,33 +31,24 @@ const attachmentStore = new AttachmentStore({
   directory: path.join(temporaryDirectory, "attachments")
 });
 
-function makeHomeworkPhoto() {
-  const canvas = createCanvas(960, 540);
-  const context = canvas.getContext("2d");
-  context.fillStyle = "#666";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "#f2f2f2";
-  context.fillRect(38, 28, canvas.width - 76, canvas.height - 56);
-  context.fillStyle = "#111";
-  context.font = '36px "Noto Sans SC"';
-  context.fillText("圆的半径是 3 厘米，求它的面积。", 88, 126);
-  context.fillText("要求：写出公式，计算时 π 取 3.14。", 88, 196);
-  context.strokeStyle = "#111";
-  context.lineWidth = 3;
-  context.beginPath();
-  context.arc(300, 382, 116, 0, Math.PI * 2);
-  context.stroke();
-  context.beginPath();
-  context.moveTo(300, 382);
-  context.lineTo(416, 382);
-  context.stroke();
-  context.font = '28px "Noto Sans SC"';
-  context.fillText("r = 3 cm", 352, 362);
-  return canvas.toBuffer("image/png");
+async function makeHomeworkPhoto() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="960" height="540">
+      <rect width="960" height="540" fill="#666"/>
+      <rect x="38" y="28" width="884" height="484" fill="#f2f2f2"/>
+      <g fill="#111" font-family="Noto Sans SC, Microsoft YaHei, sans-serif">
+        <text x="88" y="126" font-size="36">圆的半径是 3 厘米，求它的面积。</text>
+        <text x="88" y="196" font-size="36">要求：写出公式，计算时 π 取 3.14。</text>
+        <circle cx="300" cy="382" r="116" fill="none" stroke="#111" stroke-width="3"/>
+        <line x1="300" y1="382" x2="416" y2="382" stroke="#111" stroke-width="3"/>
+        <text x="352" y="362" font-size="28">r = 3 cm</text>
+      </g>
+    </svg>`;
+  return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-function addPhotoMistake(question, parts = []) {
-  const saved = attachmentStore.save(makeHomeworkPhoto(), {
+async function addPhotoMistake(question, parts = []) {
+  const saved = attachmentStore.save(await makeHomeworkPhoto(), {
     declaredMime: "image/png",
     originalName: "eink-homework.png"
   });
@@ -130,8 +121,8 @@ const multipart = repository.createMistake({
   ]
 });
 
-const photo = addPhotoMistake("");
-const multiPhoto = addPhotoMistake("观察图形并完成两个小问。", [
+const photo = await addPhotoMistake("");
+const multiPhoto = await addPhotoMistake("观察图形并完成两个小问。", [
   {
     label: "第1问",
     prompt: "图中圆的半径是多少？",
@@ -148,7 +139,7 @@ const multiPhoto = addPhotoMistake("观察图形并完成两个小问。", [
   }
 ]);
 
-const missing = addPhotoMistake("附件缺失时仍应回退到文字页。");
+const missing = await addPhotoMistake("附件缺失时仍应回退到文字页。");
 fs.unlinkSync(
   attachmentStore.storagePath(missing.storageKey)
 );

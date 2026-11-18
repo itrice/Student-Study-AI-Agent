@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { createCanvas, loadImage } from "@napi-rs/canvas";
+import sharp from "sharp";
 import { LearningRepository } from "../src/database.js";
 import { AttachmentStore } from "../src/attachments.js";
 import {
@@ -26,29 +26,28 @@ const projectRoot = path.resolve(
   ".."
 );
 
-function makePhoto() {
-  const canvas = createCanvas(480, 260);
-  const context = canvas.getContext("2d");
-  context.fillStyle = "#777";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "#eee";
-  context.fillRect(18, 14, canvas.width - 36, canvas.height - 28);
-  context.fillStyle = "#111";
-  context.font = "28px sans-serif";
-  context.fillText("圆的半径是 3 厘米", 46, 76);
-  context.fillText("求圆的面积。", 46, 132);
-  context.strokeRect(170, 158, 126, 48);
-  return canvas.toBuffer("image/png");
+async function makePhoto() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="480" height="260">
+      <rect width="480" height="260" fill="#777"/>
+      <rect x="18" y="14" width="444" height="232" fill="#eee"/>
+      <g fill="#111" font-family="Noto Sans SC, sans-serif" font-size="28">
+        <text x="46" y="76">圆的半径是 3 厘米</text>
+        <text x="46" y="132">求圆的面积。</text>
+      </g>
+      <rect x="170" y="158" width="126" height="48"
+        fill="none" stroke="#111" stroke-width="2"/>
+    </svg>`;
+  return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-function makeOrientedJpeg() {
-  const canvas = createCanvas(60, 30);
-  const context = canvas.getContext("2d");
-  context.fillStyle = "white";
-  context.fillRect(0, 0, 60, 30);
-  context.fillStyle = "black";
-  context.fillRect(0, 0, 30, 30);
-  const jpeg = canvas.toBuffer("image/jpeg");
+async function makeOrientedJpeg() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="60" height="30">
+      <rect width="60" height="30" fill="white"/>
+      <rect width="30" height="30" fill="black"/>
+    </svg>`;
+  const jpeg = await sharp(Buffer.from(svg)).jpeg().toBuffer();
   const exif = Buffer.from([
     0x45, 0x78, 0x69, 0x66, 0, 0,
     0x49, 0x49, 0x2a, 0, 8, 0, 0, 0,
@@ -131,14 +130,14 @@ async function createMistake(baseUrl, input) {
 async function previewPixels(response) {
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("content-type"), "image/png");
-  const image = await loadImage(Buffer.from(await response.arrayBuffer()));
-  const canvas = createCanvas(image.width, image.height);
-  const context = canvas.getContext("2d");
-  context.drawImage(image, 0, 0);
+  const image = await sharp(Buffer.from(await response.arrayBuffer()))
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
   return {
-    width: image.width,
-    height: image.height,
-    pixels: context.getImageData(0, 0, image.width, image.height).data
+    width: image.info.width,
+    height: image.info.height,
+    pixels: image.data
   };
 }
 
@@ -159,16 +158,20 @@ function assertFrameMatchesPixels(frame, width, height, pixels) {
   }
 }
 
-test("1bpp 打包使用每行 MSB 在左且 0 表示黑色", () => {
-  const canvas = createCanvas(8, 1);
-  const context = canvas.getContext("2d");
-  context.fillStyle = "white";
-  context.fillRect(0, 0, 8, 1);
-  context.fillStyle = "black";
-  context.fillRect(0, 0, 1, 1);
-  assert.deepEqual([...binarizeAndPack(canvas)], [0x7f]);
+test("1bpp 打包使用每行 MSB 在左且 0 表示黑色", async () => {
+  const pixels = Buffer.alloc(8 * 4, 255);
+  pixels[0] = 0;
+  pixels[1] = 0;
+  pixels[2] = 0;
+  const packed = await binarizeAndPack({
+    data: pixels,
+    width: 8,
+    height: 1,
+    channels: 4
+  });
+  assert.deepEqual([...packed.frame], [0x7f]);
 
-  const rendered = renderEinkPage({
+  const rendered = await renderEinkPage({
     mistake: {
       question: "纯文字题",
       knowledgePoint: "圆"
@@ -189,7 +192,7 @@ test("1bpp 打包使用每行 MSB 在左且 0 表示黑色", () => {
 });
 
 test("手机 JPEG 的 EXIF Orientation 只应用一次", async () => {
-  const prepared = await prepareEinkPhoto(makeOrientedJpeg(), {
+  const prepared = await prepareEinkPhoto(await makeOrientedJpeg(), {
     skipPaperCrop: true
   });
   assert.equal(prepared.width, 46);
@@ -298,7 +301,7 @@ test(
         ]
       });
 
-      const photo = makePhoto();
+      const photo = await makePhoto();
       const upload = await fetch(
         `${baseUrl}/api/attachments?kind=question`,
         {
@@ -432,8 +435,14 @@ test(
       const photoEtag = photoPage.headers.get("etag");
       assert.equal((await photoPage.arrayBuffer()).byteLength, 48_000);
 
-      const cropBuffer = createCanvas(120, 64)
-        .toBuffer("image/png");
+      const cropBuffer = await sharp({
+        create: {
+          width: 120,
+          height: 64,
+          channels: 4,
+          background: { r: 255, g: 255, b: 255, alpha: 1 }
+        }
+      }).png().toBuffer();
       const cropped = await fetch(
         `${baseUrl}/api/attachments/${attachment.id}/crop`,
         {

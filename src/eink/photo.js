@@ -1,4 +1,4 @@
-import { createCanvas, loadImage } from "@napi-rs/canvas";
+import sharp from "sharp";
 
 export const PHOTO_AREA = Object.freeze({
   x: 6,
@@ -16,23 +16,24 @@ const EDGE_PADDING = 8;
 const BLUR_WINDOW = 11;
 const LOCAL_OFFSET = 10;
 
-function grayAt(data, offset) {
+function grayAt(data, offset, channels) {
   return (
     data[offset] * 0.299 +
-    data[offset + 1] * 0.587 +
-    data[offset + 2] * 0.114
+    data[offset + channels] * 0.587 +
+    data[offset + channels * 2] * 0.114
   );
 }
 
-function boundsFor(data, width, height, predicate) {
+function boundsFor(image, predicate) {
+  const { data, width, height, channels } = image;
   let minX = width;
   let minY = height;
   let maxX = -1;
   let maxY = -1;
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      const offset = (y * width + x) * 4;
-      if (!predicate(grayAt(data, offset))) continue;
+      const offset = (y * width + x) * channels;
+      if (!predicate(grayAt(data, offset, channels))) continue;
       minX = Math.min(minX, x);
       minY = Math.min(minY, y);
       maxX = Math.max(maxX, x);
@@ -54,50 +55,35 @@ function isEmptyOrFull(bounds, width, height) {
 }
 
 export function findPaperCropBounds(image) {
-  const thumb = createCanvas(THUMB_WIDTH, THUMB_HEIGHT);
-  const context = thumb.getContext("2d");
-  context.fillStyle = "white";
-  context.fillRect(0, 0, THUMB_WIDTH, THUMB_HEIGHT);
-  context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = "high";
-  context.drawImage(image, 0, 0, THUMB_WIDTH, THUMB_HEIGHT);
-  const pixels = context.getImageData(
-    0,
-    0,
-    THUMB_WIDTH,
-    THUMB_HEIGHT
-  ).data;
-
+  const { width, height } = image;
   let bounds = boundsFor(
-    pixels,
-    THUMB_WIDTH,
-    THUMB_HEIGHT,
+    image,
     (gray) => gray >= PAPER_BRIGHTNESS
   );
   const paperArea = bounds
     ? (bounds.maxX - bounds.minX + 1) * (bounds.maxY - bounds.minY + 1)
     : 0;
-  if (!bounds || paperArea < PAPER_MIN_FRACTION * THUMB_WIDTH * THUMB_HEIGHT) {
+  if (!bounds || paperArea < PAPER_MIN_FRACTION * width * height) {
     bounds = boundsFor(
-      pixels,
-      THUMB_WIDTH,
-      THUMB_HEIGHT,
+      image,
       (gray) => gray < INK_BRIGHTNESS
     );
   }
-  if (!bounds || isEmptyOrFull(bounds, THUMB_WIDTH, THUMB_HEIGHT)) {
-    return { x: 0, y: 0, width: image.width, height: image.height };
+  if (!bounds || isEmptyOrFull(bounds, width, height)) {
+    return { x: 0, y: 0, width, height };
   }
 
-  const x = Math.max(0, Math.floor(bounds.minX * image.width / THUMB_WIDTH));
-  const y = Math.max(0, Math.floor(bounds.minY * image.height / THUMB_HEIGHT));
+  const scaleX = width === THUMB_WIDTH ? 1 : Infinity;
+  const scaleY = height === THUMB_HEIGHT ? 1 : Infinity;
+  const x = Math.max(0, Math.floor(bounds.minX * scaleX));
+  const y = Math.max(0, Math.floor(bounds.minY * scaleY));
   const right = Math.min(
-    image.width,
-    Math.ceil((bounds.maxX + 1) * image.width / THUMB_WIDTH)
+    width,
+    Math.ceil((bounds.maxX + 1) * scaleX)
   );
   const bottom = Math.min(
-    image.height,
-    Math.ceil((bounds.maxY + 1) * image.height / THUMB_HEIGHT)
+    height,
+    Math.ceil((bounds.maxY + 1) * scaleY)
   );
   return {
     x,
@@ -107,56 +93,76 @@ export function findPaperCropBounds(image) {
   };
 }
 
-export function cropImage(image, bounds) {
-  if (
-    bounds.x === 0 &&
-    bounds.y === 0 &&
-    bounds.width === image.width &&
-    bounds.height === image.height
-  ) {
-    return image;
-  }
-  const canvas = createCanvas(bounds.width, bounds.height);
-  const context = canvas.getContext("2d");
-  context.fillStyle = "white";
-  context.fillRect(0, 0, bounds.width, bounds.height);
-  context.drawImage(
-    image,
-    bounds.x,
-    bounds.y,
-    bounds.width,
-    bounds.height,
-    0,
-    0,
-    bounds.width,
-    bounds.height
-  );
-  return canvas;
-}
-
-export function padImage(image, padding = EDGE_PADDING) {
-  const canvas = createCanvas(
-    image.width + padding * 2,
-    image.height + padding * 2
-  );
-  const context = canvas.getContext("2d");
-  context.fillStyle = "white";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(image, padding, padding);
-  return canvas;
-}
-
-export async function prepareEinkPhoto(buffer, { skipPaperCrop = false } = {}) {
-  const image = await loadImage(buffer);
-  if (!image.width || !image.height) {
+export async function prepareEinkPhoto(
+  buffer,
+  { skipPaperCrop = false } = {}
+) {
+  const oriented = await sharp(buffer, { failOn: "none" })
+    .rotate()
+    .flatten({ background: "white" })
+    .png()
+    .toBuffer({ resolveWithObject: true });
+  if (!oriented.info.width || !oriented.info.height) {
     throw new Error("图片尺寸无效");
   }
-  let prepared = image;
+
+  let cropped = oriented;
   if (!skipPaperCrop) {
-    // @napi-rs/canvas applies EXIF Orientation while decoding loadImage().
-    prepared = cropImage(prepared, findPaperCropBounds(prepared));
+    const thumbnail = await sharp(oriented.data)
+      .resize(THUMB_WIDTH, THUMB_HEIGHT, { fit: "fill" })
+      .flatten({ background: "white" })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const thumbBounds = findPaperCropBounds({
+      data: thumbnail.data,
+      width: thumbnail.info.width,
+      height: thumbnail.info.height,
+      channels: thumbnail.info.channels
+    });
+    const x = Math.max(
+      0,
+      Math.floor(thumbBounds.x * oriented.info.width / THUMB_WIDTH)
+    );
+    const y = Math.max(
+      0,
+      Math.floor(thumbBounds.y * oriented.info.height / THUMB_HEIGHT)
+    );
+    const width = Math.min(
+      oriented.info.width - x,
+      Math.ceil(thumbBounds.width * oriented.info.width / THUMB_WIDTH)
+    );
+    const height = Math.min(
+      oriented.info.height - y,
+      Math.ceil(thumbBounds.height * oriented.info.height / THUMB_HEIGHT)
+    );
+    if (
+      x !== 0 ||
+      y !== 0 ||
+      width !== oriented.info.width ||
+      height !== oriented.info.height
+    ) {
+      cropped = await sharp(oriented.data)
+        .extract({ left: x, top: y, width, height })
+        .png()
+        .toBuffer({ resolveWithObject: true });
+    }
   }
-  return padImage(prepared);
+
+  const padded = await sharp(cropped.data)
+    .extend({
+      top: EDGE_PADDING,
+      bottom: EDGE_PADDING,
+      left: EDGE_PADDING,
+      right: EDGE_PADDING,
+      background: "white"
+    })
+    .png()
+    .toBuffer({ resolveWithObject: true });
+  return {
+    buffer: padded.data,
+    width: padded.info.width,
+    height: padded.info.height
+  };
 }
 
 export function adaptiveThreshold(pixels, width, height) {
@@ -165,7 +171,7 @@ export function adaptiveThreshold(pixels, width, height) {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const pixel = (y * width + x) * 4;
-      gray[y * width + x] = Math.round(grayAt(pixels, pixel));
+      gray[y * width + x] = Math.round(grayAt(pixels, pixel, 4));
     }
   }
   for (let y = 1; y <= height; y += 1) {
@@ -201,29 +207,4 @@ export function adaptiveThreshold(pixels, width, height) {
     }
   }
   return pixels;
-}
-
-export function drawPhoto(ctx, photo) {
-  ctx.fillStyle = "white";
-  ctx.fillRect(PHOTO_AREA.x, PHOTO_AREA.y, PHOTO_AREA.width, PHOTO_AREA.height);
-  const scale = Math.min(
-    PHOTO_AREA.width / photo.width,
-    PHOTO_AREA.height / photo.height
-  );
-  const width = Math.max(1, Math.round(photo.width * scale));
-  const height = Math.max(1, Math.round(photo.height * scale));
-  const x = PHOTO_AREA.x + Math.round((PHOTO_AREA.width - width) / 2);
-  const y = PHOTO_AREA.y + Math.round((PHOTO_AREA.height - height) / 2);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(photo, x, y, width, height);
-
-  const pixels = ctx.getImageData(
-    PHOTO_AREA.x,
-    PHOTO_AREA.y,
-    PHOTO_AREA.width,
-    PHOTO_AREA.height
-  );
-  adaptiveThreshold(pixels.data, PHOTO_AREA.width, PHOTO_AREA.height);
-  ctx.putImageData(pixels, PHOTO_AREA.x, PHOTO_AREA.y);
 }

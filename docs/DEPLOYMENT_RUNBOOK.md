@@ -42,7 +42,7 @@
 | `APP_PORT` | `3000` |
 | `BIND_ADDRESS` | `0.0.0.0` |
 | `APP_UID:APP_GID` | `1001:1001` |
-| `IMAGE_TAG` | `0.9` |
+| `IMAGE_TAG` | `3b4b2cc` |
 | `APP_VERSION` | `package.json` 的 `version` | 可选覆盖；界面与健康接口显示此版本 |
 
 当前版本没有内置账号隔离。`0.0.0.0:3000` 只适合可信局域网；公网访问必须经过带 TLS、鉴权和限流的反向代理或 API 网关。
@@ -184,8 +184,8 @@ npm run deploy:remote
 4. 对现有容器执行完整一致性备份；
 5. 将旧镜像标记为 `math-mistake-coach:previous`；
 6. 解压源码；
-7. 在目标机 Node 22 环境运行测试；
-8. 构建新镜像；
+7. 构建新镜像，并允许构建阶段通过宿主网络访问 npm 源；
+8. 使用新镜像的 Node 22 生产依赖运行完整测试；
 9. `docker compose up -d --force-recreate`；
 10. 等待健康检查通过。
 
@@ -378,4 +378,5 @@ ls -ld data data/attachments data/backups
 
 | 日期 | Git 提交 | 镜像标签 | schemaVersion | 部署前数据 | 备份目录 | 结果 |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-18 | `3b4b2cc` + `sharp` 软件渲染修复 | `math-mistake-coach:3b4b2cc-swrender` | 13 | 23 错题 / 7 附件记录 / 8 附件文件 / 47 作答 | `learning-backup-2026-11-18T13-11-52-086Z-3150b8a5` | 217 项测试通过；健康、数据、版本显示与墨水屏检查通过 |
 | 2026-11-17 | `dbcc96f` | `math-mistake-coach:dbcc96f` | 13 | 23 错题 / 7 附件 / 36 作答 | `learning-backup-2026-11-17T08-31-53-275Z-3df46386` | 健康检查通过 |

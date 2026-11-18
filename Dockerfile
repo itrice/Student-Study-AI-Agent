@@ -12,18 +12,22 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-COPY --chown=node:node package.json pnpm-lock.yaml ./
+COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-RUN corepack enable \
-    && corepack prepare pnpm@11.25.0 --activate \
-    && pnpm install --prod --frozen-lockfile \
+RUN apk add --no-cache fontconfig \
+    && npm install --global pnpm@11.25.0 --no-audit --no-fund \
+    && pnpm install --prod --frozen-lockfile --libc musl \
     && chown -R node:node /app/node_modules
 
 COPY --chown=node:node src ./src
 COPY --chown=node:node public ./public
 COPY --chown=node:node scripts ./scripts
 
-RUN mkdir -p /app/data && chown -R node:node /app/data
+RUN mkdir -p /usr/share/fonts/truetype/eink \
+    && cp /app/src/eink/fonts/*.ttf /usr/share/fonts/truetype/eink/ \
+    && fc-cache -f \
+    && mkdir -p /app/data \
+    && chown -R node:node /app/data
 
 USER node
 EXPOSE 3000
