@@ -161,6 +161,12 @@ test(
       const health = await jsonBody(await fetch(`${baseUrl}/api/health`));
       assert.equal(health.ok, true);
       assert.match(health.startedAt, /^\d{4}-\d{2}-\d{2}T/);
+      const packageVersion = JSON.parse(
+        fs.readFileSync(path.join(projectRoot, "package.json"), "utf8")
+      ).version;
+      assert.equal(health.build.version, packageVersion);
+      assert.equal(health.build.versionLabel, `v${packageVersion}`);
+      assert.equal(health.appVersion, packageVersion);
       for (const fingerprint of [
         health.build.server,
         health.build.appJs,
@@ -178,7 +184,20 @@ test(
         homePage,
         new RegExp(`/styles\\.css\\?v=${health.build.stylesCss}`)
       );
-      assert.doesNotMatch(homePage, /__APP_VERSION__|__STYLES_VERSION__/);
+      assert.match(
+        homePage,
+        new RegExp(
+          `<span class="app-version-release">${health.build.versionLabel}</span>`
+        )
+      );
+      assert.match(
+        homePage,
+        new RegExp(`构建 ${health.build.appJs}`)
+      );
+      assert.doesNotMatch(
+        homePage,
+        /__APP_VERSION__|__STYLES_VERSION__|__RELEASE_VERSION__|__BUILD_ID__/
+      );
       assert.equal(
         health.capabilities.mistakeUpdate.postUpdate,
         "/api/mistakes/:id/update"

@@ -246,6 +246,22 @@ svg {
   border-top: 1px solid rgba(255, 255, 255, 0.09);
 }
 
+.app-version {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 10px 0 0;
+  color: rgba(255, 255, 255, 0.56);
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+.app-version-release {
+  color: rgba(255, 255, 255, 0.82);
+  font-weight: 700;
+}
+
 .avatar {
   display: grid;
   width: 38px;
@@ -4528,6 +4544,15 @@ svg {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+}
+
+.settings-version-tag,
+#settings-build-id {
+  font-variant-numeric: tabular-nums;
+}
+
+#settings-build-id {
+  overflow-wrap: anywhere;
 }
 
 .settings-entry-body p {
