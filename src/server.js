@@ -561,29 +561,60 @@ async function handleMistakeUpdate(request, response, mistakeId) {
 }
 
 let buildInfoPromise;
+function normalizeVersionLabel(value) {
+  const text = String(value || "").trim();
+  if (!text) return "dev";
+  return /^v/i.test(text) ? text : `v${text}`;
+}
+
 async function getBuildInfo() {
   if (!buildInfoPromise) {
     buildInfoPromise = Promise.all([
       fs.readFile(path.join(currentDir, "server.js")),
       fs.readFile(path.join(publicDir, "app.js")),
       fs.readFile(path.join(publicDir, "index.html")),
-      fs.readFile(path.join(publicDir, "styles.css"))
+      fs.readFile(path.join(publicDir, "styles.css")),
+      fs.readFile(path.join(projectRoot, "package.json"))
     ])
-      .then(([serverSource, appSource, indexSource, stylesSource]) => ({
-        server: createHash("sha256")
-          .update(serverSource)
-          .digest("hex")
-          .slice(0, 12),
-        appJs: createHash("sha256").update(appSource).digest("hex").slice(0, 12),
-        indexHtml: createHash("sha256")
-          .update(indexSource)
-          .digest("hex")
-          .slice(0, 12),
-        stylesCss: createHash("sha256")
-          .update(stylesSource)
-          .digest("hex")
-          .slice(0, 12)
-      }))
+      .then(
+        ([
+          serverSource,
+          appSource,
+          indexSource,
+          stylesSource,
+          packageSource
+        ]) => {
+          let packageVersion = "";
+          try {
+            packageVersion = JSON.parse(packageSource.toString("utf8")).version;
+          } catch {
+            packageVersion = "";
+          }
+          const version = String(
+            process.env.APP_VERSION || packageVersion || "dev"
+          ).trim();
+          return {
+            server: createHash("sha256")
+              .update(serverSource)
+              .digest("hex")
+              .slice(0, 12),
+            appJs: createHash("sha256")
+              .update(appSource)
+              .digest("hex")
+              .slice(0, 12),
+            indexHtml: createHash("sha256")
+              .update(indexSource)
+              .digest("hex")
+              .slice(0, 12),
+            stylesCss: createHash("sha256")
+              .update(stylesSource)
+              .digest("hex")
+              .slice(0, 12),
+            version: version || "dev",
+            versionLabel: normalizeVersionLabel(version)
+          };
+        }
+      )
       .catch(() => null);
   }
   return buildInfoPromise;
@@ -616,13 +647,14 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/health") {
+    const build = await getBuildInfo();
     return sendJson(response, 200, {
       ok: true,
-      appVersion: process.env.APP_VERSION || null,
+      appVersion: build?.version || process.env.APP_VERSION || null,
       startedAt: serverStartedAt,
       schemaVersion: repository.getSchemaVersion(),
       toolCount: learningTools.listTools("ui").length,
-      build: await getBuildInfo(),
+      build,
       capabilities: {
         mistakeUpdate: {
           postUpdate: "/api/mistakes/:id/update",
@@ -1439,7 +1471,9 @@ async function serveStatic(response, pathname, extraHeaders = {}) {
         content
           .toString("utf8")
           .replaceAll("__APP_VERSION__", build?.appJs || "dev")
-          .replaceAll("__STYLES_VERSION__", build?.stylesCss || "dev"),
+          .replaceAll("__STYLES_VERSION__", build?.stylesCss || "dev")
+          .replaceAll("__RELEASE_VERSION__", build?.versionLabel || "dev")
+          .replaceAll("__BUILD_ID__", build?.appJs || "dev"),
         "utf8"
       );
     }

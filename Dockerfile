@@ -2,7 +2,7 @@ FROM node:22-alpine
 
 LABEL org.opencontainers.image.title="math-mistake-coach" \
       org.opencontainers.image.description="六年级数学错题教练（本地 SQLite）" \
-      org.opencontainers.image.version="0.9"
+      org.opencontainers.image.version="0.18.0"
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \

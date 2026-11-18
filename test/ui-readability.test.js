@@ -75,6 +75,7 @@ test("正文和辅助文字使用统一可读性基线", () => {
 test("导航、分页和状态元信息保持 16px 可读字号", () => {
   const variables = cssVariables();
   for (const selector of [
+    ".app-version",
     ".breadcrumb",
     ".today-chip",
     ".priority-footer span",

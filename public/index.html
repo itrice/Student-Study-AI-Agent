@@ -90,6 +90,10 @@
             <small id="student-textbook-label">小学数学 · 人教版</small>
           </span>
         </div>
+        <p class="app-version" id="app-version">
+          <span class="app-version-release">__RELEASE_VERSION__</span>
+          <span class="app-version-build">构建 __BUILD_ID__</span>
+        </p>
       </aside>
 
       <main class="main-content">
@@ -808,6 +812,27 @@
               <div class="settings-entry-body">
                 <p class="settings-entry-desc">
                   只读的教材切换与人工归类记录，可按错题追溯。共 <strong id="settings-index-audit-count">0</strong> 条记录
+                </p>
+              </div>
+            </section>
+
+            <section class="settings-entry" aria-labelledby="settings-entry-version-title">
+              <div class="settings-entry-head">
+                <span class="settings-entry-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 10v6M12 7h.01" />
+                  </svg>
+                </span>
+                <h2 id="settings-entry-version-title">版本信息</h2>
+                <span class="tag settings-version-tag" id="settings-version">__RELEASE_VERSION__</span>
+              </div>
+              <div class="settings-entry-body">
+                <p class="settings-entry-desc">
+                  当前运行版本；构建指纹会随每次发布变化。
+                </p>
+                <p class="settings-entry-current">
+                  构建：<span id="settings-build-id">__BUILD_ID__</span>
                 </p>
               </div>
             </section>

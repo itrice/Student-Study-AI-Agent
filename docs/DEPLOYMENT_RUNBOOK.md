@@ -43,6 +43,7 @@
 | `BIND_ADDRESS` | `0.0.0.0` |
 | `APP_UID:APP_GID` | `1001:1001` |
 | `IMAGE_TAG` | `0.9` |
+| `APP_VERSION` | `package.json` 的 `version` | 可选覆盖；界面与健康接口显示此版本 |
 
 当前版本没有内置账号隔离。`0.0.0.0:3000` 只适合可信局域网；公网访问必须经过带 TLS、鉴权和限流的反向代理或 API 网关。
 
@@ -219,7 +220,10 @@ curl -fsS http://127.0.0.1:3000/api/health
 - 健康接口返回 `ok: true`；
 - `schemaVersion` 与数据库版本一致；
 - `toolCount` 非零；
-- 新增能力标志符合该版本预期。
+- 新增能力标志符合该版本预期；
+- `build.version` 与 `package.json` 或 `APP_VERSION` 一致，
+  `appVersion` 非空；
+- 页面侧边栏和“系统配置 → 版本信息”显示同一版本与构建指纹。
 
 ### 5.2 数据一致性
 
