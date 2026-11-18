@@ -164,10 +164,21 @@ test(
       for (const fingerprint of [
         health.build.server,
         health.build.appJs,
-        health.build.indexHtml
+        health.build.indexHtml,
+        health.build.stylesCss
       ]) {
         assert.match(fingerprint, /^[0-9a-f]{12}$/);
       }
+      const homePage = await (await fetch(`${baseUrl}/`)).text();
+      assert.match(
+        homePage,
+        new RegExp(`/app\\.js\\?v=${health.build.appJs}`)
+      );
+      assert.match(
+        homePage,
+        new RegExp(`/styles\\.css\\?v=${health.build.stylesCss}`)
+      );
+      assert.doesNotMatch(homePage, /__APP_VERSION__|__STYLES_VERSION__/);
       assert.equal(
         health.capabilities.mistakeUpdate.postUpdate,
         "/api/mistakes/:id/update"

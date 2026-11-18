@@ -215,7 +215,21 @@ async function api(path, options = {}) {
   return data;
 }
 
+function isMissingUpdateRoute(error) {
+  return (
+    error?.code === "ROUTE_NOT_FOUND" ||
+    error?.message === "接口不存在" ||
+    error?.status === 405
+  );
+}
+
 async function submitMistakeUpdate(id, data, idempotencyKey) {
+  const mistakeId = Number(id);
+  if (!Number.isSafeInteger(mistakeId) || mistakeId <= 0) {
+    const error = new Error("题目编号无效，请刷新页面后重试。");
+    error.code = "MISTAKE_ID_INVALID";
+    throw error;
+  }
   const request = {
     headers: {
       "Idempotency-Key": idempotencyKey
@@ -223,22 +237,20 @@ async function submitMistakeUpdate(id, data, idempotencyKey) {
     body: JSON.stringify(data)
   };
   try {
-    return await api(`/api/mistakes/${id}/update`, {
+    return await api(`/api/mistakes/${mistakeId}/update`, {
       ...request,
       method: "POST"
     });
   } catch (error) {
-    const routeMissing = error.status === 404 || error.status === 405;
+    const routeMissing = isMissingUpdateRoute(error);
     if (!routeMissing) throw error;
     try {
-      return await api(`/api/mistakes/${id}`, {
+      return await api(`/api/mistakes/${mistakeId}`, {
         ...request,
         method: "PATCH"
       });
     } catch (fallbackError) {
-      const fallbackMissing =
-        fallbackError.status === 404 || fallbackError.status === 405;
-      if (fallbackMissing && fallbackError.message !== "没有找到这道错题") {
+      if (isMissingUpdateRoute(fallbackError)) {
         fallbackError.message =
           "保存接口不可用，服务端版本可能不一致；请刷新页面后重试，仍失败请联系管理员升级。";
         fallbackError.code = "MISTAKE_UPDATE_ROUTE_MISMATCH";

@@ -566,9 +566,10 @@ async function getBuildInfo() {
     buildInfoPromise = Promise.all([
       fs.readFile(path.join(currentDir, "server.js")),
       fs.readFile(path.join(publicDir, "app.js")),
-      fs.readFile(path.join(publicDir, "index.html"))
+      fs.readFile(path.join(publicDir, "index.html")),
+      fs.readFile(path.join(publicDir, "styles.css"))
     ])
-      .then(([serverSource, appSource, indexSource]) => ({
+      .then(([serverSource, appSource, indexSource, stylesSource]) => ({
         server: createHash("sha256")
           .update(serverSource)
           .digest("hex")
@@ -576,6 +577,10 @@ async function getBuildInfo() {
         appJs: createHash("sha256").update(appSource).digest("hex").slice(0, 12),
         indexHtml: createHash("sha256")
           .update(indexSource)
+          .digest("hex")
+          .slice(0, 12),
+        stylesCss: createHash("sha256")
+          .update(stylesSource)
           .digest("hex")
           .slice(0, 12)
       }))
@@ -1427,7 +1432,17 @@ async function serveStatic(response, pathname, extraHeaders = {}) {
   }
 
   try {
-    const content = await fs.readFile(resolved);
+    let content = await fs.readFile(resolved);
+    if (requested === "/index.html") {
+      const build = await getBuildInfo();
+      content = Buffer.from(
+        content
+          .toString("utf8")
+          .replaceAll("__APP_VERSION__", build?.appJs || "dev")
+          .replaceAll("__STYLES_VERSION__", build?.stylesCss || "dev"),
+        "utf8"
+      );
+    }
     response.writeHead(200, {
       "Content-Type":
         MIME_TYPES[path.extname(resolved).toLowerCase()] ||
