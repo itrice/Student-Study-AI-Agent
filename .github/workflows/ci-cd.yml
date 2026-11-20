@@ -1,0 +1,267 @@
+name: Application CI CD
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+      - qa
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.repository }}-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      environment: ${{ steps.contract.outputs.environment }}
+      namespace: ${{ steps.contract.outputs.namespace }}
+      deployment: ${{ steps.contract.outputs.deployment }}
+      image_name: ${{ steps.contract.outputs.image_name }}
+      image_context: ${{ steps.contract.outputs.image_context }}
+      dockerfile: ${{ steps.contract.outputs.dockerfile }}
+      pull_secret: ${{ steps.contract.outputs.pull_secret }}
+      manifests_path: ${{ steps.contract.outputs.manifests_path }}
+      smoke_test_command: ${{ steps.contract.outputs.smoke_test_command }}
+      timeout_seconds: ${{ steps.contract.outputs.timeout_seconds }}
+      rollback_on_failure: ${{ steps.contract.outputs.rollback_on_failure }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Read application contract
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target_environment in dev qa production; do
+            manifests_path="$(jq -r ".deploy.environments.${target_environment}.manifestsPath" .platform-ci.json)"
+            bash scripts/validate-platform-contract.sh .platform-ci.json "${manifests_path}"
+          done
+
+          case "${GITHUB_REF_NAME}" in
+            dev|qa) target_environment="${GITHUB_REF_NAME}" ;;
+            *) target_environment="production" ;;
+          esac
+
+          output_value() {
+            local key="$1"
+            local query="$2"
+            local value
+            value="$(jq -r "${query}" .platform-ci.json)"
+            printf '%s=%s\n' "${key}" "${value}" >> "${GITHUB_OUTPUT}"
+          }
+
+          printf 'environment=%s\n' "${target_environment}" >> "${GITHUB_OUTPUT}"
+          output_value namespace ".deploy.environments.${target_environment}.namespace"
+          output_value deployment ".deploy.environments.${target_environment}.deployment"
+          output_value image_name '.image.name'
+          output_value image_context '.image.context'
+          output_value dockerfile '.image.dockerfile'
+          output_value pull_secret '.image.pullSecret'
+          output_value manifests_path ".deploy.environments.${target_environment}.manifestsPath"
+          output_value smoke_test_command '.deploy.smokeTestCommand'
+          output_value timeout_seconds '.deploy.timeoutSeconds'
+          output_value rollback_on_failure '.deploy.rollbackOnFailure'
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          working_directory="$(jq -r '.ci.workingDirectory' .platform-ci.json)"
+          install_command="$(jq -r '.ci.installCommand' .platform-ci.json)"
+          test_command="$(jq -r '.ci.testCommand' .platform-ci.json)"
+          pushd "${working_directory}" >/dev/null
+          bash -euo pipefail -c "${install_command}"
+          bash -euo pipefail -c "${test_command}"
+          popd >/dev/null
+
+  build:
+    name: Build image
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/qa' || github.ref == 'refs/heads/main')
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      digest: ${{ steps.image.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Build and push image
+        id: image
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_NAME: ${{ needs.validate.outputs.image_name }}
+          IMAGE_CONTEXT: ${{ needs.validate.outputs.image_context }}
+          DOCKERFILE: ${{ needs.validate.outputs.dockerfile }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="sha-${GITHUB_SHA::12}"
+          metadata_file="${RUNNER_TEMP}/docker-metadata.json"
+
+          printf '%s' "${REGISTRY_TOKEN}" |
+            docker login ghcr.io --username "${REGISTRY_USER}" --password-stdin
+
+          docker buildx build \
+            --file "${DOCKERFILE}" \
+            --tag "${IMAGE_NAME}:${image_tag}" \
+            --push \
+            --metadata-file "${metadata_file}" \
+            "${IMAGE_CONTEXT}"
+
+          digest="$(jq -r '."containerimage.digest"' "${metadata_file}")"
+          if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Invalid image digest: ${digest}" >&2
+            exit 1
+          fi
+
+          echo "image=${IMAGE_NAME}:${image_tag}" >> "${GITHUB_OUTPUT}"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+  deploy:
+    name: Deploy to K3s
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/qa' || github.ref == 'refs/heads/main')
+    needs:
+      - validate
+      - build
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - ea-k3s
+    environment: ${{ needs.validate.outputs.environment }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Validate environment manifests
+        env:
+          MANIFESTS_PATH: ${{ needs.validate.outputs.manifests_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! grep -Rqs "__PLATFORM_IMAGE__" "${MANIFESTS_PATH}"; then
+            echo "Manifest path must contain __PLATFORM_IMAGE__: ${MANIFESTS_PATH}" >&2
+            exit 1
+          fi
+          kubectl kustomize "${MANIFESTS_PATH}" >/dev/null
+
+      - name: Create namespace
+        env:
+          MANIFESTS_PATH: ${{ needs.validate.outputs.manifests_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl apply -f "${MANIFESTS_PATH}/namespace.yaml"
+
+      - name: Refresh GHCR pull credential
+        shell: bash
+        env:
+          NAMESPACE: ${{ needs.validate.outputs.namespace }}
+          PULL_SECRET: ${{ needs.validate.outputs.pull_secret }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          docker_config="$(mktemp)"
+          trap 'rm -f "${docker_config}"' EXIT
+          jq -n \
+            --arg username "${REGISTRY_USER}" \
+            --arg password "${REGISTRY_TOKEN}" \
+            '{auths: {"ghcr.io": {username: $username, password: $password, auth: ([$username, $password] | join(":") | @base64)}}}' \
+            > "${docker_config}"
+
+          kubectl -n "${NAMESPACE}" create secret generic "${PULL_SECRET}" \
+            --type=kubernetes.io/dockerconfigjson \
+            --from-file=.dockerconfigjson="${docker_config}" \
+            --dry-run=client -o yaml |
+            kubectl apply -f -
+
+      - name: Back up existing learning data
+        shell: bash
+        env:
+          NAMESPACE: ${{ needs.validate.outputs.namespace }}
+          DEPLOYMENT: ${{ needs.validate.outputs.deployment }}
+        run: |
+          set -euo pipefail
+          existing_deployment="$(
+            kubectl -n "${NAMESPACE}" get "deployment/${DEPLOYMENT}" \
+              --ignore-not-found -o name
+          )"
+          if [[ -n "${existing_deployment}" ]]; then
+            kubectl -n "${NAMESPACE}" exec "deployment/${DEPLOYMENT}" -- \
+              node scripts/backup-learning-data.mjs
+          else
+            echo "First deployment; no existing learning data to back up."
+          fi
+
+      - name: Deploy immutable image
+        shell: bash
+        env:
+          NAMESPACE: ${{ needs.validate.outputs.namespace }}
+          DEPLOYMENT: ${{ needs.validate.outputs.deployment }}
+          MANIFESTS_PATH: ${{ needs.validate.outputs.manifests_path }}
+          TIMEOUT_SECONDS: ${{ needs.validate.outputs.timeout_seconds }}
+          IMAGE_URI: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          kubectl kustomize "${MANIFESTS_PATH}" |
+            sed "s|__PLATFORM_IMAGE__|${IMAGE_URI}|g" |
+            kubectl apply -f -
+
+          if ! kubectl -n "${NAMESPACE}" rollout status \
+            "deployment/${DEPLOYMENT}" --timeout="${TIMEOUT_SECONDS}s"; then
+            kubectl -n "${NAMESPACE}" logs \
+              "deployment/${DEPLOYMENT}" --tail=100 ||
+              echo "Unable to retrieve deployment logs." >&2
+            if ! kubectl -n "${NAMESPACE}" rollout undo \
+              "deployment/${DEPLOYMENT}"; then
+              echo "Deployment failed and automatic rollback also failed." >&2
+            fi
+            exit 1
+          fi
+
+      - name: Run application smoke test
+        shell: bash
+        env:
+          SMOKE_TEST_COMMAND: ${{ needs.validate.outputs.smoke_test_command }}
+          ROLLBACK_ON_FAILURE: ${{ needs.validate.outputs.rollback_on_failure }}
+          NAMESPACE: ${{ needs.validate.outputs.namespace }}
+          DEPLOYMENT: ${{ needs.validate.outputs.deployment }}
+        run: |
+          set -euo pipefail
+          if ! bash -euo pipefail -c "${SMOKE_TEST_COMMAND}"; then
+            if [[ "${ROLLBACK_ON_FAILURE}" == "true" ]]; then
+              if ! kubectl -n "${NAMESPACE}" rollout undo "deployment/${DEPLOYMENT}"; then
+                echo "Smoke test failed and automatic rollback also failed." >&2
+              fi
+            fi
+            exit 1
+          fi

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: student-study-ai-agent-qa
+  labels:
+    app.kubernetes.io/name: student-study-ai-agent
+    app.kubernetes.io/environment: qa

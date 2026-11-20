@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: student-study-ai-agent-qa
+resources:
+  - namespace.yaml
+  - ../../base
+patches:
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: student-study-ai-agent
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: student-study-ai-agent-qa.home.arpa
+  - target:
+      version: v1
+      kind: PersistentVolumeClaim
+      name: student-study-ai-agent-data
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 2Gi
