@@ -158,6 +158,55 @@ test(
       await waitForServer(child);
       const baseUrl = `http://127.0.0.1:${port}`;
 
+      const health = await jsonBody(await fetch(`${baseUrl}/api/health`));
+      assert.equal(health.ok, true);
+      assert.match(health.startedAt, /^\d{4}-\d{2}-\d{2}T/);
+      const packageVersion = JSON.parse(
+        fs.readFileSync(path.join(projectRoot, "package.json"), "utf8")
+      ).version;
+      assert.equal(health.build.version, packageVersion);
+      assert.equal(health.build.versionLabel, `v${packageVersion}`);
+      assert.equal(health.appVersion, packageVersion);
+      for (const fingerprint of [
+        health.build.server,
+        health.build.appJs,
+        health.build.indexHtml,
+        health.build.stylesCss
+      ]) {
+        assert.match(fingerprint, /^[0-9a-f]{12}$/);
+      }
+      const homePage = await (await fetch(`${baseUrl}/`)).text();
+      assert.match(
+        homePage,
+        new RegExp(`/app\\.js\\?v=${health.build.appJs}`)
+      );
+      assert.match(
+        homePage,
+        new RegExp(`/styles\\.css\\?v=${health.build.stylesCss}`)
+      );
+      assert.match(
+        homePage,
+        new RegExp(
+          `<span class="app-version-release">${health.build.versionLabel}</span>`
+        )
+      );
+      assert.match(
+        homePage,
+        new RegExp(`构建 ${health.build.appJs}`)
+      );
+      assert.doesNotMatch(
+        homePage,
+        /__APP_VERSION__|__STYLES_VERSION__|__RELEASE_VERSION__|__BUILD_ID__/
+      );
+      assert.equal(
+        health.capabilities.mistakeUpdate.postUpdate,
+        "/api/mistakes/:id/update"
+      );
+      assert.equal(
+        health.capabilities.mistakeUpdate.patch,
+        "/api/mistakes/:id"
+      );
+
       const missingRoute = await fetch(`${baseUrl}/api/not-a-route`, {
         method: "POST"
       });

@@ -2,6 +2,141 @@
 
 本文件记录项目的重要变更。
 
+## v0.18
+
+### Added
+
+- 侧边栏与“系统配置”页显示当前发布版本和构建指纹；版本默认读取
+  `package.json`，可用 `APP_VERSION` 覆盖。
+- `/api/health` 的 `build` 增加 `version`、`versionLabel`，`appVersion`
+  在未显式配置环境变量时回退到 `package.json` 版本。
+
+### Fixed
+
+- 修改错题保存时，仅在确认路由缺失时回退 `PATCH`，避免把普通 404
+  误报为“接口不存在”。
+- 辅助文字提升到 16px、正文提升到 17px，并清除页面中写死的 15/16px。
+- 页面静态资源版本改为服务端构建指纹，部署后不再复用旧脚本。
+- 墨水屏渲染改用 `sharp` 软件渲染，移除 `@napi-rs/canvas` 原生依赖，
+  兼容目标 CPU，并保留字体注册、照片区和附件缺失回退。
+
+### Verified
+
+- `node --test`：217 项全部通过。
+- 正式库副本保存验证：`POST /api/mistakes/:id/update` 返回 200。
+- 390×844、834×1194、1280×900 无横向溢出，页面最小可见字号 16px。
+
+## v0.17
+
+### Added
+
+- 新增 `GET /api/eink/queue`：返回全部到期数量和最多 20 条最小摘要，不包含题干、
+  答案、提示、附件内容或附件 URL。
+- 新增 `GET /api/eink/page`：返回固定 800×480、48000 字节的 1bpp 设备帧；
+  每行 100 字节、MSB 在左、0=黑、1=白，不压缩。
+- 新增强 ETag、兼容头 `X-Etag` 和 `If-None-Match` 304 响应；ETag 基于最终帧内容，
+  答案、小问、附件、裁剪或布局变化都会失效。
+- 新增 `GET /api/eink/preview`：返回与设备帧逐像素一致的 800×480 PNG。
+- 新增文字页、多小问答案页、整页照片页和附件缺失文字回退；照片区固定为
+  788×420（`x=6..794、y=56..476`），不画分隔线、页脚或电量区。
+- 新增随仓库打包的 Noto Sans SC Regular/Bold 与 SIL OFL 1.1 许可证。
+- 新增 `@napi-rs/canvas` 预编译图像工具链、32 页 LRU 缓存和本地照片
+  白纸裁剪/局部自适应二值化。
+- 新增 `scripts/generate-eink-previews.mjs`，可复现 8 张分类预览和冷热耗时证据。
+- OpenAPI 新增三条墨水屏路径，API 契约升级为 v0.17.0。
+
+### Fixed
+
+- 修复临时渲染代码中 `exifr` ESM 导入不兼容导致渲染模块无法加载的问题。
+- 移除 `@napi-rs/canvas` 已自动完成的二次 EXIF 旋转，避免手机照片横竖错误。
+- 修复多小问答案页重复题干并把第二个小问截断的问题。
+
+### Changed
+
+- Docker 构建改为按 `pnpm-lock.yaml` 安装生产依赖；构建上下文重新包含锁文件。
+- 运行说明更新为需要先安装锁定依赖。
+
+### Verified
+
+- `node --test`：213 pass / 0 fail。
+- 电子墨水屏专项：5 pass / 0 fail。
+- HTTP 页帧 48000 字节、304 无 body、ETag 内容失效、预览逐像素一致、
+  EXIF 单次旋转、缺图回退和只读无写入均已验证。
+- 预览与耗时证据见 `docs/reports/eink-api-2026-11-17.md` 和
+  `docs/reports/eink-previews/`。
+
+## v0.16
+
+### Added
+
+- 新增 OpenAPI 3.1 契约接口 `GET /api/openapi.json`，覆盖系统、教材、附件、错题、
+  复习、知识库、反馈和运维共 42 条路径、47 个操作。
+- 新增交互式 API 文档页 `GET /api/docs`，支持搜索、分类筛选、参数与响应说明、
+  请求示例、Try it out、cURL 复制、深色模式和移动端布局。
+- 新增 `test/api-docs.test.js`，校验契约完整性、`$ref` 可解析、路径参数声明、
+  操作编号唯一、二进制响应说明、文档页 CSP 和无外部依赖加载。
+- 补齐 `GET /api/feedback/calendar` 与 `GET /api/feedback/day` 的参数、响应 Schema 和示例入口。
+- API 兼容尾斜杠写法；`/api`、`/api-docs`、`/docs` 308 重定向到 `/api/docs`，
+  `/openapi.json` 308 重定向到 `/api/openapi.json`。
+- 新增服务端已注册路由与 OpenAPI paths 的双向覆盖测试，避免新增路由漏进契约。
+
+### Security
+
+- 文档页不加载 CDN 资源，使用自包含 HTML/CSS/JS，并设置
+  `default-src 'self'` CSP、`nosniff`、`no-referrer` 和 `frame-ancestors 'none'`。
+- OpenAPI 契约按请求 Host 生成服务器地址，兼容 `X-Forwarded-Proto` /
+  `X-Forwarded-Host`；文档中明确说明服务未内置鉴权，对第三方开放需经网关补鉴权。
+
+## v0.15
+
+### Changed
+
+- UI 辅助文字、状态标签、按钮辅助文案和反馈日历日期/统计字号统一提升到 15px，正文保持 16px 以上。
+- 反馈日历日期格增加 44px 最小宽度；移动端压缩日历卡片内边距和格间距，390×844 下实测日期格 46.58×63px，三档验收尺寸均无横向溢出。
+
+### Added
+
+- `GET /api/health` 新增 `appVersion`、`startedAt`、`build.server/appJs/indexHtml` 指纹和 `capabilities.mistakeUpdate` 路由能力，用于识别正式实例版本与静态资源是否错配。
+
+### Fixed
+
+- 修改错题保存时，对任意 404/405 路由缺失都回退到 `PATCH /api/mistakes/:id`；两种接口都缺失时给出“服务端版本可能不一致”的可操作提示。
+- 新增兼容性回归测试，覆盖 POST `/update`、PATCH、健康检查能力声明和前端回退路径。
+
+### Verified
+
+- `node --test`：204 pass / 0 fail。
+- 隔离实例实测 `POST /api/mistakes/8/update` 与 `PATCH /api/mistakes/8` 均返回 200；UI 修改保存成功并提示“错题信息已更新”。
+
+## v0.14
+
+### Added
+
+- 学习反馈新增“打卡记录”全宽月历：默认当前月，可切换上/下月并回到本月，未来日期与月份置灰不可进入。
+- 月历汇总显示本月打卡天数、完成题数和正确题数；每天显示完成/正确题数，当天高亮。
+- 今日小结新增“查看今日完成情况”，点击今天或任意日历日期打开统一的“X月X日完成情况”弹窗。
+- 弹窗按最近作答时间列出当天做过的题，同题多次作答聚合一行，显示知识点/教材单元、作答次数、提示次数、最近结果和时间。
+- 新增 `GET /api/feedback/calendar?month=YYYY-MM` 与 `GET /api/feedback/day?date=YYYY-MM-DD`；统计按 Asia/Shanghai 自然日与当前学生计算，不返回答案或提示正文。
+
+### Verified
+
+- 新增 `test/feedback-calendar.test.js` 与 `test/feedback-calendar-ui.test.js`，覆盖空月、跨月边界、同题聚合、最近一次决定正确、partial 不计正确、日明细与月历一致、无答案泄露、未来日期禁用、44px 触控、Esc/焦点恢复。
+- 日/周报原有统计与 `/api/feedback/daily`、`/api/feedback/weekly` 行为保持不变。
+
+## v0.13
+
+### Changed
+
+- 复习作答改为：答错或部分正确时停留当前题，只显示客观判题结果、尝试状态、重试和主动提示入口。
+- 答错后不再自动调用提示，也不自动展示 AI 步骤分析、诊断、订正思路或参考答案。
+- 只有整题全部小问正确才短暂显示“答对”并自动进入下一题；最后一题进入完成态。
+- 复习页与全屏专注层新增“上一题/下一题”，按今日队列顺序切换；未提交切换不计作答，返回时恢复本次会话输入、提示等级和提示面板内容。
+- 移动端与平板的上一题、下一题、全屏和修改题目按钮触控高度提升到 `44px`。
+
+### Verified
+
+- 新增 `test/review-attempt-flow.test.js`，覆盖自动切题条件、导航边界、草稿恢复、结果脱敏和全屏/非全屏一致性。
+
 ## v0.12
 
 ### Added

@@ -2,6 +2,7 @@ services:
   app:
     build:
       context: .
+      network: host
     image: math-mistake-coach:${IMAGE_TAG:-local}
     restart: unless-stopped
     init: true
@@ -15,6 +16,7 @@ services:
       PORT: 3000
       DB_PATH: /app/data/learning.sqlite
       TZ: Asia/Shanghai
+      HOME: /tmp
     volumes:
       - ${DATA_DIR:-./data}:/app/data
     stop_grace_period: 20s

@@ -1,0 +1,122 @@
+{
+  "generatedAt": "2026-11-17T10:59:20.198Z",
+  "emptyQueue": {
+    "count": 0,
+    "items": [],
+    "updatedAt": "2026-11-17T10:59:20.197Z"
+  },
+  "evidence": [
+    {
+      "name": "text-question",
+      "id": 1,
+      "mode": "question",
+      "filename": "text-question.png",
+      "frameBytes": 48000,
+      "pngBytes": 5445,
+      "etag": "\"5ebc266a02b82ace521357bc790b5f93dba831299ddddae3dd11494518e31e00\"",
+      "layoutVersion": "eink-layout-v1",
+      "warning": null,
+      "coldMs": 34.4,
+      "hotMs": 0.7,
+      "hotCacheHit": true
+    },
+    {
+      "name": "text-answer",
+      "id": 1,
+      "mode": "answer",
+      "filename": "text-answer.png",
+      "frameBytes": 48000,
+      "pngBytes": 8602,
+      "etag": "\"48ee4a1fa8764e87bfbd27f890c8b5ed8e392e0bb99ae6c1b111ac5338852525\"",
+      "layoutVersion": "eink-layout-v1",
+      "warning": null,
+      "coldMs": 27.6,
+      "hotMs": 0.7,
+      "hotCacheHit": true
+    },
+    {
+      "name": "long-text-question",
+      "id": 2,
+      "mode": "question",
+      "filename": "long-text-question.png",
+      "frameBytes": 48000,
+      "pngBytes": 15277,
+      "etag": "\"d5dd6795e8ac2029c6b38e81a2f0bc73dc7327dfdf66b52cf1bd0645b6a518f2\"",
+      "layoutVersion": "eink-layout-v1",
+      "warning": null,
+      "coldMs": 37.5,
+      "hotMs": 0.7,
+      "hotCacheHit": true
+    },
+    {
+      "name": "multipart-question",
+      "id": 3,
+      "mode": "question",
+      "filename": "multipart-question.png",
+      "frameBytes": 48000,
+      "pngBytes": 8924,
+      "etag": "\"ba51129438a26a005cff1ff2c34c51b5b0bfb9ced2bc4478ffed8a1899e0080e\"",
+      "layoutVersion": "eink-layout-v1",
+      "warning": null,
+      "coldMs": 39.6,
+      "hotMs": 1.1,
+      "hotCacheHit": true
+    },
+    {
+      "name": "multipart-answer",
+      "id": 3,
+      "mode": "answer",
+      "filename": "multipart-answer.png",
+      "frameBytes": 48000,
+      "pngBytes": 10165,
+      "etag": "\"65c3040635b422fb87a8d236f3bf1a3ffed4816d54fc80355fd564f0e77abd0b\"",
+      "layoutVersion": "eink-layout-v1",
+      "warning": null,
+      "coldMs": 58.1,
+      "hotMs": 0.8,
+      "hotCacheHit": true
+    },
+    {
+      "name": "photo-question",
+      "id": 4,
+      "mode": "question",
+      "filename": "photo-question.png",
+      "frameBytes": 48000,
+      "pngBytes": 7796,
+      "etag": "\"374de014bc16990e397dbd82b3a14fd00315e5ce68702d25cb689f55cfed6cef\"",
+      "layoutVersion": "eink-layout-v1",
+      "warning": null,
+      "coldMs": 55.9,
+      "hotMs": 0.8,
+      "hotCacheHit": true
+    },
+    {
+      "name": "photo-multipart-question",
+      "id": 5,
+      "mode": "question",
+      "filename": "photo-multipart-question.png",
+      "frameBytes": 48000,
+      "pngBytes": 7813,
+      "etag": "\"2405be93d5c850a9235b5c7830f05e4a558f4925a8dc6ef83ca039938e794457\"",
+      "layoutVersion": "eink-layout-v1",
+      "warning": null,
+      "coldMs": 38,
+      "hotMs": 0.9,
+      "hotCacheHit": true
+    },
+    {
+      "name": "missing-attachment-fallback",
+      "id": 6,
+      "mode": "question",
+      "filename": "missing-attachment-fallback.png",
+      "frameBytes": 48000,
+      "pngBytes": 5407,
+      "etag": "\"2fc67ea900d8976ed562a585a98216b69d5a97944d3f1854150a8a96bd15968d\"",
+      "layoutVersion": "eink-layout-v1",
+      "warning": "EINK_PHOTO_FALLBACK",
+      "coldMs": 23.6,
+      "hotMs": 0.8,
+      "hotCacheHit": true
+    }
+  ]
+}

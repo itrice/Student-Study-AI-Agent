@@ -246,6 +246,9 @@ test("学习统计与底层作答事实一致，并明确数据不足", () => {
   });
   assert.equal(daily.childSummary.headline, "今天完成了 2 次作答");
   assert.ok(daily.childSummary.sentences.some((line) => line.includes("1 次提示")));
+  const dailyCopy = daily.childSummary.sentences.join(" ");
+  assert.equal((dailyCopy.match(/次作答/g) || []).length, 1);
+  assert.equal(dailyCopy.includes(daily.childSummary.headline), false);
 
   const emptyRepository = new LearningRepository();
   const emptyWeekly = emptyRepository.buildWeeklyReport({

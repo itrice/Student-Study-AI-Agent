@@ -34,7 +34,6 @@ try {
     --exclude=node_modules `
     --exclude=data `
     --exclude=.env `
-    --exclude=pnpm-lock.yaml `
     -C $projectRoot .
   Assert-NativeSuccess "tar"
 
@@ -57,12 +56,13 @@ if [ -n "$previous_image" ]; then
 fi
 echo "==> 解压源码"
 tar -xzf "__REMOTE_ARCHIVE__"
-echo "==> 目标机 Node 22 测试"
-test_output=$(docker run --rm --user "$(id -u):$(id -g)" -e TZ=Asia/Shanghai -v "$PWD":/app -w /app node:22-alpine node --test 2>&1)
-echo "$test_output" | tail -8
-echo "remote-tests=ok"
 echo "==> 构建镜像"
 docker compose build
+image=$(docker compose config --images | head -1)
+echo "==> 目标机 Node 22 测试"
+test_output=$(docker run --rm --user "$(id -u):$(id -g)" -e TZ=Asia/Shanghai -v "$PWD/test:/app/test:ro" "$image" node --test 2>&1)
+echo "$test_output" | tail -8
+echo "remote-tests=ok"
 echo "==> 重建容器"
 docker compose up -d --force-recreate
 echo "==> 等待健康检查"

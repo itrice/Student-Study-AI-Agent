@@ -25,12 +25,24 @@ import {
   saveAttachmentCrop
 } from "./attachment-crop.js";
 import { createVisionExtractorFromEnvironment } from "./llm/vision.js";
+import {
+  EinkPageService,
+  etagMatches
+} from "./eink/service.js";
+import {
+  parseDateKey,
+  parseMonthKey,
+  shanghaiDateKey,
+  shanghaiMonthKey
+} from "./feedback-calendar.js";
+import { buildOpenApiDocument } from "./openapi.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, "..");
 loadEnvFile(path.join(projectRoot, ".env"));
 const publicDir = path.join(projectRoot, "public");
 const port = Number(process.env.PORT || 3000);
+const serverStartedAt = new Date().toISOString();
 const host = process.env.HOST || "127.0.0.1";
 const databasePath =
   process.env.DB_PATH || path.join(projectRoot, "data", "learning.sqlite");
@@ -44,6 +56,10 @@ const learningTools = createLearningTools(repository);
 const llmGateway = createGatewayFromEnvironment(process.env);
 const attachmentStore = new AttachmentStore({
   directory: repository.attachmentDirectory
+});
+const einkPageService = new EinkPageService({
+  repository,
+  attachmentStore
 });
 const visionExtractor = createVisionExtractorFromEnvironment(process.env);
 const diagnosisAgent = createDiagnosisAgent({
@@ -71,6 +87,27 @@ const REVIEW_SESSION_TTL_MS = 30 * 60 * 1000;
 const editSessions = new Map();
 const reviewSessions = new Map();
 
+const API_DOCS_HEADERS = {
+  "Content-Security-Policy":
+    "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; " +
+    "script-src 'self'; connect-src 'self'; base-uri 'none'; " +
+    "form-action 'none'; frame-ancestors 'none'",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+  "X-Frame-Options": "DENY",
+  "Cache-Control": "no-cache"
+};
+
+const API_DOC_REDIRECTS = new Map([
+  ["/api", "/api/docs"],
+  ["/api-docs", "/api/docs"],
+  ["/api-docs/", "/api/docs"],
+  ["/docs", "/api/docs"],
+  ["/docs/", "/api/docs"],
+  ["/openapi.json", "/api/openapi.json"],
+  ["/openapi.json/", "/api/openapi.json"]
+]);
+
 class HttpError extends Error {
   constructor(status, message, { code = null } = {}) {
     super(message);
@@ -85,6 +122,39 @@ function sendJson(response, status, value) {
     "Cache-Control": "no-store"
   });
   response.end(JSON.stringify(value));
+}
+
+function firstHeaderValue(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return String(raw || "").split(",")[0].trim();
+}
+
+function requestBaseUrl(request) {
+  const forwardedProto = firstHeaderValue(
+    request.headers["x-forwarded-proto"]
+  );
+  const forwardedHost = firstHeaderValue(
+    request.headers["x-forwarded-host"]
+  );
+  const host = forwardedHost || firstHeaderValue(request.headers.host);
+  const protocol = forwardedProto === "https" ? "https" : "http";
+  if (!host || !/^[A-Za-z0-9._:[\]-]+$/.test(host)) return "/";
+  return `${protocol}://${host}`;
+}
+
+function canonicalApiPathname(pathname) {
+  if (!pathname.startsWith("/api/")) return pathname;
+  return pathname.replace(/\/+$/, "");
+}
+
+function sendRedirect(response, location) {
+  response.writeHead(308, {
+    Location: location,
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff"
+  });
+  response.end(`Redirecting to ${location}\n`);
 }
 
 async function readJson(request) {
@@ -210,6 +280,37 @@ function parseId(value) {
     throw new HttpError(400, "题目编号无效");
   }
   return id;
+}
+
+function parseEinkId(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d+$/.test(text)) {
+    throw new HttpError(400, "题目编号必须是正整数");
+  }
+  const id = Number(text);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new HttpError(400, "题目编号必须是正整数");
+  }
+  return id;
+}
+
+function parseEinkLimit(value) {
+  if (value === null) return 20;
+  const text = String(value);
+  if (!/^\d+$/.test(text)) {
+    throw new HttpError(400, "limit 必须是 1～20 的整数");
+  }
+  const limit = Number(text);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 20) {
+    throw new HttpError(400, "limit 必须是 1～20 的整数");
+  }
+  return limit;
+}
+
+function parseEinkMode(value) {
+  if (value === null) return "question";
+  if (value === "question" || value === "answer") return value;
+  throw new HttpError(400, "mode 只能是 question 或 answer");
 }
 
 function issueEditSession(mistakeId, context) {
@@ -459,12 +560,108 @@ async function handleMistakeUpdate(request, response, mistakeId) {
   });
 }
 
+let buildInfoPromise;
+function normalizeVersionLabel(value) {
+  const text = String(value || "").trim();
+  if (!text) return "dev";
+  return /^v/i.test(text) ? text : `v${text}`;
+}
+
+async function getBuildInfo() {
+  if (!buildInfoPromise) {
+    buildInfoPromise = Promise.all([
+      fs.readFile(path.join(currentDir, "server.js")),
+      fs.readFile(path.join(publicDir, "app.js")),
+      fs.readFile(path.join(publicDir, "index.html")),
+      fs.readFile(path.join(publicDir, "styles.css")),
+      fs.readFile(path.join(projectRoot, "package.json"))
+    ])
+      .then(
+        ([
+          serverSource,
+          appSource,
+          indexSource,
+          stylesSource,
+          packageSource
+        ]) => {
+          let packageVersion = "";
+          try {
+            packageVersion = JSON.parse(packageSource.toString("utf8")).version;
+          } catch {
+            packageVersion = "";
+          }
+          const version = String(
+            process.env.APP_VERSION || packageVersion || "dev"
+          ).trim();
+          return {
+            server: createHash("sha256")
+              .update(serverSource)
+              .digest("hex")
+              .slice(0, 12),
+            appJs: createHash("sha256")
+              .update(appSource)
+              .digest("hex")
+              .slice(0, 12),
+            indexHtml: createHash("sha256")
+              .update(indexSource)
+              .digest("hex")
+              .slice(0, 12),
+            stylesCss: createHash("sha256")
+              .update(stylesSource)
+              .digest("hex")
+              .slice(0, 12),
+            version: version || "dev",
+            versionLabel: normalizeVersionLabel(version)
+          };
+        }
+      )
+      .catch(() => null);
+  }
+  return buildInfoPromise;
+}
+
 async function handleApi(request, response, url) {
+  const canonicalPathname = canonicalApiPathname(url.pathname);
+  if (canonicalPathname !== url.pathname) url.pathname = canonicalPathname;
+
+  if (
+    (request.method === "GET" || request.method === "HEAD") &&
+    API_DOC_REDIRECTS.has(url.pathname)
+  ) {
+    return sendRedirect(response, API_DOC_REDIRECTS.get(url.pathname));
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/openapi.json") {
+    return sendJson(
+      response,
+      200,
+      buildOpenApiDocument({ baseUrl: requestBaseUrl(request) })
+    );
+  }
+
+  if (
+    request.method === "GET" &&
+    (url.pathname === "/api/docs" || url.pathname === "/api/docs/")
+  ) {
+    return serveStatic(response, "/api-docs.html", API_DOCS_HEADERS);
+  }
+
   if (request.method === "GET" && url.pathname === "/api/health") {
+    const build = await getBuildInfo();
     return sendJson(response, 200, {
       ok: true,
+      appVersion: build?.version || process.env.APP_VERSION || null,
+      startedAt: serverStartedAt,
       schemaVersion: repository.getSchemaVersion(),
-      toolCount: learningTools.listTools("ui").length
+      toolCount: learningTools.listTools("ui").length,
+      build,
+      capabilities: {
+        mistakeUpdate: {
+          postUpdate: "/api/mistakes/:id/update",
+          patch: "/api/mistakes/:id"
+        },
+        feedbackCalendar: true
+      }
     });
   }
 
@@ -483,10 +680,107 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/bootstrap") {
+    const curriculum = repository.getCurriculumBaseData();
     return sendJson(response, 200, {
-      student: repository.getStudent(),
-      knowledgePoints: repository.getKnowledgePoints()
+      student: curriculum.student,
+      knowledgePoints: curriculum.knowledgePoints,
+      currentTextbook: curriculum.currentTextbook,
+      textbooks: curriculum.textbooks,
+      mappingVersion: curriculum.mappingVersion
     });
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/curriculum") {
+    return sendJson(response, 200, repository.getCurriculumBaseData());
+  }
+
+  if (
+    request.method === "GET" &&
+    url.pathname === "/api/curriculum/unmapped"
+  ) {
+    const student = repository.getStudent();
+    const items = repository.getUnmappedCurriculumMistakes();
+    return sendJson(response, 200, {
+      items,
+      targetPoints: student?.textbook
+        ? repository.getCurriculumPoints(student.textbook.id)
+        : []
+    });
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/curriculum/switch/preview"
+  ) {
+    const body = await readJson(request);
+    const targetTextbookId = parseId(body.targetTextbookId);
+    return sendJson(
+      response,
+      200,
+      repository.buildCurriculumSwitchPreview({ targetTextbookId })
+    );
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/curriculum/switch/execute"
+  ) {
+    const body = await readJson(request);
+    const idempotencyKey = request.headers["idempotency-key"];
+    if (!idempotencyKey) {
+      throw new HttpError(400, "切换教材请求缺少幂等键");
+    }
+    const mappingChoices =
+      body.mappingChoices && typeof body.mappingChoices === "object"
+        ? body.mappingChoices
+        : {};
+    return sendJson(
+      response,
+      200,
+      repository.executeCurriculumSwitch({
+        targetTextbookId: parseId(body.targetTextbookId),
+        previewToken: requireText(body.previewToken, "预演凭证", 128),
+        mappingChoices,
+        confirmUnmapped: body.confirmUnmapped === true,
+        idempotencyKey,
+        actor: optionalText(body.actor, 100),
+        confirmer: optionalText(body.confirmer, 100)
+      })
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/curriculum/switches") {
+    const mistakeId = url.searchParams.get("mistakeId");
+    return sendJson(
+      response,
+      200,
+      repository.getCurriculumSwitchLogs({
+        mistakeId: mistakeId ? parseId(mistakeId) : null,
+        limit: Number(url.searchParams.get("limit") || 20)
+      })
+    );
+  }
+
+  const curriculumResolveMatch = url.pathname.match(
+    /^\/api\/curriculum\/mistakes\/(\d+)\/resolve$/
+  );
+  if (curriculumResolveMatch && request.method === "POST") {
+    const body = await readJson(request);
+    const idempotencyKey = request.headers["idempotency-key"];
+    if (!idempotencyKey) {
+      throw new HttpError(400, "未映射处理请求缺少幂等键");
+    }
+    return sendJson(
+      response,
+      200,
+      repository.assignMistakeCurriculum({
+        mistakeId: parseId(curriculumResolveMatch[1]),
+        targetCurriculumPointId: parseId(body.targetCurriculumPointId),
+        idempotencyKey,
+        actor: optionalText(body.actor, 100),
+        confirmer: optionalText(body.confirmer, 100)
+      })
+    );
   }
 
   if (request.method === "POST" && url.pathname === "/api/attachments") {
@@ -634,6 +928,88 @@ async function handleApi(request, response, url) {
     );
   }
 
+  if (request.method === "GET" && url.pathname === "/api/eink/queue") {
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    return sendJson(
+      response,
+      200,
+      einkPageService.getQueue(
+        parseEinkLimit(url.searchParams.get("limit"))
+      )
+    );
+  }
+
+  if (
+    request.method === "GET" &&
+    (url.pathname === "/api/eink/page" ||
+      url.pathname === "/api/eink/preview")
+  ) {
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    const startedAt = Date.now();
+    const id = parseEinkId(url.searchParams.get("id"));
+    const mode = parseEinkMode(url.searchParams.get("mode"));
+    let page;
+    try {
+      page = await einkPageService.getPage({ id, mode });
+    } catch (error) {
+      console.info(
+        `[eink] id=${id} mode=${mode} status=${error.status || 500} ` +
+          `cache=miss duration=${Date.now() - startedAt}ms`
+      );
+      throw error;
+    }
+    if (page.warning) {
+      console.warn(
+        `[eink] id=${id} mode=${mode} warning=${page.warning}`
+      );
+    }
+
+    if (url.pathname === "/api/eink/page") {
+      if (etagMatches(request.headers["if-none-match"], page.etag)) {
+        response.writeHead(304, {
+          ETag: page.etag,
+          "X-Etag": page.etag,
+          "Cache-Control": "no-transform",
+          "X-Content-Type-Options": "nosniff"
+        });
+        response.end();
+      } else {
+        response.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": page.frame.length,
+          ETag: page.etag,
+          "X-Etag": page.etag,
+          "Cache-Control": "no-transform",
+          "X-Content-Type-Options": "nosniff"
+        });
+        response.end(page.frame);
+      }
+      console.info(
+        `[eink] id=${id} mode=${mode} status=${
+          etagMatches(request.headers["if-none-match"], page.etag)
+            ? 304
+            : 200
+        } cache=${page.cacheHit ? "hit" : "miss"} ` +
+          `duration=${Date.now() - startedAt}ms`
+      );
+      return;
+    }
+
+    response.writeHead(200, {
+      "Content-Type": "image/png",
+      "Content-Length": page.png.length,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    });
+    response.end(page.png);
+    console.info(
+      `[eink] id=${id} mode=${mode} status=200 ` +
+        `cache=${page.cacheHit ? "hit" : "miss"} ` +
+        `duration=${Date.now() - startedAt}ms`
+    );
+    return;
+  }
+
   if (request.method === "DELETE" && url.pathname === "/api/learning-data") {
     if (
       request.headers["x-confirm-delete"] !== "DELETE_ALL_LEARNING_DATA"
@@ -646,6 +1022,7 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/feedback/daily") {
     const date = parseCalendarDate(url.searchParams.get("date"));
     const bounds = dayBounds(date);
+    const student = repository.getStudent();
     return sendJson(
       response,
       200,
@@ -654,7 +1031,8 @@ async function handleApi(request, response, url) {
         knowledgePoint: optionalKnowledgePoint(
           url.searchParams.get("knowledgePoint")
         ),
-        at: new Date().toISOString()
+        at: new Date().toISOString(),
+        studentId: student?.id || null
       })
     );
   }
@@ -665,6 +1043,7 @@ async function handleApi(request, response, url) {
     startDate.setDate(startDate.getDate() - 6);
     const startBounds = dayBounds(startDate);
     const endBounds = dayBounds(endDate);
+    const student = repository.getStudent();
     return sendJson(
       response,
       200,
@@ -674,16 +1053,69 @@ async function handleApi(request, response, url) {
         knowledgePoint: optionalKnowledgePoint(
           url.searchParams.get("knowledgePoint")
         ),
-        at: new Date().toISOString()
+        at: new Date().toISOString(),
+        studentId: student?.id || null
+      })
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/feedback/calendar") {
+    const rawMonth = String(url.searchParams.get("month") || "").trim();
+    if (rawMonth && !parseMonthKey(rawMonth)) {
+      throw new HttpError(400, "月份格式应为 YYYY-MM");
+    }
+    const month = rawMonth || shanghaiMonthKey();
+    const student = repository.getStudent();
+    return sendJson(
+      response,
+      200,
+      repository.buildFeedbackCalendar({
+        month,
+        studentId: student?.id || null
+      })
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/feedback/day") {
+    const rawDate = String(url.searchParams.get("date") || "").trim();
+    if (rawDate && !parseDateKey(rawDate)) {
+      throw new HttpError(400, "日期格式应为 YYYY-MM-DD");
+    }
+    const date = rawDate || shanghaiDateKey();
+    const student = repository.getStudent();
+    return sendJson(
+      response,
+      200,
+      repository.buildFeedbackDay({
+        date,
+        studentId: student?.id || null
       })
     );
   }
 
   if (request.method === "GET" && url.pathname === "/api/knowledge-points") {
-    return sendJson(response, 200, repository.getKnowledgeSummary());
+    const student = repository.getStudent();
+    return sendJson(
+      response,
+      200,
+      student?.textbook
+        ? repository.getCurriculumKnowledgeSummary(
+            student.textbook.id,
+            student.id
+          )
+        : repository.getKnowledgeSummary()
+    );
   }
 
   if (request.method === "GET" && url.pathname === "/api/knowledge-base") {
+    const student = repository.getStudent();
+    if (student?.textbook) {
+      return sendJson(
+        response,
+        200,
+        repository.getCurriculumKnowledgeBaseData(student.textbook.id)
+      );
+    }
     return sendJson(response, 200, {
       stats: repository.getKnowledgeBaseStats(),
       cards: repository.getKnowledgeCards()
@@ -702,10 +1134,15 @@ async function handleApi(request, response, url) {
       1,
       Math.min(5, Number(url.searchParams.get("limit") || 3))
     );
+    const student = repository.getStudent();
     return sendJson(
       response,
       200,
-      repository.searchKnowledge({ query, limit })
+      repository.searchKnowledge({
+        query,
+        limit,
+        textbookId: student?.textbook?.id || null
+      })
     );
   }
 
@@ -713,7 +1150,17 @@ async function handleApi(request, response, url) {
     /^\/api\/knowledge-base\/([A-Za-z0-9-]+|\d+)$/
   );
   if (knowledgeCardMatch && request.method === "GET") {
-    const card = repository.getKnowledgeCard(knowledgeCardMatch[1]);
+    const student = repository.getStudent();
+    const card = student?.textbook
+      ? repository
+          .getCurriculumKnowledgeCards(student.textbook.id)
+          .find(
+            (item) =>
+              String(item.id) === knowledgeCardMatch[1] ||
+              item.slug === knowledgeCardMatch[1] ||
+              item.name === knowledgeCardMatch[1]
+          ) || null
+      : repository.getKnowledgeCard(knowledgeCardMatch[1]);
     if (!card) throw new HttpError(404, "没有找到这张知识卡片");
     return sendJson(response, 200, card);
   }
@@ -1009,7 +1456,7 @@ async function handleApi(request, response, url) {
   throw new HttpError(404, "接口不存在", { code: "ROUTE_NOT_FOUND" });
 }
 
-async function serveStatic(response, pathname) {
+async function serveStatic(response, pathname, extraHeaders = {}) {
   const requested = pathname === "/" ? "/index.html" : pathname;
   const resolved = path.resolve(publicDir, `.${requested}`);
   if (!resolved.startsWith(`${publicDir}${path.sep}`)) {
@@ -1017,12 +1464,25 @@ async function serveStatic(response, pathname) {
   }
 
   try {
-    const content = await fs.readFile(resolved);
+    let content = await fs.readFile(resolved);
+    if (requested === "/index.html") {
+      const build = await getBuildInfo();
+      content = Buffer.from(
+        content
+          .toString("utf8")
+          .replaceAll("__APP_VERSION__", build?.appJs || "dev")
+          .replaceAll("__STYLES_VERSION__", build?.stylesCss || "dev")
+          .replaceAll("__RELEASE_VERSION__", build?.versionLabel || "dev")
+          .replaceAll("__BUILD_ID__", build?.appJs || "dev"),
+        "utf8"
+      );
+    }
     response.writeHead(200, {
       "Content-Type":
         MIME_TYPES[path.extname(resolved).toLowerCase()] ||
         "application/octet-stream",
-      "Cache-Control": "no-cache"
+      "Cache-Control": "no-cache",
+      ...extraHeaders
     });
     response.end(content);
   } catch (error) {
@@ -1036,7 +1496,10 @@ async function serveStatic(response, pathname) {
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host}`);
   try {
-    if (url.pathname.startsWith("/api/")) {
+    if (
+      url.pathname.startsWith("/api/") ||
+      API_DOC_REDIRECTS.has(url.pathname)
+    ) {
       await handleApi(request, response, url);
     } else if (request.method === "GET") {
       await serveStatic(response, decodeURIComponent(url.pathname));

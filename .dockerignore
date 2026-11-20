@@ -10,6 +10,5 @@ docs
 .env
 .env.*
 !.env.example
-pnpm-lock.yaml
 docker-compose.yml
 README.md
