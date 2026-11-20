@@ -9,6 +9,11 @@ command -v jq >/dev/null 2>&1 || {
   exit 1
 }
 
+command -v kubectl >/dev/null 2>&1 || {
+  echo "kubectl is required" >&2
+  exit 1
+}
+
 test -f "${contract_file}" || {
   echo "Missing contract: ${contract_file}" >&2
   exit 1
@@ -55,10 +60,15 @@ if [[ -n "${manifests_path}" ]]; then
     exit 1
   }
 
-  grep -Rqs "__PLATFORM_IMAGE__" "${manifests_path}" || {
-    echo "Manifest path must contain __PLATFORM_IMAGE__: ${manifests_path}" >&2
+  rendered_manifests="$(kubectl kustomize "${manifests_path}")" || {
+    echo "Unable to render manifests: ${manifests_path}" >&2
     exit 1
   }
+
+  if ! grep -Fq "__PLATFORM_IMAGE__" <<< "${rendered_manifests}"; then
+    echo "Manifest path must contain __PLATFORM_IMAGE__: ${manifests_path}" >&2
+    exit 1
+  fi
 fi
 
 echo "Platform contract is valid: ${contract_file}"
