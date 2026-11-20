@@ -42,6 +42,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
       - name: Read application contract
         id: contract
         shell: bash
@@ -165,11 +168,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! grep -Rqs "__PLATFORM_IMAGE__" "${MANIFESTS_PATH}"; then
+          rendered_manifests="$(kubectl kustomize "${MANIFESTS_PATH}")"
+          if ! grep -Fq "__PLATFORM_IMAGE__" <<< "${rendered_manifests}"; then
             echo "Manifest path must contain __PLATFORM_IMAGE__: ${MANIFESTS_PATH}" >&2
             exit 1
           fi
-          kubectl kustomize "${MANIFESTS_PATH}" >/dev/null
 
       - name: Create namespace
         env:
