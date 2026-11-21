@@ -1,0 +1,208 @@
+name: Application CI CD
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.repository }}-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      app_name: ${{ steps.contract.outputs.app_name }}
+      namespace: ${{ steps.contract.outputs.namespace }}
+      deployment: ${{ steps.contract.outputs.deployment }}
+      container: ${{ steps.contract.outputs.container }}
+      image_name: ${{ steps.contract.outputs.image_name }}
+      image_context: ${{ steps.contract.outputs.image_context }}
+      dockerfile: ${{ steps.contract.outputs.dockerfile }}
+      pull_secret: ${{ steps.contract.outputs.pull_secret }}
+      manifests_path: ${{ steps.contract.outputs.manifests_path }}
+      smoke_test_command: ${{ steps.contract.outputs.smoke_test_command }}
+      timeout_seconds: ${{ steps.contract.outputs.timeout_seconds }}
+      rollback_on_failure: ${{ steps.contract.outputs.rollback_on_failure }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Read application contract
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifests_path="$(jq -r '.deploy.manifestsPath' .platform-ci.json)"
+          bash scripts/validate-platform-contract.sh .platform-ci.json "${manifests_path}"
+
+          output_value() {
+            local key="$1"
+            local query="$2"
+            local value
+            value="$(jq -r "${query}" .platform-ci.json)"
+            printf '%s=%s\n' "${key}" "${value}" >> "${GITHUB_OUTPUT}"
+          }
+
+          output_value app_name '.app.name'
+          output_value namespace '.app.namespace'
+          output_value deployment '.app.deployment'
+          output_value container '.app.container'
+          output_value image_name '.image.name'
+          output_value image_context '.image.context'
+          output_value dockerfile '.image.dockerfile'
+          output_value pull_secret '.image.pullSecret'
+          output_value manifests_path '.deploy.manifestsPath'
+          output_value smoke_test_command '.deploy.smokeTestCommand'
+          output_value timeout_seconds '.deploy.timeoutSeconds'
+          output_value rollback_on_failure '.deploy.rollbackOnFailure'
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          working_directory="$(jq -r '.ci.workingDirectory' .platform-ci.json)"
+          install_command="$(jq -r '.ci.installCommand' .platform-ci.json)"
+          test_command="$(jq -r '.ci.testCommand' .platform-ci.json)"
+          pushd "${working_directory}" >/dev/null
+          bash -euo pipefail -c "${install_command}"
+          bash -euo pipefail -c "${test_command}"
+          popd >/dev/null
+
+  build:
+    name: Build image
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      digest: ${{ steps.image.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Build and push image
+        id: image
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_NAME: ${{ needs.validate.outputs.image_name }}
+          IMAGE_CONTEXT: ${{ needs.validate.outputs.image_context }}
+          DOCKERFILE: ${{ needs.validate.outputs.dockerfile }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="sha-${GITHUB_SHA::12}"
+          metadata_file="${RUNNER_TEMP}/docker-metadata.json"
+
+          printf '%s' "${REGISTRY_TOKEN}" |
+            docker login ghcr.io --username "${REGISTRY_USER}" --password-stdin
+
+          docker buildx build \
+            --file "${DOCKERFILE}" \
+            --tag "${IMAGE_NAME}:${image_tag}" \
+            --push \
+            --metadata-file "${metadata_file}" \
+            "${IMAGE_CONTEXT}"
+
+          digest="$(jq -r '."containerimage.digest"' "${metadata_file}")"
+          if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Invalid image digest: ${digest}" >&2
+            exit 1
+          fi
+
+          echo "image=${IMAGE_NAME}:${image_tag}" >> "${GITHUB_OUTPUT}"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+  deploy:
+    name: Deploy to K3s
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs:
+      - validate
+      - build
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - ea-k3s
+    environment: production
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Refresh GHCR pull credential
+        shell: bash
+        env:
+          NAMESPACE: ${{ needs.validate.outputs.namespace }}
+          PULL_SECRET: ${{ needs.validate.outputs.pull_secret }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          kubectl -n "${NAMESPACE}" create secret docker-registry "${PULL_SECRET}" \
+            --docker-server=ghcr.io \
+            --docker-username="${REGISTRY_USER}" \
+            --docker-password="${REGISTRY_TOKEN}" \
+            --dry-run=client -o yaml |
+            kubectl apply -f -
+
+      - name: Deploy immutable image
+        shell: bash
+        env:
+          NAMESPACE: ${{ needs.validate.outputs.namespace }}
+          DEPLOYMENT: ${{ needs.validate.outputs.deployment }}
+          MANIFESTS_PATH: ${{ needs.validate.outputs.manifests_path }}
+          TIMEOUT_SECONDS: ${{ needs.validate.outputs.timeout_seconds }}
+          IMAGE_URI: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          if ! grep -Rqs "__PLATFORM_IMAGE__" "${MANIFESTS_PATH}"; then
+            echo "Manifest path must contain __PLATFORM_IMAGE__: ${MANIFESTS_PATH}" >&2
+            exit 1
+          fi
+
+          kubectl kustomize "${MANIFESTS_PATH}" |
+            sed "s|__PLATFORM_IMAGE__|${IMAGE_URI}|g" |
+            kubectl apply -f -
+
+          if ! kubectl -n "${NAMESPACE}" rollout status \
+            "deployment/${DEPLOYMENT}" --timeout="${TIMEOUT_SECONDS}s"; then
+            kubectl -n "${NAMESPACE}" logs \
+              "deployment/${DEPLOYMENT}" --tail=100 || true
+            kubectl -n "${NAMESPACE}" rollout undo \
+              "deployment/${DEPLOYMENT}" || true
+            exit 1
+          fi
+
+      - name: Run application smoke test
+        shell: bash
+        env:
+          SMOKE_TEST_COMMAND: ${{ needs.validate.outputs.smoke_test_command }}
+          ROLLBACK_ON_FAILURE: ${{ needs.validate.outputs.rollback_on_failure }}
+          NAMESPACE: ${{ needs.validate.outputs.namespace }}
+          DEPLOYMENT: ${{ needs.validate.outputs.deployment }}
+        run: |
+          set -euo pipefail
+          if ! bash -euo pipefail -c "${SMOKE_TEST_COMMAND}"; then
+            if [[ "${ROLLBACK_ON_FAILURE}" == "true" ]]; then
+              kubectl -n "${NAMESPACE}" rollout undo "deployment/${DEPLOYMENT}"
+            fi
+            exit 1
+          fi

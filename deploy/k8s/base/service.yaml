@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: student-study-ai-agent
+  labels:
+    app.kubernetes.io/name: student-study-ai-agent
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: student-study-ai-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

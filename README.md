@@ -159,7 +159,18 @@ M7 报告会写入 `docs/reports/m7-evaluation-2026-11-10.md` 和对应 JSON；
 npm run dev
 ```
 
-## Docker 部署
+## CI/CD 部署（K3s）
+
+仓库已提供 GitHub Actions 流程：Pull Request 执行测试；`dev`、`qa`、`main` 分支更新后
+依次测试、构建 Docker 镜像并推送到 GHCR，再通过自托管 Runner 部署到对应 K3s 环境。
+该流程使用
+Dockerfile 构建镜像，不调用 Docker Compose，也不通过 SSH 上传源码。
+
+流水线契约、Kubernetes 生产清单和首部署配置见
+[docs/DEPLOYMENT_RUNBOOK.md](docs/DEPLOYMENT_RUNBOOK.md)。应用使用单副本和持久卷保存
+SQLite、图片附件及备份；dev、QA、production 数据相互隔离，请勿把副本数调大。
+
+## 手工 Docker Compose 部署（独立流程）
 
 完整的目标机部署、更新、验证、备份与回滚步骤见
 [docs/DEPLOYMENT_RUNBOOK.md](docs/DEPLOYMENT_RUNBOOK.md)。
