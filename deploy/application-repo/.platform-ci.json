@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "app": {
+    "name": "example-app",
+    "namespace": "example-app",
+    "deployment": "example-app",
+    "container": "app"
+  },
+  "ci": {
+    "workingDirectory": ".",
+    "installCommand": "corepack enable && pnpm install --frozen-lockfile",
+    "testCommand": "pnpm test"
+  },
+  "image": {
+    "name": "ghcr.io/example-org/example-app",
+    "context": ".",
+    "dockerfile": "Dockerfile",
+    "pullSecret": "ghcr-pull"
+  },
+  "deploy": {
+    "manifestsPath": "deploy/k8s/overlays/production",
+    "smokeTestCommand": "./scripts/smoke-test.sh",
+    "timeoutSeconds": 180,
+    "rollbackOnFailure": true
+  }
+}

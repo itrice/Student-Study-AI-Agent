@@ -1,14 +1,106 @@
-# Docker 部署实施手册
+# Docker 与 K3s 部署手册
 
-本文用于本项目的目标机部署、版本更新、部署后验证、数据备份和回滚。
+本文说明本项目的 K3s CI/CD 部署，以及现有 Docker Compose 手工部署、数据备份和回滚。
 
 核心原则：
 
 - 应用以 Docker 镜像运行；
-- SQLite 数据库和附件保存在宿主机持久目录；
+- SQLite 数据库和附件保存在持久卷；
 - 升级只替换镜像和容器，不删除数据；
 - 每次更新前生成可校验的一致性备份；
 - 出现问题时优先保留现场，再按备份和旧镜像回滚。
+
+## 0. GitHub Actions 部署到 K3s
+
+仓库根目录的 `.github/workflows/ci-cd.yml` 按 Pull Request、构建和部署分阶段执行：
+
+1. Pull Request 和 `dev`、`qa`、`main` 分支推送先验证三套 manifests 并运行 `pnpm test`。
+2. `dev`、`qa`、`main` 推送均构建 Dockerfile，将镜像以提交 SHA 标签推送到 GHCR。
+3. 自托管 Runner 按分支选择对应 K3s 环境，使用镜像 digest 部署，等待 Deployment rollout
+   并运行健康检查。
+4. 更新已有 Deployment 前，通过应用内备份脚本创建并校验学习数据备份；首次部署跳过。
+5. rollout 或 smoke test 失败时，工作流尝试回滚 Deployment。
+
+### 环境和分支
+
+| Git 分支 | GitHub Environment | K3s Namespace | Ingress 主机名 | PVC |
+| --- | --- | --- | --- | --- |
+| `dev` | `dev` | `student-study-ai-agent-dev` | `student-study-ai-agent-dev.home.arpa` | 2Gi |
+| `qa` | `qa` | `student-study-ai-agent-qa` | `student-study-ai-agent-qa.home.arpa` | 2Gi |
+| `main` | `production` | `student-study-ai-agent` | `student-study-ai-agent.home.arpa` | 10Gi |
+
+推荐变更路径为 feature 分支 → PR 到 `dev` → 验证后 PR 到 `qa` → 验收后 PR 到 `main`。
+合并到对应分支会自动部署该环境。可在 GitHub 仓库的 Environments 中配置 `qa`、
+`production` 的 required reviewers 和分支限制；`dev` 通常不需要人工审批。
+Kustomize 共用 `deploy/k8s/base`，环境差异放在
+`deploy/k8s/overlays/dev`、`qa`、`prod`。
+
+### 首次启用前
+
+1. 在 GitHub 仓库启用 Actions，并允许工作流使用 `GITHUB_TOKEN` 写入 Packages（镜像地址为
+   `ghcr.io/itrice/student-study-ai-agent`）。工作流不需要额外的 registry 密码。
+2. 在可以访问 K3s API 的 Linux 主机注册 GitHub Actions self-hosted Runner，标签需包含
+   `ea-k3s`；Runner 上安装并配置支持 Kustomize 的 `kubectl` 和 `jq`，其 kubeconfig 身份
+   需能创建 Namespace、Secret、PVC、Deployment、Service 和 Ingress。部署 Job 的标签可
+   在 workflow 中调整。
+3. 确认 K3s 有可用的默认 StorageClass。当前 PVC 请求 10Gi、`ReadWriteOnce`，未固定
+   StorageClass；按本地存储容量和备份策略调整
+   `deploy/k8s/base/pvc.yaml`。
+4. Ingress 使用 K3s 默认 Traefik。让局域网 DNS/hosts 将以下三个主机名解析到 Ingress
+   节点；若集群未启用 Traefik，请调整 Ingress class/入口配置：
+   `student-study-ai-agent-dev.home.arpa`、`student-study-ai-agent-qa.home.arpa`、
+   `student-study-ai-agent.home.arpa`。
+5. 如需使用 LLM/视觉模型，分别在三个 namespace 创建独立的
+   `student-study-ai-agent-secrets` Secret。可从权限为仅当前用户可读的临时 env 文件导入，
+   不要提交真实密钥：
+
+   ```bash
+   kubectl apply -f deploy/k8s/overlays/dev/namespace.yaml
+   kubectl apply -f deploy/k8s/overlays/qa/namespace.yaml
+   kubectl apply -f deploy/k8s/overlays/prod/namespace.yaml
+   for env in dev qa production; do
+     case "$env" in
+       dev) namespace=student-study-ai-agent-dev ;;
+       qa) namespace=student-study-ai-agent-qa ;;
+       production) namespace=student-study-ai-agent ;;
+     esac
+     kubectl -n "$namespace" create secret generic student-study-ai-agent-secrets \
+       --from-env-file="/secure/path/${env}.env" \
+       --dry-run=client -o yaml | kubectl apply -f -
+   done
+   ```
+
+   将 `/secure/path/{dev,qa,production}.env` 替换成实际的受保护配置文件路径。未配置 Secret
+   时应用仍可启动，但不会使用外部模型。GHCR 拉取凭据由部署工作流在每个 namespace
+   自动创建/刷新为 `ghcr-pull` Secret。
+
+### 部署约束与检查
+
+- 应用固定为单副本：数据库是本地 SQLite，增加副本会造成多进程并发读写同一数据库。
+- dev、QA、production 使用不同的 namespace 和 PVC，数据库、图片附件、备份均不共享。
+  测试环境不应导入生产数据或生产密钥。
+- 第一次部署会创建一块全新的 PVC，不会自动复制旧 Docker Compose 服务器上的数据库或附件。
+  如需保留旧数据，先完成并校验迁移，再将流量切到 K3s；旧服务器数据不会被工作流删除。
+- PVC 同时保存 SQLite、上传附件和备份。K3s 本地存储不等于备份；请另行设置定期异机备份，
+  并验证恢复流程。流水线会在每次更新前生成一次备份，备份也会保留在 PVC 内；请监控
+  容量并按需要配置清理/归档策略。
+- 当前 Ingress 未配置 TLS，应用也没有内置账号体系。仅在可信局域网使用；不要直接暴露到公网。
+- 合并/推送到 `dev`、`qa` 或 `main` 后，在 GitHub Actions 查看 Validate、Build、Deploy
+  三个 Job。按目标环境检查：
+
+  ```bash
+  kubectl -n student-study-ai-agent-dev rollout status deployment/student-study-ai-agent
+  kubectl -n student-study-ai-agent-dev get pods,svc,ingress,pvc
+  kubectl -n student-study-ai-agent-dev port-forward service/student-study-ai-agent 3000:80
+  ```
+
+  然后访问 `http://127.0.0.1:3000/api/health`；QA、production 分别将命令中的 namespace
+  换成 `student-study-ai-agent-qa`、`student-study-ai-agent`。也可通过对应 Ingress 主机名访问。
+
+## 手工 Docker Compose 部署
+
+以下章节保留既有单机 Compose/SSH 部署步骤；它与上面的 K3s CI/CD 是两种独立流程，
+CI/CD 工作流不会调用 Compose 或 `scripts/deploy-remote.ps1`。
 
 ## 1. 部署架构
 

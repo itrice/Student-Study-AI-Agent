@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "app": {
+    "name": "student-study-ai-agent",
+    "namespace": "student-study-ai-agent",
+    "deployment": "student-study-ai-agent",
+    "container": "app"
+  },
+  "ci": {
+    "workingDirectory": ".",
+    "installCommand": "corepack enable && pnpm install --frozen-lockfile",
+    "testCommand": "pnpm test"
+  },
+  "image": {
+    "name": "ghcr.io/itrice/student-study-ai-agent",
+    "context": ".",
+    "dockerfile": "Dockerfile",
+    "pullSecret": "ghcr-pull"
+  },
+  "deploy": {
+    "smokeTestCommand": "bash scripts/smoke-test.sh",
+    "timeoutSeconds": 180,
+    "rollbackOnFailure": true,
+    "environments": {
+      "dev": {
+        "branch": "dev",
+        "namespace": "student-study-ai-agent-dev",
+        "deployment": "student-study-ai-agent",
+        "manifestsPath": "deploy/k8s/overlays/dev"
+      },
+      "qa": {
+        "branch": "qa",
+        "namespace": "student-study-ai-agent-qa",
+        "deployment": "student-study-ai-agent",
+        "manifestsPath": "deploy/k8s/overlays/qa"
+      },
+      "production": {
+        "branch": "main",
+        "namespace": "student-study-ai-agent",
+        "deployment": "student-study-ai-agent",
+        "manifestsPath": "deploy/k8s/overlays/prod"
+      }
+    }
+  }
+}
