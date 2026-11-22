@@ -686,3 +686,28 @@ test("HTTP 上传页面生成候选且读取裁剪图，未导入不增加正式
     }
   });
 });
+
+test("扫描模型返回非 2xx 时保留上游状态与错误体", async () => {
+  const scanner = new OpenAICompatibleQuestionScanner({
+    baseUrl: "https://example.invalid",
+    apiKey: "fixture-key",
+    model: "fixture-model",
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          error: { code: "InvalidParameter", message: "image unsupported" }
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      )
+  });
+  await assert.rejects(
+    () =>
+      scanner.scan({
+        images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+      }),
+    (error) =>
+      error.code === "SCAN_MODEL_FAILED" &&
+      error.details?.upstreamStatus === 400 &&
+      /image unsupported/.test(error.details?.upstreamBody || "")
+  );
+});
