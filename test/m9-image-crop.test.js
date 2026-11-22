@@ -6,15 +6,18 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
+import sharp from "sharp";
 import { LearningRepository } from "../src/database.js";
 import {
   AttachmentStore,
-  MAX_ATTACHMENT_BYTES
+  MAX_ATTACHMENT_BYTES,
+  inspectImage
 } from "../src/attachments.js";
 import {
   clearAttachmentCrop,
   readAttachmentContent,
-  saveAttachmentCrop
+  saveAttachmentCrop,
+  validateCropMetadata
 } from "../src/attachment-crop.js";
 import { extractAttachmentText } from "../src/attachment-service.js";
 import {
@@ -76,6 +79,32 @@ function makePng(width, height, [red, green, blue, alpha = 255]) {
 
 const ORIGINAL = makePng(8, 6, [30, 90, 150]);
 const CROP = makePng(4, 3, [210, 70, 40]);
+
+async function makeOrientedJpeg() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="60" height="30">
+      <rect width="60" height="30" fill="white"/>
+      <rect width="30" height="30" fill="black"/>
+    </svg>`;
+  const jpeg = await sharp(Buffer.from(svg)).jpeg().toBuffer();
+  const exif = Buffer.from([
+    0x45, 0x78, 0x69, 0x66, 0, 0,
+    0x49, 0x49, 0x2a, 0, 8, 0, 0, 0,
+    1, 0,
+    0x12, 0x01, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0,
+    0, 0, 0, 0
+  ]);
+  const segment = Buffer.alloc(4);
+  segment[0] = 0xff;
+  segment[1] = 0xe1;
+  segment.writeUInt16BE(exif.length + 2, 2);
+  return Buffer.concat([
+    jpeg.subarray(0, 2),
+    segment,
+    exif,
+    jpeg.subarray(2)
+  ]);
+}
 
 function withTemporaryDirectory(callback) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "math-coach-crop-"));
@@ -240,6 +269,58 @@ test("裁剪失败、越界或原图尺寸变化不会改变原图", () => {
     assert.deepEqual(fs.readFileSync(originalPath), original);
     assert.equal(repository.getAttachmentCrop(attachment.id), null);
     assert.equal(fs.readdirSync(store.directory).length, 1);
+    repository.close();
+  });
+});
+
+test("手机 JPEG 的 EXIF 方向尺寸可用于裁剪并兼容旧记录", async () => {
+  await withTemporaryDirectory(async (directory) => {
+    const { repository, store } = createFixture(directory);
+    const jpeg = await makeOrientedJpeg();
+    const info = inspectImage(jpeg, { declaredMime: "image/jpeg" });
+    assert.equal(info.width, 30);
+    assert.equal(info.height, 60);
+
+    const saved = store.save(jpeg, {
+      declaredMime: "image/jpeg",
+      originalName: "phone-photo.jpg",
+      kind: "question"
+    });
+    const attachment = repository.insertAttachment(saved);
+    const updated = saveAttachmentCrop({
+      repository,
+      attachmentStore: store,
+      attachmentId: attachment.id,
+      buffer: CROP,
+      declaredMime: "image/png",
+      crop: {
+        x: 1,
+        y: 1,
+        width: 4,
+        height: 3,
+        rotation: 0,
+        sourceWidth: 30,
+        sourceHeight: 60
+      }
+    });
+    assert.equal(updated.hasCrop, true);
+    assert.equal(updated.crop.sourceWidth, 30);
+    assert.equal(updated.crop.sourceHeight, 60);
+
+    assert.doesNotThrow(() =>
+      validateCropMetadata(
+        { originalWidth: 60, originalHeight: 30 },
+        {
+          x: 1,
+          y: 1,
+          width: 4,
+          height: 3,
+          rotation: 0,
+          sourceWidth: 30,
+          sourceHeight: 60
+        }
+      )
+    );
     repository.close();
   });
 });
@@ -427,6 +508,10 @@ test("图片录入 UI 提供鼠标/触摸裁剪、旋转、重置、取消和查
     new URL("../public/app.js", import.meta.url),
     "utf8"
   );
+  const styles = fs.readFileSync(
+    new URL("../public/styles.css", import.meta.url),
+    "utf8"
+  );
 
   assert.match(html, /id="crop-editor"[\s\S]*id="crop-selection"/);
   assert.match(html, /id="rotate-crop-button"/);
@@ -439,5 +524,14 @@ test("图片录入 UI 提供鼠标/触摸裁剪、旋转、重置、取消和查
   assert.match(app, /canvas\.toBlob/);
   assert.match(app, /X-Crop-Rotation/);
   assert.match(app, /data-toggle-original-attachment/);
+  assert.match(app, /dataset\.previewAttachment/);
+  assert.match(app, /state\.originalPreviewIds\.has\(attachmentId\)/);
+  assert.match(app, /window\.open\(url, "_blank", "noopener,noreferrer"\)/);
+  const thumbStyles = styles.match(
+    /\.attachment-thumb img\s*\{([\s\S]*?)\}/
+  )?.[1] || "";
+  assert.match(thumbStyles, /width:\s*96px/);
+  assert.match(thumbStyles, /object-fit:\s*contain/);
+  assert.doesNotMatch(thumbStyles, /object-fit:\s*cover/);
   assert.doesNotMatch(app, /storageKey|storage_key|originalName/);
 });

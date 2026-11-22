@@ -83,6 +83,67 @@ function readJpegSize(buffer) {
   return null;
 }
 
+function readExifOrientation(tiff) {
+  if (tiff.length < 8) return 1;
+  const byteOrder = tiff.toString("ascii", 0, 2);
+  const littleEndian = byteOrder === "II";
+  if (!littleEndian && byteOrder !== "MM") return 1;
+  const readUInt16 = (offset) =>
+    littleEndian ? tiff.readUInt16LE(offset) : tiff.readUInt16BE(offset);
+  const readUInt32 = (offset) =>
+    littleEndian ? tiff.readUInt32LE(offset) : tiff.readUInt32BE(offset);
+  if (readUInt16(2) !== 42) return 1;
+  const directoryOffset = readUInt32(4);
+  if (directoryOffset + 2 > tiff.length) return 1;
+  const entryCount = readUInt16(directoryOffset);
+  for (let index = 0; index < entryCount; index += 1) {
+    const entryOffset = directoryOffset + 2 + index * 12;
+    if (entryOffset + 12 > tiff.length) break;
+    const tag = readUInt16(entryOffset);
+    const type = readUInt16(entryOffset + 2);
+    const count = readUInt32(entryOffset + 4);
+    if (tag !== 0x0112 || type !== 3 || count < 1) continue;
+    const orientation = readUInt16(entryOffset + 8);
+    return orientation >= 1 && orientation <= 8 ? orientation : 1;
+  }
+  return 1;
+}
+
+function readJpegOrientation(buffer) {
+  let offset = 2;
+  while (offset + 3 < buffer.length) {
+    if (buffer[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    let markerOffset = offset + 1;
+    while (buffer[markerOffset] === 0xff) markerOffset += 1;
+    const marker = buffer[markerOffset];
+    const lengthOffset = markerOffset + 1;
+    if (marker === 0xd8 || marker === 0xd9 || marker === 0x01) {
+      offset = lengthOffset;
+      continue;
+    }
+    if (marker === 0xda || lengthOffset + 2 > buffer.length) break;
+    const segmentLength = buffer.readUInt16BE(lengthOffset);
+    if (segmentLength < 2) break;
+    const payloadStart = lengthOffset + 2;
+    const payloadEnd = lengthOffset + segmentLength;
+    if (
+      marker === 0xe1 &&
+      payloadEnd <= buffer.length &&
+      payloadStart + 6 <= payloadEnd &&
+      buffer.toString("ascii", payloadStart, payloadStart + 6) === "Exif\0\0"
+    ) {
+      return readExifOrientation(
+        buffer.subarray(payloadStart + 6, payloadEnd)
+      );
+    }
+    offset = payloadEnd;
+  }
+  return 1;
+}
+
 function readWebpSize(buffer) {
   if (
     buffer.length < 30 ||
@@ -148,8 +209,13 @@ export function inspectImage(buffer, { declaredMime = "" } = {}) {
   ) {
     throw invalidImage("图片格式与文件内容不一致");
   }
+  const orientation =
+    detected.mimeType === "image/jpeg" ? readJpegOrientation(buffer) : 1;
+  const swapsAxes = orientation >= 5;
   return {
     ...detected,
+    width: swapsAxes ? detected.height : detected.width,
+    height: swapsAxes ? detected.width : detected.height,
     byteSize: buffer.length,
     sha256: createHash("sha256").update(buffer).digest("hex")
   };
