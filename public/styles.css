@@ -2846,14 +2846,24 @@ svg {
 
 .attachment-thumb {
   flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.attachment-thumb:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
 }
 
 .attachment-thumb img {
   display: block;
-  width: 72px;
+  width: 96px;
   height: 72px;
   border-radius: 9px;
-  object-fit: cover;
+  object-fit: contain;
   background: #eef3ef;
 }
 
