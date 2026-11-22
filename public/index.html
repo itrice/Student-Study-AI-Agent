@@ -46,6 +46,13 @@
             <span>开始复习</span>
             <span class="nav-badge" id="nav-due-count" hidden>0</span>
           </button>
+          <button class="nav-item" data-view="scan">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h4l2-2h4l2 2h4v12H4z" />
+              <circle cx="12" cy="13" r="3.5" />
+            </svg>
+            <span>拍照选题</span>
+          </button>
           <button class="nav-item" data-view="mistakes">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M6 3.5h9l3 3V20H6z" />
@@ -462,6 +469,103 @@
               可以录入一道最近不会的题，系统会把它放到优先位置。
             </p>
             <button class="primary-button" data-open-add>录入错题</button>
+          </div>
+        </section>
+
+        <section class="view" id="view-scan" data-view-panel="scan">
+          <div class="page-heading">
+            <div>
+              <span class="eyebrow">题库兼容底座 · 扫描候选</span>
+              <h1>拍照选题</h1>
+              <p>
+                一页多题只生成临时候选，默认不选中；不点击导入不会写入正式题库。
+              </p>
+            </div>
+          </div>
+
+          <div class="panel scan-intake" id="scan-intake">
+            <div class="scan-intake-copy">
+              <h2>上传作业或试卷页</h2>
+              <p>
+                支持 1 张主图 + 最多 2 张补充图，单次最多 20 道候选。
+                图片会先保存在本机；只有勾选同意后才发送给外部识别模型。
+              </p>
+            </div>
+            <input
+              id="scan-file-input"
+              class="sr-only"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              multiple
+            />
+            <div class="scan-image-actions">
+              <button class="secondary-button" id="scan-choose-button" type="button">
+                选择或拍摄图片
+              </button>
+              <button class="text-button" id="scan-clear-images" type="button" hidden>
+                清空待识别图片
+              </button>
+            </div>
+            <div id="scan-image-list" class="scan-image-list" aria-live="polite"></div>
+            <label class="scan-consent">
+              <input id="scan-consent" type="checkbox" />
+              <span>同意将图片发送到外部识别模型，仅用于本次候选识别。</span>
+            </label>
+            <p class="scan-status" id="scan-status" aria-live="polite">
+              请选择图片并勾选同意后开始识别；拒绝外部识别时仍可改用手动录入。
+            </p>
+            <button class="primary-button" id="scan-start-button" type="button" disabled>
+              开始识别候选
+            </button>
+          </div>
+
+          <div id="scan-loading" class="review-card loading-card" hidden>
+            正在识别题目边界，请稍候…
+          </div>
+
+          <div id="scan-task" hidden>
+            <div class="panel scan-task-head">
+              <div>
+                <span class="section-kicker">扫描任务 #<span id="scan-task-id"></span></span>
+                <h2>候选题目</h2>
+                <p id="scan-task-message"></p>
+              </div>
+              <span class="tag" id="scan-task-status"></span>
+            </div>
+
+            <div id="scan-task-content">
+              <div class="scan-quick-actions" role="group" aria-label="快捷选择候选">
+                <button class="secondary-button compact" type="button" data-scan-action="select_all">
+                  全选完整题
+                </button>
+                <button class="secondary-button compact" type="button" data-scan-action="select_wrong">
+                  全部错题
+                </button>
+                <button class="secondary-button compact" type="button" data-scan-action="clear_all">
+                  取消全选
+                </button>
+              </div>
+              <p class="scan-selection-summary" id="scan-selection-summary" aria-live="polite"></p>
+              <div id="scan-candidate-list" class="scan-candidate-list"></div>
+              <div class="scan-task-footer">
+                <p id="scan-import-note">
+                  当前阶段只保存候选，不写入正式题库。批量导入将在下一阶段开放。
+                </p>
+                <button class="secondary-button compact" type="button" data-scan-reset>
+                  重新扫描
+                </button>
+                <button class="primary-button" id="scan-import-button" type="button" disabled>
+                  导入所选（M3 开放）
+                </button>
+              </div>
+            </div>
+
+            <div id="scan-task-empty" class="empty-state" hidden>
+              <h2>没有识别到候选题</h2>
+              <p>可以重拍、改用手动录入，或返回重新选择图片。</p>
+              <button class="secondary-button" type="button" data-scan-reset>返回重新扫描</button>
+            </div>
           </div>
         </section>
 
