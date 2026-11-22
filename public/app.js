@@ -359,7 +359,11 @@ function renderDialogAttachments() {
   list.replaceChildren();
   state.dialogAttachments.forEach((attachment, index) => {
     const card = createElement("article", "attachment-card");
-    const thumb = createElement("div", "attachment-thumb");
+    const thumb = createElement("button", "attachment-thumb");
+    thumb.type = "button";
+    thumb.dataset.previewAttachment = String(attachment.id);
+    thumb.setAttribute("aria-label", `查看题目图片 ${index + 1} 大图`);
+    thumb.title = "查看大图";
     const showOriginal = state.originalPreviewIds.has(attachment.id);
     thumb.append(
       createAttachmentImage({
@@ -417,6 +421,15 @@ function renderDialogAttachments() {
 
 function findDialogAttachment(id) {
   return state.dialogAttachments.find((attachment) => attachment.id === id) || null;
+}
+
+function openAttachmentPreview(attachmentId) {
+  const attachment = findDialogAttachment(attachmentId);
+  if (!attachment) return;
+  const url = state.originalPreviewIds.has(attachmentId)
+    ? attachment.originalUrl || attachment.url
+    : attachment.displayUrl || attachment.originalUrl || attachment.url;
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function replaceDialogAttachment(updated) {
@@ -4675,6 +4688,11 @@ function bindEvents() {
     uploadImageFiles(files);
   });
   $("#attachment-list").addEventListener("click", (event) => {
+    const preview = event.target.closest("[data-preview-attachment]");
+    if (preview) {
+      openAttachmentPreview(Number(preview.dataset.previewAttachment));
+      return;
+    }
     const crop = event.target.closest("[data-crop-attachment]");
     if (crop) {
       openCropEditor(Number(crop.dataset.cropAttachment));

@@ -21,10 +21,16 @@ export function validateCropMetadata(attachment, crop) {
   }
   const sourceWidth = cropInteger(crop.sourceWidth, "原图宽度", { min: 1 });
   const sourceHeight = cropInteger(crop.sourceHeight, "原图高度", { min: 1 });
-  if (
-    sourceWidth !== Number(attachment.originalWidth) ||
-    sourceHeight !== Number(attachment.originalHeight)
-  ) {
+  const originalWidth = Number(attachment.originalWidth);
+  const originalHeight = Number(attachment.originalHeight);
+  const matchesOriginal =
+    sourceWidth === originalWidth && sourceHeight === originalHeight;
+  // Early JPEG uploads stored encoded dimensions. Browsers apply EXIF
+  // orientation before crop, so those legacy rows legitimately present the
+  // width and height in the opposite order.
+  const matchesOrientedLegacy =
+    sourceWidth === originalHeight && sourceHeight === originalWidth;
+  if (!matchesOriginal && !matchesOrientedLegacy) {
     throw invalidCrop("原图尺寸已变化，请重新打开裁剪编辑器");
   }
 
