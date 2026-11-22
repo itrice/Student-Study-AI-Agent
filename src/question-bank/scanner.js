@@ -10,11 +10,12 @@ const SCAN_SYSTEM_PROMPT = [
 ].join("\n");
 
 export class QuestionScanError extends Error {
-  constructor(code, message, { status = 422 } = {}) {
+  constructor(code, message, { status = 422, details = null } = {}) {
     super(message);
     this.name = "QuestionScanError";
     this.code = code;
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -188,6 +189,9 @@ export class OpenAICompatibleQuestionScanner {
         status: 400
       });
     }
+    console.log(
+      `[question-scan] 请求视觉模型 model=${this.model} images=${images.length} base=${this.baseUrl}`
+    );
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -226,10 +230,21 @@ export class OpenAICompatibleQuestionScanner {
         }
       );
       if (!response.ok) {
+        let upstreamBody = "";
+        try {
+          upstreamBody = (await response.text())
+            .replace(/\s+/g, " ")
+            .slice(0, 400);
+        } catch {
+          upstreamBody = "";
+        }
         throw new QuestionScanError(
           "SCAN_MODEL_FAILED",
           "视觉模型请求失败，可重拍或改用手动录入",
-          { status: 502 }
+          {
+            status: 502,
+            details: { upstreamStatus: response.status, upstreamBody }
+          }
         );
       }
       const data = await response.json();
@@ -248,7 +263,7 @@ export class OpenAICompatibleQuestionScanner {
         error.name === "AbortError"
           ? "视觉识别超时，可重拍或改用手动录入"
           : "视觉识别失败，可重拍或改用手动录入",
-        { status: 502 }
+        { status: 502, details: { cause: error.name || "Error" } }
       );
     } finally {
       clearTimeout(timer);

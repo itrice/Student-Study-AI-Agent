@@ -1674,6 +1674,11 @@ scheduleAttachmentCleanup(
 server.listen(port, host, () => {
   console.log(`数学错题教练已启动：http://${host}:${port}`);
   console.log(`数据文件：${databasePath}`);
+  console.log(
+    questionScanner.isConfigured()
+      ? `视觉扫描：${questionScanner.model} @ ${questionScanner.baseUrl}`
+      : "视觉扫描：未配置"
+  );
 });
 
 function shutdown() {

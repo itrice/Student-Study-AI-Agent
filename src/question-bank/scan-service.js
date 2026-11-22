@@ -68,6 +68,12 @@ export async function createQuestionScan({
       }
     });
   } catch (error) {
+    console.warn("[question-scan] 识别失败", {
+      code: error?.code || "UNKNOWN",
+      provider: scanner.provider || "",
+      model: scanner.model || "",
+      ...(error?.details ? { details: error.details } : {})
+    });
     return failedScan(
       repository,
       ids,
