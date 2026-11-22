@@ -1449,6 +1449,305 @@ const CURRICULUM_UNIT_NUMBERING_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: CURRICULUM_UNIT_NUMBERING_SCHEMA_SQL
 });
 
+const QUESTION_BANK_COMPAT_SCHEMA_SQL = `
+  ALTER TABLE mistakes ADD COLUMN question_type TEXT NOT NULL DEFAULT 'general'
+    CHECK (question_type IN (
+      'general', 'single_choice', 'multiple_choice', 'true_false',
+      'fill_blank', 'short_answer', 'proof', 'drawing', 'composite'
+    ));
+  ALTER TABLE mistakes ADD COLUMN completeness_status TEXT NOT NULL DEFAULT 'confirmed'
+    CHECK (completeness_status IN ('confirmed', 'incomplete', 'unknown'));
+  ALTER TABLE mistakes ADD COLUMN source_status TEXT NOT NULL DEFAULT 'legacy'
+    CHECK (source_status IN ('legacy', 'none', 'pending', 'confirmed'));
+  ALTER TABLE mistakes ADD COLUMN answer_review_status TEXT NOT NULL DEFAULT 'confirmed'
+    CHECK (answer_review_status IN ('confirmed', 'pending', 'conflict'));
+  ALTER TABLE mistakes ADD COLUMN eink_fit_status TEXT NOT NULL DEFAULT 'unchecked'
+    CHECK (eink_fit_status IN ('unchecked', 'fit', 'unfit'));
+
+  CREATE TABLE IF NOT EXISTS question_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    question_id INTEGER NOT NULL,
+    category TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(question_id) REFERENCES mistakes(id) ON DELETE CASCADE,
+    UNIQUE(question_id, category)
+  );
+
+  CREATE TABLE IF NOT EXISTS question_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    question_id INTEGER NOT NULL,
+    tag TEXT NOT NULL,
+    normalized_tag TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(question_id) REFERENCES mistakes(id) ON DELETE CASCADE,
+    UNIQUE(question_id, normalized_tag)
+  );
+
+  CREATE TABLE IF NOT EXISTS question_content_units (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    question_id INTEGER NOT NULL,
+    position INTEGER NOT NULL CHECK (position > 0),
+    unit_type TEXT NOT NULL
+      CHECK (unit_type IN ('text', 'image', 'formula', 'table')),
+    text_content TEXT NOT NULL DEFAULT '',
+    attachment_id INTEGER,
+    region_json TEXT NOT NULL DEFAULT '{}',
+    source TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(question_id) REFERENCES mistakes(id) ON DELETE CASCADE,
+    FOREIGN KEY(attachment_id) REFERENCES attachments(id) ON DELETE SET NULL,
+    UNIQUE(question_id, position)
+  );
+
+  CREATE TABLE IF NOT EXISTS question_options (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    question_id INTEGER NOT NULL,
+    part_id INTEGER,
+    position INTEGER NOT NULL CHECK (position > 0),
+    label TEXT NOT NULL DEFAULT '',
+    text_content TEXT NOT NULL DEFAULT '',
+    image_attachment_id INTEGER,
+    is_correct INTEGER NOT NULL DEFAULT 0 CHECK (is_correct IN (0, 1)),
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(question_id) REFERENCES mistakes(id) ON DELETE CASCADE,
+    FOREIGN KEY(part_id) REFERENCES mistake_parts(id) ON DELETE CASCADE,
+    FOREIGN KEY(image_attachment_id) REFERENCES attachments(id) ON DELETE SET NULL,
+    UNIQUE(question_id, part_id, position)
+  );
+
+  CREATE TABLE IF NOT EXISTS question_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    question_id INTEGER NOT NULL,
+    status TEXT NOT NULL
+      CHECK (status IN ('none', 'pending', 'confirmed')),
+    source_type TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    locator_json TEXT NOT NULL DEFAULT '{}',
+    confidence REAL,
+    confirmed_at TEXT,
+    confirmed_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(question_id) REFERENCES mistakes(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS question_image_derivations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    question_id INTEGER NOT NULL,
+    attachment_id INTEGER NOT NULL,
+    derivation_type TEXT NOT NULL
+      CHECK (derivation_type IN (
+        'original', 'manual_crop', 'question_region', 'optimized'
+      )),
+    storage_key TEXT,
+    region_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(question_id) REFERENCES mistakes(id) ON DELETE CASCADE,
+    FOREIGN KEY(attachment_id) REFERENCES attachments(id) ON DELETE CASCADE,
+    UNIQUE(attachment_id, derivation_type, storage_key)
+  );
+
+  CREATE TABLE IF NOT EXISTS question_scan_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ready'
+      CHECK (status IN ('ready', 'failed', 'expired')),
+    error_message TEXT NOT NULL DEFAULT '',
+    candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (candidate_count >= 0),
+    scanner_provider TEXT NOT NULL DEFAULT '',
+    scanner_model TEXT NOT NULL DEFAULT '',
+    prompt_version TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS question_scan_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_task_id INTEGER NOT NULL,
+    attachment_id INTEGER NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('primary', 'supplement')),
+    position INTEGER NOT NULL CHECK (position > 0),
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(scan_task_id) REFERENCES question_scan_tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY(attachment_id) REFERENCES attachments(id) ON DELETE CASCADE,
+    UNIQUE(scan_task_id, attachment_id),
+    UNIQUE(scan_task_id, position)
+  );
+
+  CREATE TABLE IF NOT EXISTS question_scan_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_task_id INTEGER NOT NULL,
+    candidate_no INTEGER NOT NULL CHECK (candidate_no > 0),
+    status TEXT NOT NULL DEFAULT 'ready'
+      CHECK (status IN ('ready', 'failed', 'excluded')),
+    completeness_status TEXT NOT NULL DEFAULT 'complete'
+      CHECK (completeness_status IN ('complete', 'incomplete', 'unknown')),
+    suspected_wrong INTEGER NOT NULL DEFAULT 0 CHECK (suspected_wrong IN (0, 1)),
+    answer_pending INTEGER NOT NULL DEFAULT 0 CHECK (answer_pending IN (0, 1)),
+    selected INTEGER NOT NULL DEFAULT 0 CHECK (selected IN (0, 1)),
+    manually_selected INTEGER NOT NULL DEFAULT 0
+      CHECK (manually_selected IN (0, 1)),
+    recognized_text TEXT NOT NULL DEFAULT '',
+    confidence REAL,
+    region_json TEXT NOT NULL DEFAULT '{}',
+    recognition_error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(scan_task_id) REFERENCES question_scan_tasks(id) ON DELETE CASCADE,
+    UNIQUE(scan_task_id, candidate_no)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_question_categories_question
+  ON question_categories(question_id, category);
+
+  CREATE INDEX IF NOT EXISTS idx_question_content_units_question
+  ON question_content_units(question_id, position);
+
+  CREATE INDEX IF NOT EXISTS idx_question_scan_tasks_student
+  ON question_scan_tasks(student_id, created_at, id);
+
+  CREATE INDEX IF NOT EXISTS idx_question_scan_candidates_task
+  ON question_scan_candidates(scan_task_id, candidate_no);
+
+  INSERT INTO question_categories (question_id, category, source, created_at)
+  SELECT id, 'mistake', 'legacy', created_at FROM mistakes;
+
+  INSERT INTO question_content_units (
+    question_id, position, unit_type, text_content, attachment_id,
+    region_json, source, created_at, updated_at
+  )
+  SELECT id, 1, 'text', question, NULL, '{}', 'legacy', created_at, updated_at
+  FROM mistakes
+  WHERE TRIM(question) <> '';
+
+  INSERT INTO question_content_units (
+    question_id, position, unit_type, text_content, attachment_id,
+    region_json, source, created_at, updated_at
+  )
+  SELECT a.mistake_id,
+         ROW_NUMBER() OVER (PARTITION BY a.mistake_id ORDER BY a.id),
+         'image', '', a.id, '{}', 'legacy', a.created_at, a.created_at
+  FROM attachments a
+  JOIN mistakes m ON m.id = a.mistake_id
+  WHERE TRIM(m.question) = '';
+
+  INSERT INTO question_image_derivations (
+    question_id, attachment_id, derivation_type, storage_key,
+    region_json, created_at
+  )
+  SELECT a.mistake_id, a.id, 'original', a.storage_key,
+         '{}', a.created_at
+  FROM attachments a
+  WHERE a.mistake_id IS NOT NULL;
+
+  INSERT INTO question_image_derivations (
+    question_id, attachment_id, derivation_type, storage_key,
+    region_json, created_at
+  )
+  SELECT a.mistake_id, a.id, 'manual_crop', c.storage_key,
+         json_object(
+           'x', c.crop_x, 'y', c.crop_y,
+           'width', c.crop_width, 'height', c.crop_height,
+           'rotation', c.rotation
+         ),
+         c.created_at
+  FROM attachment_crops c
+  JOIN attachments a ON a.id = c.attachment_id
+  WHERE a.mistake_id IS NOT NULL;
+`;
+
+const QUESTION_BANK_COMPAT_REQUIRED_COLUMNS = {
+  mistakes: [
+    "question_type",
+    "completeness_status",
+    "source_status",
+    "answer_review_status",
+    "eink_fit_status"
+  ],
+  question_categories: ["question_id", "category", "source", "created_at"],
+  question_tags: ["question_id", "tag", "normalized_tag", "created_at"],
+  question_content_units: [
+    "question_id",
+    "position",
+    "unit_type",
+    "text_content",
+    "attachment_id",
+    "region_json",
+    "source",
+    "created_at",
+    "updated_at"
+  ],
+  question_options: [
+    "question_id",
+    "part_id",
+    "position",
+    "label",
+    "text_content",
+    "image_attachment_id",
+    "is_correct",
+    "created_at"
+  ],
+  question_sources: [
+    "question_id",
+    "status",
+    "source_type",
+    "name",
+    "locator_json",
+    "confidence",
+    "confirmed_at",
+    "confirmed_by",
+    "created_at",
+    "updated_at"
+  ],
+  question_image_derivations: [
+    "question_id",
+    "attachment_id",
+    "derivation_type",
+    "storage_key",
+    "region_json",
+    "created_at"
+  ],
+  question_scan_tasks: [
+    "student_id",
+    "status",
+    "candidate_count",
+    "created_at",
+    "updated_at",
+    "expires_at"
+  ],
+  question_scan_images: [
+    "scan_task_id",
+    "attachment_id",
+    "role",
+    "position",
+    "created_at"
+  ],
+  question_scan_candidates: [
+    "scan_task_id",
+    "candidate_no",
+    "status",
+    "completeness_status",
+    "suspected_wrong",
+    "answer_pending",
+    "selected",
+    "manually_selected",
+    "recognized_text",
+    "confidence",
+    "region_json",
+    "recognition_error",
+    "created_at",
+    "updated_at"
+  ]
+};
+
+const QUESTION_BANK_COMPAT_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: QUESTION_BANK_COMPAT_SCHEMA_SQL
+});
+
 export const SCHEMA_MIGRATIONS = [
   {
     version: 1,
@@ -1616,6 +1915,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(CURRICULUM_UNIT_NUMBERING_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         CURRICULUM_UNIT_NUMBERING_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 14,
+    name: "question_bank_compatibility",
+    checksumSource: QUESTION_BANK_COMPAT_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(QUESTION_BANK_COMPAT_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        QUESTION_BANK_COMPAT_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

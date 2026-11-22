@@ -5155,3 +5155,368 @@ body.review-focus-mode #view-review .review-attachments img {
     min-width: 0;
   }
 }
+
+.scan-intake {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.scan-intake-copy h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.scan-intake-copy p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.8;
+}
+
+.scan-image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.scan-image-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.scan-image-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f9fbf9;
+}
+
+.scan-image-thumb {
+  width: 72px;
+  height: 72px;
+  flex: 0 0 72px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: #e8eeea;
+}
+
+.scan-image-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.scan-image-copy strong {
+  font-size: var(--text-label);
+}
+
+.scan-image-copy small {
+  color: var(--ink-soft);
+  font-size: var(--text-meta);
+}
+
+.scan-image-copy,
+.scan-status,
+.scan-selection-summary,
+.scan-candidate-title,
+.scan-candidate-warning,
+.scan-candidate-error {
+  overflow-wrap: anywhere;
+}
+
+.scan-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 18px 0 12px;
+  line-height: 1.7;
+}
+
+.scan-consent input {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  margin-top: 4px;
+}
+
+.scan-status {
+  margin: 0 0 18px;
+  color: var(--ink-soft);
+}
+
+.scan-task-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  max-width: 1120px;
+  margin: 0 auto 16px;
+}
+
+.scan-task-head h2 {
+  margin: 4px 0 6px;
+  font-size: 22px;
+}
+
+.scan-task-head p {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.scan-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 18px 0 10px;
+}
+
+.scan-selection-summary {
+  margin: 0 0 16px;
+  color: var(--ink-soft);
+}
+
+.scan-candidate-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 16px;
+}
+
+.scan-candidate {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.scan-candidate.is-selected {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--green-pale);
+}
+
+.scan-candidate.is-suspected-wrong {
+  background: #fffaf7;
+}
+
+.scan-candidate.is-excluded {
+  opacity: 0.62;
+}
+
+.scan-candidate-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.scan-candidate-checkbox {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  margin-top: 2px;
+}
+
+.scan-candidate-title {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 160px;
+  cursor: pointer;
+  gap: 2px;
+}
+
+.scan-candidate-title strong {
+  font-size: var(--text-label);
+}
+
+.scan-candidate-title small {
+  color: var(--ink-soft);
+  font-size: var(--text-meta);
+}
+
+.scan-candidate-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.scan-candidate-tag.is-complete {
+  color: #1b6a55;
+  background: var(--green-pale);
+}
+
+.scan-candidate-tag.is-warning {
+  color: #8a5d13;
+  background: var(--gold-pale);
+}
+
+.scan-candidate-tag.is-wrong {
+  color: #a44d42;
+  background: var(--coral-pale);
+}
+
+.scan-candidate-tag.is-pending {
+  color: #4d5f95;
+  background: #edf0fb;
+}
+
+.scan-candidate-tag.is-manual {
+  color: #5c417f;
+  background: var(--purple-pale);
+}
+
+.scan-candidate-preview {
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border: 1px solid #e6ece7;
+  border-radius: 12px;
+  background: #f2f5f2;
+}
+
+.scan-candidate-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.scan-candidate-warning {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: #7a5312;
+  background: var(--gold-pale);
+  font-size: var(--text-meta);
+}
+
+.scan-candidate-error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: #a44d42;
+  background: var(--coral-pale);
+  font-size: var(--text-meta);
+}
+
+.scan-candidate-field {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: var(--text-meta);
+}
+
+.scan-candidate-field textarea {
+  width: 100%;
+  min-height: 84px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: #fff;
+  font-size: 16px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.scan-region-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.scan-region-grid label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: var(--text-meta);
+}
+
+.scan-region-grid input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  background: #fff;
+  font-size: 16px;
+}
+
+.scan-candidate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.scan-task-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  max-width: 1120px;
+  margin: 22px auto 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.scan-task-footer p {
+  min-width: 200px;
+  flex: 1 1 260px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--text-meta);
+}
+
+.scan-candidate-list,
+.scan-task-head,
+.scan-task-footer {
+  width: 100%;
+}
+
+@media (max-width: 820px) {
+  .scan-candidate-list {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .scan-intake,
+  .scan-task-head,
+  .scan-task-footer {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
+  .scan-image-list,
+  .scan-candidate-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scan-region-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scan-task-head,
+  .scan-task-footer {
+    align-items: stretch;
+  }
+
+  .scan-task-footer > * {
+    flex-basis: 100%;
+  }
+}
