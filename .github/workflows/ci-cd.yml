@@ -152,7 +152,7 @@ jobs:
       - self-hosted
       - linux
       - x64
-      - ea-k3s
+      - Student-Study-AI-Agent-Runner
     environment: ${{ needs.validate.outputs.environment }}
     timeout-minutes: 15
     permissions:
