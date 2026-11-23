@@ -2868,6 +2868,52 @@ Object.assign(paths, {
       }
     }
   },
+  "/api/eink/dashboard": {
+    get: {
+      tags: ["墨水屏"],
+      summary: "读取电子墨水屏学习看板",
+      description:
+        "返回看板设备帧：固定 800×480、48000 字节，包含 Asia/Shanghai 当前日期、当前月学习日历、全部到期题数量和按日期稳定选择的本地励志语。支持强 ETag 与 If-None-Match 304。",
+      operationId: "getEinkDashboard",
+      parameters: [
+        {
+          name: "If-None-Match",
+          in: "header",
+          required: false,
+          description: "上一次看板响应的强 ETag",
+          schema: { type: "string" }
+        }
+      ],
+      responses: {
+        200: {
+          description: "48000 字节无压缩看板帧",
+          headers: {
+            "Content-Length": {
+              description: "固定为 48000",
+              schema: { type: "integer", enum: [48000] }
+            },
+            ETag: {
+              description: "基于最终看板帧内容计算的强校验值",
+              schema: { type: "string" }
+            },
+            "X-Etag": {
+              description: "与 ETag 相同的兼容头",
+              schema: { type: "string" }
+            },
+            "Cache-Control": {
+              schema: { type: "string", enum: ["no-transform"] }
+            }
+          },
+          content: {
+            "application/octet-stream": {
+              schema: { type: "string", format: "binary" }
+            }
+          }
+        },
+        304: { description: "看板内容未变化，无响应体" }
+      }
+    }
+  },
   "/api/eink/page": {
     get: {
       tags: ["墨水屏"],
@@ -3240,7 +3286,7 @@ const INFO_DESCRIPTION = [
 
 export function buildOpenApiDocument({
   baseUrl = "/",
-  version = "0.17.0"
+  version = "0.18.0"
 } = {}) {
   return {
     openapi: "3.1.0",

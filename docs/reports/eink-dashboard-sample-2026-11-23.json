@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-11-23T15:28:37.859Z",
+  "model": {
+    "dateKey": "2026-11-23",
+    "monthKey": "2026-11",
+    "dueCount": 12,
+    "dueAvailable": true,
+    "calendarAvailable": true,
+    "calendarDays": [
+      {
+        "date": "2026-11-02",
+        "hasActivity": true
+      },
+      {
+        "date": "2026-11-03",
+        "hasActivity": true
+      },
+      {
+        "date": "2026-11-09",
+        "hasActivity": true
+      },
+      {
+        "date": "2026-11-15",
+        "hasActivity": true
+      },
+      {
+        "date": "2026-11-17",
+        "hasActivity": true
+      },
+      {
+        "date": "2026-11-23",
+        "hasActivity": true
+      }
+    ],
+    "quote": "把不会的题弄明白，就是今天最实在的收获。"
+  },
+  "frameBytes": 48000,
+  "frameSha256": "dd1e6378e0bd14cd34daee3354a4b1a51f02f1f0a56f2466566d0f046fbee1c8",
+  "framePath": "eink-dashboard-sample-2026-11-23.bin",
+  "pngPath": "eink-dashboard-sample-2026-11-23.png"
+}

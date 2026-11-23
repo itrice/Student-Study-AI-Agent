@@ -1073,6 +1073,50 @@ async function handleApi(request, response, url) {
     );
   }
 
+  if (request.method === "GET" && url.pathname === "/api/eink/dashboard") {
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    const startedAt = Date.now();
+    let dashboard;
+    try {
+      dashboard = await einkPageService.getDashboard();
+    } catch (error) {
+      console.info(
+        `[eink-dashboard] status=${error.status || 500} ` +
+          `cache=miss duration=${Date.now() - startedAt}ms`
+      );
+      throw error;
+    }
+    const notModified = etagMatches(
+      request.headers["if-none-match"],
+      dashboard.etag
+    );
+    if (notModified) {
+      response.writeHead(304, {
+        ETag: dashboard.etag,
+        "X-Etag": dashboard.etag,
+        "Cache-Control": "no-transform",
+        "X-Content-Type-Options": "nosniff"
+      });
+      response.end();
+    } else {
+      response.writeHead(200, {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": dashboard.frame.length,
+        ETag: dashboard.etag,
+        "X-Etag": dashboard.etag,
+        "Cache-Control": "no-transform",
+        "X-Content-Type-Options": "nosniff"
+      });
+      response.end(dashboard.frame);
+    }
+    console.info(
+      `[eink-dashboard] status=${notModified ? 304 : 200} ` +
+        `cache=${dashboard.cacheHit ? "hit" : "miss"} ` +
+        `duration=${Date.now() - startedAt}ms`
+    );
+    return;
+  }
+
   if (
     request.method === "GET" &&
     (url.pathname === "/api/eink/page" ||
