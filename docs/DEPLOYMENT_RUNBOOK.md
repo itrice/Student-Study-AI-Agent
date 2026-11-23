@@ -40,7 +40,7 @@ Kustomize 共用 `deploy/k8s/base`，环境差异放在
 1. 在 GitHub 仓库启用 Actions，并允许工作流使用 `GITHUB_TOKEN` 写入 Packages（镜像地址为
    `ghcr.io/itrice/student-study-ai-agent`）。工作流不需要额外的 registry 密码。
 2. 在可以访问 K3s API 的 Linux 主机注册 GitHub Actions self-hosted Runner，标签需包含
-   `Student-Study-AI-Agent-Runner`；Runner 上安装并配置支持 Kustomize 的 `kubectl` 和 `jq`，其 kubeconfig 身份
+   `Student-Study-Runner`；Runner 上安装并配置支持 Kustomize 的 `kubectl` 和 `jq`，其 kubeconfig 身份
    需能创建 Namespace、Secret、PVC、Deployment、Service 和 Ingress。部署 Job 的标签可
    在 workflow 中调整。
 3. 确认 K3s 有可用的默认 StorageClass。当前 PVC 请求 10Gi、`ReadWriteOnce`，未固定
