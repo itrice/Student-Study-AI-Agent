@@ -3,6 +3,16 @@ import { LRUCache } from "lru-cache";
 import { readAttachmentContent } from "../attachment-crop.js";
 import { LearningValidationError } from "../domain/errors.js";
 import {
+  shanghaiDateKey,
+  shanghaiMonthKey
+} from "../feedback-calendar.js";
+import {
+  EINK_DASHBOARD_LAYOUT_VERSION,
+  EINK_QUOTE_VERSION,
+  renderEinkDashboard,
+  selectDailyQuote
+} from "./dashboard.js";
+import {
   EINK_LAYOUT_VERSION,
   renderEinkPage
 } from "./render.js";
@@ -12,6 +22,15 @@ const CACHE_PAGES = 32;
 
 function cacheDigest(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+export function dashboardEtag(model, frame) {
+  return `"${cacheDigest(
+    Buffer.concat([
+      Buffer.from(JSON.stringify(model)),
+      Buffer.from(frame)
+    ])
+  )}"`;
 }
 
 function renderSource(mistake, mode, index, total, photoAttachment) {
@@ -78,12 +97,14 @@ export class EinkPageService {
     repository,
     attachmentStore,
     renderer = renderEinkPage,
+    dashboardRenderer = renderEinkDashboard,
     preparePhoto = prepareEinkPhoto,
     cache = new LRUCache({ max: CACHE_PAGES })
   }) {
     this.repository = repository;
     this.attachmentStore = attachmentStore;
     this.renderer = renderer;
+    this.dashboardRenderer = dashboardRenderer;
     this.preparePhoto = preparePhoto;
     this.cache = cache;
   }
@@ -93,6 +114,74 @@ export class EinkPageService {
       ...this.repository.getDueReviewQueue({ limit }),
       updatedAt: new Date().toISOString()
     };
+  }
+
+  async getDashboard({ now = new Date() } = {}) {
+    const current = now instanceof Date ? now : new Date(now);
+    if (Number.isNaN(current.getTime())) {
+      throw new TypeError("无效看板时间");
+    }
+    const dateKey = shanghaiDateKey(current);
+    const monthKey = shanghaiMonthKey(current);
+    let student = null;
+    try {
+      student = this.repository.getStudent();
+    } catch {
+      // Count and calendar reads below degrade independently.
+    }
+    let dueCount = 0;
+    let dueAvailable = true;
+    try {
+      dueCount = this.repository.countDueReviews({
+        at: current.toISOString(),
+        studentId: student?.id || null
+      });
+    } catch {
+      dueAvailable = false;
+    }
+
+    let calendarDays = [];
+    let calendarAvailable = true;
+    try {
+      const calendar = this.repository.buildFeedbackCalendar({
+        month: monthKey,
+        studentId: student?.id || null
+      });
+      if (!Array.isArray(calendar.days)) throw new TypeError("日历数据无效");
+      calendarDays = calendar.days.map((day) => ({
+        date: day.date,
+        hasActivity: day.hasActivity === true
+      }));
+    } catch {
+      calendarAvailable = false;
+    }
+
+    const quote = selectDailyQuote(dateKey);
+    const model = {
+      dateKey,
+      monthKey,
+      dueCount,
+      dueAvailable,
+      calendarAvailable,
+      calendarDays,
+      quote,
+      layoutVersion: EINK_DASHBOARD_LAYOUT_VERSION,
+      quoteVersion: EINK_QUOTE_VERSION
+    };
+    const key = cacheDigest(JSON.stringify(model));
+    const cached = this.cache.get(key);
+    if (cached) return { ...cached, cacheHit: true };
+
+    const rendered = await this.dashboardRenderer(model);
+    const etag = dashboardEtag(model, rendered.frame);
+    const result = {
+      ...rendered,
+      model,
+      etag,
+      layoutVersion: EINK_DASHBOARD_LAYOUT_VERSION
+    };
+    this.cache.set(key, result);
+    return { ...result, cacheHit: false };
   }
 
   async getPage({ id, mode }) {
