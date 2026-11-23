@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 import { createRepository } from "./database.js";
 import { createLearningTools } from "./tools/index.js";
 import {
@@ -36,6 +37,11 @@ import {
   shanghaiMonthKey
 } from "./feedback-calendar.js";
 import { buildOpenApiDocument } from "./openapi.js";
+import {
+  createQuestionScannerFromEnvironment,
+  QuestionScanError
+} from "./question-bank/scanner.js";
+import { createQuestionScan } from "./question-bank/scan-service.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, "..");
@@ -62,6 +68,7 @@ const einkPageService = new EinkPageService({
   attachmentStore
 });
 const visionExtractor = createVisionExtractorFromEnvironment(process.env);
+const questionScanner = createQuestionScannerFromEnvironment(process.env);
 const diagnosisAgent = createDiagnosisAgent({
   repository,
   tools: learningTools,
@@ -690,6 +697,133 @@ async function handleApi(request, response, url) {
     });
   }
 
+  if (request.method === "GET" && url.pathname === "/api/questions") {
+    const questions = repository.listQuestions();
+    return sendJson(response, 200, {
+      total: questions.length,
+      questions
+    });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/questions/scans") {
+    const body = await readJson(request);
+    return sendJson(
+      response,
+      201,
+      await createQuestionScan({
+        repository,
+        attachmentStore,
+        scanner: questionScanner,
+        attachmentIds: parseAttachmentIds(body.attachmentIds),
+        consent: body.consent === true
+      })
+    );
+  }
+
+  const scanImageMatch = url.pathname.match(
+    /^\/api\/questions\/scans\/(\d+)\/candidates\/(\d+)\/image$/
+  );
+  if (scanImageMatch && request.method === "GET") {
+    const context = repository.getQuestionScanImageContext(
+      parseId(scanImageMatch[1]),
+      parseId(scanImageMatch[2])
+    );
+    if (!context) throw new HttpError(404, "没有找到候选图片");
+    const buffer = attachmentStore.read(context.storageKey);
+    const width = Number(context.width);
+    const height = Number(context.height);
+    const left = Math.max(
+      0,
+      Math.min(width - 1, Math.round(context.region.x * width))
+    );
+    const top = Math.max(
+      0,
+      Math.min(height - 1, Math.round(context.region.y * height))
+    );
+    const cropWidth = Math.max(
+      1,
+      Math.min(width - left, Math.round(context.region.width * width))
+    );
+    const cropHeight = Math.max(
+      1,
+      Math.min(height - top, Math.round(context.region.height * height))
+    );
+    const image = await sharp(buffer)
+      .rotate()
+      .extract({
+        left,
+        top,
+        width: cropWidth,
+        height: cropHeight
+      })
+      .png()
+      .toBuffer();
+    response.writeHead(200, {
+      "Content-Type": "image/png",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    });
+    response.end(image);
+    return;
+  }
+
+  const scanSelectionMatch = url.pathname.match(
+    /^\/api\/questions\/scans\/(\d+)\/selection$/
+  );
+  if (scanSelectionMatch && request.method === "POST") {
+    const body = await readJson(request);
+    return sendJson(
+      response,
+      200,
+      repository.updateQuestionScanSelection(parseId(scanSelectionMatch[1]), {
+        action: optionalText(body.action, 40),
+        candidateId: body.candidateId === undefined
+          ? null
+          : parseId(body.candidateId)
+      })
+    );
+  }
+
+  const scanCandidateMatch = url.pathname.match(
+    /^\/api\/questions\/scans\/(\d+)\/candidates\/(\d+)$/
+  );
+  if (scanCandidateMatch && request.method === "PATCH") {
+    const body = await readJson(request);
+    const input = {};
+    if (Object.hasOwn(body, "text")) {
+      input.text = optionalText(body.text, 5000);
+    }
+    if (Object.hasOwn(body, "region")) {
+      input.region = body.region;
+    }
+    if (Object.hasOwn(body, "excluded")) {
+      input.excluded = body.excluded === true;
+    }
+    return sendJson(
+      response,
+      200,
+      repository.updateQuestionScanCandidate(
+        parseId(scanCandidateMatch[1]),
+        parseId(scanCandidateMatch[2]),
+        input
+      )
+    );
+  }
+
+  const scanMatch = url.pathname.match(/^\/api\/questions\/scans\/(\d+)$/);
+  if (scanMatch && request.method === "GET") {
+    const scan = repository.getQuestionScan(parseId(scanMatch[1]));
+    if (!scan) throw new HttpError(404, "没有找到这次扫描任务");
+    return sendJson(response, 200, scan);
+  }
+
+  const questionMatch = url.pathname.match(/^\/api\/questions\/(\d+)$/);
+  if (questionMatch && request.method === "GET") {
+    const question = repository.getQuestion(parseId(questionMatch[1]));
+    if (!question) throw new HttpError(404, "没有找到这道题目");
+    return sendJson(response, 200, question);
+  }
+
   if (request.method === "GET" && url.pathname === "/api/curriculum") {
     return sendJson(response, 200, repository.getCurriculumBaseData());
   }
@@ -937,6 +1071,50 @@ async function handleApi(request, response, url) {
         parseEinkLimit(url.searchParams.get("limit"))
       )
     );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/eink/dashboard") {
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    const startedAt = Date.now();
+    let dashboard;
+    try {
+      dashboard = await einkPageService.getDashboard();
+    } catch (error) {
+      console.info(
+        `[eink-dashboard] status=${error.status || 500} ` +
+          `cache=miss duration=${Date.now() - startedAt}ms`
+      );
+      throw error;
+    }
+    const notModified = etagMatches(
+      request.headers["if-none-match"],
+      dashboard.etag
+    );
+    if (notModified) {
+      response.writeHead(304, {
+        ETag: dashboard.etag,
+        "X-Etag": dashboard.etag,
+        "Cache-Control": "no-transform",
+        "X-Content-Type-Options": "nosniff"
+      });
+      response.end();
+    } else {
+      response.writeHead(200, {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": dashboard.frame.length,
+        ETag: dashboard.etag,
+        "X-Etag": dashboard.etag,
+        "Cache-Control": "no-transform",
+        "X-Content-Type-Options": "nosniff"
+      });
+      response.end(dashboard.frame);
+    }
+    console.info(
+      `[eink-dashboard] status=${notModified ? 304 : 200} ` +
+        `cache=${dashboard.cacheHit ? "hit" : "miss"} ` +
+        `duration=${Date.now() - startedAt}ms`
+    );
+    return;
   }
 
   if (
@@ -1540,6 +1718,11 @@ scheduleAttachmentCleanup(
 server.listen(port, host, () => {
   console.log(`数学错题教练已启动：http://${host}:${port}`);
   console.log(`数据文件：${databasePath}`);
+  console.log(
+    questionScanner.isConfigured()
+      ? `视觉扫描：${questionScanner.model} @ ${questionScanner.baseUrl}`
+      : "视觉扫描：未配置"
+  );
 });
 
 function shutdown() {

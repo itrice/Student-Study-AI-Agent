@@ -314,7 +314,7 @@ export async function binarizeAndPack(
   return { ...binary, png };
 }
 
-async function rasterizeSvg(svg) {
+export async function rasterizeSvg(svg) {
   const { data, info } = await sharp(Buffer.from(svg))
     .flatten({ background: "white" })
     .raw()

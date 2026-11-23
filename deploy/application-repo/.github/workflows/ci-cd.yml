@@ -136,7 +136,7 @@ jobs:
       - self-hosted
       - linux
       - x64
-      - ea-k3s
+      - Student-Study-AI-Agent-Runner
     environment: production
     timeout-minutes: 15
     permissions:

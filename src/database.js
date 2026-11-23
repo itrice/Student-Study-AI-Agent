@@ -334,6 +334,11 @@ function mapMistake(row, { includeSolution = false } = {}) {
     curriculumStatus: row.curriculum_status || "legacy",
     errorType: row.error_type,
     revision: row.revision,
+    questionType: row.question_type || "general",
+    completenessStatus: row.completeness_status || "confirmed",
+    sourceStatus: row.source_status || "legacy",
+    answerReviewStatus: row.answer_review_status || "confirmed",
+    einkFitStatus: row.eink_fit_status || "unchecked",
     status: row.status,
     consecutiveCorrect: row.consecutive_correct,
     attemptCount: row.attempt_count,
@@ -478,6 +483,116 @@ function curriculumValidationError(code, message, status = 400) {
   const error = new LearningValidationError(code, message);
   error.status = status;
   return error;
+}
+
+export const QUESTION_SCAN_TTL_MS = 24 * 60 * 60 * 1000;
+export const MAX_SCAN_CANDIDATES = 20;
+export const MAX_SCAN_IMAGES = 3;
+
+const SCAN_COMPLETENESS = new Set(["complete", "incomplete", "unknown"]);
+
+function normalizeScanRegion(value, { strict = false } = {}) {
+  if (value === undefined || value === null || value === "") {
+    return { x: 0, y: 0, width: 1, height: 1 };
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    if (strict) {
+      throw new LearningValidationError("INVALID_SCAN_REGION", "候选区域格式无效");
+    }
+    return { x: 0, y: 0, width: 1, height: 1 };
+  }
+  const region = {
+    x: Number(value.x),
+    y: Number(value.y),
+    width: Number(value.width),
+    height: Number(value.height)
+  };
+  const valid =
+    Number.isFinite(region.x) &&
+    Number.isFinite(region.y) &&
+    Number.isFinite(region.width) &&
+    Number.isFinite(region.height) &&
+    region.x >= 0 &&
+    region.y >= 0 &&
+    region.width > 0 &&
+    region.height > 0 &&
+    region.x + region.width <= 1.000001 &&
+    region.y + region.height <= 1.000001;
+  if (!valid) {
+    if (strict) {
+      throw new LearningValidationError(
+        "INVALID_SCAN_REGION",
+        "候选区域必须在整张图片范围内"
+      );
+    }
+    return { x: 0, y: 0, width: 1, height: 1 };
+  }
+  return {
+    x: Math.max(0, region.x),
+    y: Math.max(0, region.y),
+    width: Math.min(1 - Math.max(0, region.x), region.width),
+    height: Math.min(1 - Math.max(0, region.y), region.height)
+  };
+}
+
+function normalizeScanCompleteness(value) {
+  const text = String(value || "").trim();
+  return SCAN_COMPLETENESS.has(text) ? text : "unknown";
+}
+
+function normalizeScanBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (value === 1 || value === "1" || value === "true") return true;
+  return false;
+}
+
+function mapQuestionContentUnit(row) {
+  return {
+    id: row.id,
+    position: row.position,
+    type: row.unit_type,
+    text: row.text_content,
+    attachmentId: row.attachment_id,
+    region: parseJsonObject(row.region_json),
+    source: row.source,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapQuestionSource(row) {
+  return {
+    id: row.id,
+    status: row.status,
+    sourceType: row.source_type,
+    name: row.name,
+    locator: parseJsonObject(row.locator_json),
+    confidence: row.confidence,
+    confirmedAt: row.confirmed_at,
+    confirmedBy: row.confirmed_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapQuestionScanCandidate(row, scanId) {
+  return {
+    id: row.id,
+    candidateNo: row.candidate_no,
+    status: row.status,
+    completenessStatus: row.completeness_status,
+    suspectedWrong: row.suspected_wrong === 1,
+    answerPending: row.answer_pending === 1,
+    selected: row.selected === 1,
+    manuallySelected: row.manually_selected === 1,
+    text: row.recognized_text,
+    confidence: row.confidence,
+    region: normalizeScanRegion(parseJsonObject(row.region_json)),
+    recognitionError: row.recognition_error,
+    imageUrl: `/api/questions/scans/${scanId}/candidates/${row.id}/image`,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
 }
 
 export class LearningRepository {
@@ -3477,6 +3592,12 @@ export class LearningRepository {
         diagnosis.knowledgePoint
       );
       this.bindNewAttachments(mistakeId, attachmentIds, timestamp);
+      this.ensureQuestionCompatibility(
+        mistakeId,
+        question,
+        attachmentIds,
+        timestamp
+      );
       this.insertDiagnosis(mistakeId, diagnosis, timestamp);
       const reviewScheduleId = this.insertReviewSchedule({
         mistakeId,
@@ -3580,6 +3701,618 @@ export class LearningRepository {
       inserted.push({ ...part, id: partId });
     }
     return inserted;
+  }
+
+  ensureQuestionCompatibility(
+    mistakeId,
+    question,
+    attachmentIds,
+    timestamp
+  ) {
+    const text = String(question || "").trim();
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO question_categories
+         (question_id, category, source, created_at)
+         VALUES (?, 'mistake', 'legacy', ?)`
+      )
+      .run(mistakeId, timestamp);
+
+    if (text) {
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO question_content_units (
+            question_id, position, unit_type, text_content, attachment_id,
+            region_json, source, created_at, updated_at
+          ) VALUES (?, 1, 'text', ?, NULL, '{}', 'legacy', ?, ?)`
+        )
+        .run(mistakeId, text, timestamp, timestamp);
+    } else {
+      for (const [index, attachmentId] of attachmentIds.entries()) {
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO question_content_units (
+              question_id, position, unit_type, text_content, attachment_id,
+              region_json, source, created_at, updated_at
+            ) VALUES (?, ?, 'image', '', ?, '{}', 'legacy', ?, ?)`
+          )
+          .run(mistakeId, index + 1, attachmentId, timestamp, timestamp);
+      }
+    }
+
+    const attachmentStatement = this.db.prepare(
+      "SELECT storage_key FROM attachments WHERE id = ?"
+    );
+    for (const attachmentId of attachmentIds) {
+      const attachment = attachmentStatement.get(attachmentId);
+      if (!attachment) continue;
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO question_image_derivations (
+            question_id, attachment_id, derivation_type, storage_key,
+            region_json, created_at
+          ) VALUES (?, ?, 'original', ?, '{}', ?)`
+        )
+        .run(mistakeId, attachmentId, attachment.storage_key, timestamp);
+    }
+  }
+
+  updateLegacyQuestionContentUnit(mistakeId, question, timestamp) {
+    const text = String(question || "").trim();
+    const unit = this.db
+      .prepare(
+        `SELECT id, unit_type FROM question_content_units
+         WHERE question_id = ? AND position = 1`
+      )
+      .get(mistakeId);
+    if (!unit) {
+      this.ensureQuestionCompatibility(mistakeId, text, [], timestamp);
+      return;
+    }
+    if (unit.unit_type !== "text") return;
+    this.db
+      .prepare(
+        `UPDATE question_content_units
+         SET text_content = ?, source = 'legacy', updated_at = ?
+         WHERE id = ?`
+      )
+      .run(text, timestamp, unit.id);
+  }
+
+  listQuestionCategories(questionId) {
+    return this.db
+      .prepare(
+        `SELECT category FROM question_categories
+         WHERE question_id = ? ORDER BY id`
+      )
+      .all(questionId)
+      .map((row) => row.category);
+  }
+
+  listQuestionTags(questionId) {
+    return this.db
+      .prepare(
+        `SELECT tag FROM question_tags
+         WHERE question_id = ? ORDER BY id`
+      )
+      .all(questionId)
+      .map((row) => row.tag);
+  }
+
+  listQuestionContentUnits(questionId) {
+    return this.db
+      .prepare(
+        `SELECT * FROM question_content_units
+         WHERE question_id = ? ORDER BY position, id`
+      )
+      .all(questionId)
+      .map(mapQuestionContentUnit);
+  }
+
+  listQuestionOptions(questionId) {
+    return this.db
+      .prepare(
+        `SELECT * FROM question_options
+         WHERE question_id = ? ORDER BY position, id`
+      )
+      .all(questionId)
+      .map((row) => ({
+        id: row.id,
+        partId: row.part_id,
+        position: row.position,
+        label: row.label,
+        text: row.text_content,
+        imageAttachmentId: row.image_attachment_id,
+        isCorrect: row.is_correct === 1
+      }));
+  }
+
+  listQuestionSources(questionId) {
+    return this.db
+      .prepare(
+        `SELECT * FROM question_sources
+         WHERE question_id = ? ORDER BY id`
+      )
+      .all(questionId)
+      .map(mapQuestionSource);
+  }
+
+  listQuestionImageDerivations(questionId) {
+    return this.db
+      .prepare(
+        `SELECT * FROM question_image_derivations
+         WHERE question_id = ? ORDER BY id`
+      )
+      .all(questionId)
+      .map((row) => ({
+        id: row.id,
+        attachmentId: row.attachment_id,
+        type: row.derivation_type,
+        storageKey: row.storage_key,
+        region: parseJsonObject(row.region_json),
+        createdAt: row.created_at
+      }));
+  }
+
+  getQuestion(id, { includeSolution = false } = {}) {
+    const question = this.getMistake(id, { includeSolution });
+    if (!question) return null;
+    return {
+      ...question,
+      categories: this.listQuestionCategories(id),
+      tags: this.listQuestionTags(id),
+      contentUnits: this.listQuestionContentUnits(id),
+      options: this.listQuestionOptions(id),
+      sources: this.listQuestionSources(id),
+      imageDerivations: this.listQuestionImageDerivations(id)
+    };
+  }
+
+  listQuestions() {
+    return this.listMistakes().map((question) => ({
+      ...question,
+      categories: this.listQuestionCategories(question.id)
+    }));
+  }
+
+  createQuestionScanTask({
+    attachmentIds,
+    candidates = [],
+    status = "ready",
+    errorMessage = "",
+    scanner = {}
+  } = {}) {
+    if (!Array.isArray(attachmentIds) || !attachmentIds.length) {
+      throw new LearningValidationError(
+        "SCAN_IMAGE_REQUIRED",
+        "请先选择一张作业或试卷图片"
+      );
+    }
+    const ids = [...new Set(attachmentIds.map(Number))];
+    if (
+      ids.some((id) => !Number.isInteger(id) || id <= 0) ||
+      ids.length > MAX_SCAN_IMAGES
+    ) {
+      throw new LearningValidationError(
+        "INVALID_SCAN_IMAGES",
+        `一次扫描需要 1～${MAX_SCAN_IMAGES} 张图片`
+      );
+    }
+    const attachments = this.db
+      .prepare(
+        `SELECT id, mistake_id, mime_type FROM attachments
+         WHERE id IN (${ids.map(() => "?").join(",")})`
+      )
+      .all(...ids);
+    if (attachments.length !== ids.length) {
+      throw new LearningValidationError(
+        "ATTACHMENT_NOT_FOUND",
+        "扫描图片不存在或已被清理"
+      );
+    }
+    if (attachments.some((item) => item.mistake_id !== null)) {
+      throw new LearningValidationError(
+        "SCAN_IMAGE_ALREADY_BOUND",
+        "扫描图片必须使用尚未绑定题目的新上传图片"
+      );
+    }
+    if (attachments.some((item) => !String(item.mime_type).startsWith("image/"))) {
+      throw new LearningValidationError(
+        "INVALID_SCAN_IMAGES",
+        "扫描素材必须是图片"
+      );
+    }
+    if (!Array.isArray(candidates) || candidates.length > MAX_SCAN_CANDIDATES) {
+      throw new LearningValidationError(
+        "SCAN_TOO_MANY_CANDIDATES",
+        `单次扫描最多 ${MAX_SCAN_CANDIDATES} 道候选，请分批扫描`
+      );
+    }
+    const normalizedStatus = ["ready", "failed"].includes(status)
+      ? status
+      : "ready";
+    if (normalizedStatus === "ready" && !candidates.length) {
+      throw new LearningValidationError(
+        "SCAN_EMPTY_RESULT",
+        "没有识别到候选题，请重拍或改用手动录入"
+      );
+    }
+
+    const timestamp = nowIso();
+    const expiresAt = new Date(
+      Date.now() + QUESTION_SCAN_TTL_MS
+    ).toISOString();
+    const student = this.getStudent();
+    let taskId = null;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const task = this.db
+        .prepare(
+          `INSERT INTO question_scan_tasks (
+            student_id, status, error_message, candidate_count,
+            scanner_provider, scanner_model, prompt_version,
+            created_at, updated_at, expires_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          student.id,
+          normalizedStatus,
+          String(errorMessage || "").slice(0, 1000),
+          normalizedStatus === "ready" ? candidates.length : 0,
+          String(scanner.provider || "").slice(0, 100),
+          String(scanner.model || "").slice(0, 200),
+          String(scanner.promptVersion || "").slice(0, 100),
+          timestamp,
+          timestamp,
+          expiresAt
+        );
+      taskId = Number(task.lastInsertRowid);
+      const insertImage = this.db.prepare(
+        `INSERT INTO question_scan_images (
+          scan_task_id, attachment_id, role, position, created_at
+        ) VALUES (?, ?, ?, ?, ?)`
+      );
+      ids.forEach((attachmentId, index) => {
+        insertImage.run(
+          taskId,
+          attachmentId,
+          index === 0 ? "primary" : "supplement",
+          index + 1,
+          timestamp
+        );
+      });
+      if (normalizedStatus === "ready") {
+        const insertCandidate = this.db.prepare(
+          `INSERT INTO question_scan_candidates (
+            scan_task_id, candidate_no, status, completeness_status,
+            suspected_wrong, answer_pending, selected, manually_selected,
+            recognized_text, confidence, region_json, recognition_error,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)`
+        );
+        candidates.forEach((candidate, index) => {
+          const candidateNo = index + 1;
+          const candidateStatus = candidate.status === "failed"
+            ? "failed"
+            : "ready";
+          insertCandidate.run(
+            taskId,
+            candidateNo,
+            candidateStatus,
+            normalizeScanCompleteness(candidate.completenessStatus),
+            normalizeScanBoolean(candidate.suspectedWrong) ? 1 : 0,
+            normalizeScanBoolean(candidate.answerPending) ? 1 : 0,
+            String(candidate.text || "").slice(0, 5000),
+            Number.isFinite(Number(candidate.confidence))
+              ? Number(candidate.confidence)
+              : null,
+            JSON.stringify(normalizeScanRegion(candidate.region)),
+            String(candidate.recognitionError || "").slice(0, 1000),
+            timestamp,
+            timestamp
+          );
+        });
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return this.getQuestionScan(taskId);
+  }
+
+  getQuestionScan(scanId) {
+    const row = this.db
+      .prepare("SELECT * FROM question_scan_tasks WHERE id = ?")
+      .get(scanId);
+    if (!row) return null;
+    const expired = Date.parse(row.expires_at) <= Date.now();
+    const effectiveStatus =
+      row.status === "ready" && expired ? "expired" : row.status;
+    const images = this.db
+      .prepare(
+        `SELECT si.*, a.mime_type, a.byte_size, a.width, a.height, a.created_at AS attachment_created_at
+         FROM question_scan_images si
+         JOIN attachments a ON a.id = si.attachment_id
+         WHERE si.scan_task_id = ?
+         ORDER BY si.position, si.id`
+      )
+      .all(scanId)
+      .map((image) => ({
+        id: image.id,
+        attachmentId: image.attachment_id,
+        role: image.role,
+        position: image.position,
+        mimeType: image.mime_type,
+        byteSize: image.byte_size,
+        width: image.width,
+        height: image.height,
+        url: `/api/attachments/${image.attachment_id}?variant=original`
+      }));
+    const candidates = this.db
+      .prepare(
+        `SELECT * FROM question_scan_candidates
+         WHERE scan_task_id = ?
+         ORDER BY candidate_no, id`
+      )
+      .all(scanId)
+      .map((candidate) => mapQuestionScanCandidate(candidate, scanId));
+    const selectedCandidates = candidates.filter((item) => item.selected);
+    return {
+      id: row.id,
+      status: effectiveStatus,
+      storedStatus: row.status,
+      expired,
+      errorMessage: row.error_message,
+      candidateCount: row.candidate_count,
+      selectedCount: selectedCandidates.length,
+      incompleteSelectedCount: selectedCandidates.filter(
+        (item) => item.completenessStatus !== "complete"
+      ).length,
+      scanner: {
+        provider: row.scanner_provider,
+        model: row.scanner_model,
+        promptVersion: row.prompt_version
+      },
+      images,
+      candidates,
+      canImport: false,
+      importStage: "M3",
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      expiresAt: row.expires_at
+    };
+  }
+
+  updateQuestionScanSelection(scanId, { action, candidateId } = {}) {
+    const scan = this.getQuestionScan(scanId);
+    if (!scan) {
+      throw new LearningValidationError(
+        "SCAN_NOT_FOUND",
+        "没有找到这次扫描任务"
+      );
+    }
+    if (scan.status === "expired") {
+      const error = new LearningValidationError(
+        "SCAN_EXPIRED",
+        "扫描任务已失效，请重新扫描"
+      );
+      error.status = 409;
+      throw error;
+    }
+    if (scan.storedStatus !== "ready") {
+      throw new LearningValidationError(
+        "SCAN_NOT_SELECTABLE",
+        "这次扫描没有可选择的候选题目"
+      );
+    }
+    const allowed = new Set([
+      "select_all",
+      "select_wrong",
+      "clear_all",
+      "select_candidate",
+      "unselect_candidate"
+    ]);
+    if (!allowed.has(action)) {
+      throw new LearningValidationError(
+        "INVALID_SELECTION_ACTION",
+        "候选选择操作无效"
+      );
+    }
+    const timestamp = nowIso();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (action === "select_all") {
+        this.db
+          .prepare(
+            `UPDATE question_scan_candidates
+             SET selected = CASE
+               WHEN status = 'ready' AND completeness_status = 'complete' THEN 1
+               WHEN manually_selected = 1 THEN 1
+               ELSE 0
+             END,
+             updated_at = ?
+             WHERE scan_task_id = ?`
+          )
+          .run(timestamp, scanId);
+      } else if (action === "select_wrong") {
+        this.db
+          .prepare(
+            `UPDATE question_scan_candidates
+             SET selected = CASE
+               WHEN status = 'ready'
+                 AND completeness_status = 'complete'
+                 AND suspected_wrong = 1 THEN 1
+               WHEN manually_selected = 1 THEN 1
+               ELSE 0
+             END,
+             updated_at = ?
+             WHERE scan_task_id = ?`
+          )
+          .run(timestamp, scanId);
+      } else if (action === "clear_all") {
+        this.db
+          .prepare(
+            `UPDATE question_scan_candidates
+             SET selected = 0, manually_selected = 0, updated_at = ?
+             WHERE scan_task_id = ?`
+          )
+          .run(timestamp, scanId);
+      } else {
+        const id = Number(candidateId);
+        const candidate = this.db
+          .prepare(
+            `SELECT * FROM question_scan_candidates
+             WHERE id = ? AND scan_task_id = ?`
+          )
+          .get(id, scanId);
+        if (!candidate) {
+          throw new LearningValidationError(
+            "SCAN_CANDIDATE_NOT_FOUND",
+            "没有找到这道候选题"
+          );
+        }
+        if (action === "select_candidate") {
+          if (candidate.status === "failed" || candidate.status === "excluded") {
+            throw new LearningValidationError(
+              "SCAN_CANDIDATE_NOT_SELECTABLE",
+              "识别失败或已排除的候选不能选择"
+            );
+          }
+          this.db
+            .prepare(
+              `UPDATE question_scan_candidates
+               SET selected = 1, manually_selected = 1, updated_at = ?
+               WHERE id = ?`
+            )
+            .run(timestamp, id);
+        } else {
+          this.db
+            .prepare(
+              `UPDATE question_scan_candidates
+               SET selected = 0, manually_selected = 0, updated_at = ?
+               WHERE id = ?`
+            )
+            .run(timestamp, id);
+        }
+      }
+      this.db
+        .prepare(
+          "UPDATE question_scan_tasks SET updated_at = ? WHERE id = ?"
+        )
+        .run(timestamp, scanId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return this.getQuestionScan(scanId);
+  }
+
+  updateQuestionScanCandidate(scanId, candidateId, input = {}) {
+    const scan = this.getQuestionScan(scanId);
+    if (!scan) {
+      throw new LearningValidationError(
+        "SCAN_NOT_FOUND",
+        "没有找到这次扫描任务"
+      );
+    }
+    if (scan.status === "expired") {
+      const error = new LearningValidationError(
+        "SCAN_EXPIRED",
+        "扫描任务已失效，请重新扫描"
+      );
+      error.status = 409;
+      throw error;
+    }
+    const id = Number(candidateId);
+    const current = this.db
+      .prepare(
+        `SELECT * FROM question_scan_candidates
+         WHERE id = ? AND scan_task_id = ?`
+      )
+      .get(id, scanId);
+    if (!current) {
+      throw new LearningValidationError(
+        "SCAN_CANDIDATE_NOT_FOUND",
+        "没有找到这道候选题"
+      );
+    }
+    let text = current.recognized_text;
+    if (Object.hasOwn(input, "text")) {
+      text = String(input.text || "").trim().slice(0, 5000);
+    }
+    let region = normalizeScanRegion(parseJsonObject(current.region_json));
+    if (Object.hasOwn(input, "region")) {
+      region = normalizeScanRegion(input.region, { strict: true });
+    }
+    let status = current.status;
+    if (input.excluded === true) {
+      status = "excluded";
+    } else if (input.excluded === false && status === "excluded") {
+      status = "ready";
+    } else if (text && status === "failed") {
+      status = "ready";
+    }
+    const selected = status === "excluded" ? 0 : current.selected;
+    const manuallySelected = status === "excluded" ? 0 : current.manually_selected;
+    const timestamp = nowIso();
+    this.db
+      .prepare(
+        `UPDATE question_scan_candidates
+         SET status = ?, recognized_text = ?, region_json = ?,
+             selected = ?, manually_selected = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        status,
+        text,
+        JSON.stringify(region),
+        selected,
+        manuallySelected,
+        timestamp,
+        id
+      );
+    this.db
+      .prepare("UPDATE question_scan_tasks SET updated_at = ? WHERE id = ?")
+      .run(timestamp, scanId);
+    return this.getQuestionScan(scanId);
+  }
+
+  getQuestionScanImageContext(scanId, candidateId) {
+    const task = this.db
+      .prepare("SELECT * FROM question_scan_tasks WHERE id = ?")
+      .get(scanId);
+    if (!task) return null;
+    const primary = this.db
+      .prepare(
+        `SELECT si.attachment_id, a.storage_key, a.mime_type, a.width, a.height
+         FROM question_scan_images si
+         JOIN attachments a ON a.id = si.attachment_id
+         WHERE si.scan_task_id = ? AND si.role = 'primary'
+         ORDER BY si.position LIMIT 1`
+      )
+      .get(scanId);
+    if (!primary) return null;
+    let region = { x: 0, y: 0, width: 1, height: 1 };
+    if (candidateId !== null && candidateId !== undefined) {
+      const candidate = this.db
+        .prepare(
+          `SELECT region_json FROM question_scan_candidates
+           WHERE id = ? AND scan_task_id = ?`
+        )
+        .get(Number(candidateId), scanId);
+      if (!candidate) return null;
+      region = normalizeScanRegion(parseJsonObject(candidate.region_json));
+    }
+    return {
+      attachmentId: primary.attachment_id,
+      storageKey: primary.storage_key,
+      mimeType: primary.mime_type,
+      width: primary.width,
+      height: primary.height,
+      region
+    };
   }
 
   insertDiagnosis(mistakeId, diagnosis, timestamp) {
@@ -4072,6 +4805,13 @@ export class LearningRepository {
           proposedAttachmentIds
         );
         removedAttachmentKeys = attachmentResult.removedStorageKeys;
+      }
+      if (changedFields.includes("question")) {
+        this.updateLegacyQuestionContentUnit(
+          id,
+          finalFields.question,
+          timestamp
+        );
       }
       this.db
         .prepare(
@@ -4932,6 +5672,15 @@ export class LearningRepository {
 
   deleteAllLearningData() {
     const tables = [
+      "question_scan_candidates",
+      "question_scan_images",
+      "question_scan_tasks",
+      "question_image_derivations",
+      "question_sources",
+      "question_options",
+      "question_content_units",
+      "question_tags",
+      "question_categories",
       "attachment_extractions",
       "attachment_crops",
       "attachments",

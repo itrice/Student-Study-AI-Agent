@@ -55,6 +55,10 @@ const state = {
   dayDetailTrigger: null,
   knowledgeSearch: null,
   knowledgeSearchRequest: 0,
+  scanAttachments: [],
+  scanTask: null,
+  scanId: null,
+  scanBusy: false,
   filter: "all",
   mistakeQuery: "",
   mistakeSearchTimer: null,
@@ -91,6 +95,7 @@ const state = {
 const viewLabels = {
   home: "今日学习",
   review: "开始复习",
+  scan: "拍照选题",
   mistakes: "我的错题",
   feedback: "学习反馈",
   knowledge: "知识点地图",
@@ -331,6 +336,397 @@ async function uploadImageFiles(fileList) {
       `已添加 ${state.dialogAttachments.length} 张图片，保存错题后完成关联。`
     );
   }
+}
+
+const MAX_SCAN_IMAGES = 3;
+
+function scanCompletenessLabel(candidate) {
+  if (candidate.status === "failed") return "识别失败";
+  if (candidate.status === "excluded") return "已排除";
+  if (candidate.completenessStatus === "incomplete") return "可能残缺";
+  if (candidate.completenessStatus === "unknown") return "完整度待确认";
+  return "内容完整";
+}
+
+function renderScanIntake() {
+  const list = $("#scan-image-list");
+  if (!list) return;
+  list.replaceChildren();
+  state.scanAttachments.forEach((attachment, index) => {
+    const item = createElement("div", "scan-image-item");
+    const image = createAttachmentImage(attachment, "scan-image-thumb");
+    image.alt = `待识别图片 ${index + 1}`;
+    const copy = createElement("span", "scan-image-copy");
+    copy.append(
+      createElement("strong", "", index === 0 ? "主图" : `补充图 ${index}`),
+      createElement("small", "", `${attachment.width} × ${attachment.height}`)
+    );
+    const remove = createElement("button", "text-button", "移除");
+    remove.type = "button";
+    remove.dataset.removeScanImage = String(attachment.id);
+    item.append(image, copy, remove);
+    list.append(item);
+  });
+  const intake = $("#scan-intake");
+  const task = $("#scan-task");
+  if (intake) intake.hidden = Boolean(state.scanTask);
+  if (task) task.hidden = !state.scanTask;
+  const clear = $("#scan-clear-images");
+  if (clear) clear.hidden = !state.scanAttachments.length;
+  const start = $("#scan-start-button");
+  if (start) {
+    start.disabled =
+      state.scanBusy ||
+      !state.scanAttachments.length ||
+      !$("#scan-consent").checked;
+    start.textContent = state.scanBusy ? "正在识别…" : "开始识别候选";
+  }
+}
+
+async function uploadScanFiles(fileList) {
+  const files = [...(fileList || [])].filter(
+    (file) => !file.type || file.type.startsWith("image/")
+  );
+  if (!files.length) {
+    showToast("没有找到可用的图片", true);
+    return;
+  }
+  for (const file of files) {
+    if (state.scanAttachments.length >= MAX_SCAN_IMAGES) {
+      showToast(`一次扫描最多 ${MAX_SCAN_IMAGES} 张图片`, true);
+      break;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      showToast("单张图片不能超过 8 MB", true);
+      continue;
+    }
+    if (file.type && !ALLOWED_IMAGE_TYPES.has(file.type)) {
+      showToast("仅支持 JPG、PNG 或 WebP 图片", true);
+      continue;
+    }
+    try {
+      const attachment = await uploadAttachment(file);
+      state.scanAttachments.push(attachment);
+      $("#scan-status").textContent = `已添加 ${state.scanAttachments.length} 张图片；识别结果只进入候选页。`;
+    } catch (error) {
+      $("#scan-status").textContent = error.message;
+      showToast(error.message, true);
+    }
+  }
+  renderScanIntake();
+}
+
+async function removeScanAttachment(id) {
+  state.scanAttachments = state.scanAttachments.filter(
+    (attachment) => attachment.id !== id
+  );
+  try {
+    await api(`/api/attachments/${id}`, { method: "DELETE" });
+  } catch {
+    // Startup cleanup removes a failed unbound attachment.
+  }
+  renderScanIntake();
+}
+
+async function clearScanAttachments() {
+  const ids = state.scanAttachments.map((attachment) => attachment.id);
+  state.scanAttachments = [];
+  renderScanIntake();
+  await Promise.all(
+    ids.map((id) => api(`/api/attachments/${id}`, { method: "DELETE" }).catch(() => {}))
+  );
+}
+
+async function startQuestionScan() {
+  if (!state.scanAttachments.length) {
+    showToast("请先选择扫描图片", true);
+    return;
+  }
+  if (!$("#scan-consent").checked) {
+    showToast("发送外部识别前请先勾选同意", true);
+    return;
+  }
+  state.scanBusy = true;
+  $("#scan-loading").hidden = false;
+  renderScanIntake();
+  try {
+    const task = await api("/api/questions/scans", {
+      method: "POST",
+      body: JSON.stringify({
+        attachmentIds: state.scanAttachments.map((attachment) => attachment.id),
+        consent: true
+      })
+    });
+    state.scanTask = task;
+    state.scanId = task.id;
+    state.scanAttachments = [];
+    history.pushState(null, "", `#scan/${task.id}`);
+    renderQuestionScan(task);
+  } catch (error) {
+    showToast(error.message, true);
+    $("#scan-status").textContent = error.message;
+  } finally {
+    state.scanBusy = false;
+    $("#scan-loading").hidden = true;
+    renderScanIntake();
+  }
+}
+
+function scanCandidateTag(text, className = "") {
+  return createElement("span", `tag scan-candidate-tag ${className}`.trim(), text);
+}
+
+function renderScanCandidate(candidate, task) {
+  const card = createElement(
+    "article",
+    `scan-candidate${candidate.selected ? " is-selected" : ""}${
+      candidate.suspectedWrong ? " is-suspected-wrong" : ""
+    }${candidate.status === "excluded" ? " is-excluded" : ""}`
+  );
+  card.dataset.candidateId = String(candidate.id);
+
+  const head = createElement("div", "scan-candidate-head");
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.id = `scan-candidate-${candidate.id}-selected`;
+  checkbox.className = "scan-candidate-checkbox";
+  checkbox.checked = candidate.selected;
+  checkbox.disabled =
+    task.status !== "ready" || candidate.status === "failed" || candidate.status === "excluded";
+  checkbox.dataset.scanSelectCandidate = String(candidate.id);
+  const label = document.createElement("label");
+  label.className = "scan-candidate-title";
+  label.htmlFor = checkbox.id;
+  label.append(
+    createElement("strong", "", `候选 ${candidate.candidateNo}`),
+    createElement(
+      "small",
+      "",
+      `临时编号 · ${candidate.text ? candidate.text.slice(0, 34) : "待补充文字"}`
+    )
+  );
+  head.append(checkbox, label);
+
+  const tags = createElement("div", "scan-candidate-tags");
+  tags.append(
+    scanCandidateTag(
+      scanCompletenessLabel(candidate),
+      candidate.completenessStatus === "complete" ? "is-complete" : "is-warning"
+    )
+  );
+  if (candidate.suspectedWrong) tags.append(scanCandidateTag("疑似错误", "is-wrong"));
+  if (candidate.answerPending) tags.append(scanCandidateTag("答案待确认", "is-pending"));
+  if (candidate.manuallySelected) tags.append(scanCandidateTag("手动选择", "is-manual"));
+  head.append(tags);
+  card.append(head);
+
+  const preview = document.createElement("a");
+  preview.className = "scan-candidate-preview";
+  preview.href = candidate.imageUrl;
+  preview.target = "_blank";
+  preview.rel = "noopener";
+  preview.setAttribute("aria-label", `查看候选 ${candidate.candidateNo} 大图`);
+  const image = document.createElement("img");
+  image.src = candidate.imageUrl;
+  image.alt = `候选 ${candidate.candidateNo} 的题目区域`;
+  image.loading = "lazy";
+  preview.append(image);
+  card.append(preview);
+
+  if (candidate.completenessStatus !== "complete") {
+    card.append(
+      createElement(
+        "p",
+        "scan-candidate-warning",
+        "内容可能不完整；手动选择时会再次确认。快捷选择不会自动选中。"
+      )
+    );
+  }
+  if (candidate.status === "failed") {
+    card.append(
+      createElement(
+        "p",
+        "scan-candidate-error",
+        candidate.recognitionError || "识别失败，可补充文字后继续人工处理。"
+      )
+    );
+  }
+
+  const textLabel = document.createElement("label");
+  textLabel.className = "scan-candidate-field";
+  textLabel.append(createElement("span", "", "题干文字"));
+  const textarea = document.createElement("textarea");
+  textarea.rows = 3;
+  textarea.value = candidate.text;
+  textarea.dataset.scanText = String(candidate.id);
+  textarea.disabled = task.status !== "ready" || candidate.status === "excluded";
+  textLabel.append(textarea);
+  card.append(textLabel);
+
+  const region = createElement("div", "scan-region-grid");
+  const fields = [
+    ["x", "左 %", candidate.region.x * 100],
+    ["y", "上 %", candidate.region.y * 100],
+    ["width", "宽 %", candidate.region.width * 100],
+    ["height", "高 %", candidate.region.height * 100]
+  ];
+  for (const [key, labelText, value] of fields) {
+    const field = document.createElement("label");
+    field.append(createElement("span", "", labelText));
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.max = "100";
+    input.step = "1";
+    input.value = String(Math.round(value));
+    input.dataset.scanRegion = key;
+    input.dataset.candidateId = String(candidate.id);
+    input.disabled = task.status !== "ready" || candidate.status === "excluded";
+    field.append(input);
+    region.append(field);
+  }
+  card.append(region);
+
+  const actions = createElement("div", "scan-candidate-actions");
+  const save = createElement("button", "secondary-button compact", "保存文字与框选");
+  save.type = "button";
+  save.dataset.scanSave = String(candidate.id);
+  save.disabled = task.status !== "ready" || candidate.status === "excluded";
+  const exclude = createElement(
+    "button",
+    "text-button",
+    candidate.status === "excluded" ? "恢复候选" : "排除候选"
+  );
+  exclude.type = "button";
+  exclude.dataset.scanExclude = String(candidate.id);
+  exclude.disabled = task.status !== "ready" || candidate.status === "failed";
+  actions.append(save, exclude);
+  card.append(actions);
+  return card;
+}
+
+function renderQuestionScan(task) {
+  state.scanTask = task;
+  state.scanId = task.id;
+  $("#scan-intake").hidden = true;
+  $("#scan-task").hidden = false;
+  $("#scan-task-id").textContent = String(task.id);
+  $("#scan-task-status").textContent =
+    task.status === "ready"
+      ? "可选择"
+      : task.status === "expired"
+        ? "已失效"
+        : "识别失败";
+  $("#scan-task-message").textContent =
+    task.errorMessage ||
+    `共 ${task.candidateCount} 道候选；默认不选，当前选择 ${task.selectedCount} 道。`;
+
+  const list = $("#scan-candidate-list");
+  list.replaceChildren();
+  task.candidates.forEach((candidate) => {
+    list.append(renderScanCandidate(candidate, task));
+  });
+  const hasCandidates = task.candidates.length > 0;
+  $("#scan-task-content").hidden = !hasCandidates;
+  $("#scan-task-empty").hidden = hasCandidates;
+  if (!hasCandidates) {
+    $("#scan-task-empty h2").textContent =
+      task.status === "expired" ? "扫描任务已失效" : "没有识别到候选题";
+    $("#scan-task-empty p").textContent =
+      task.errorMessage ||
+      "可以重拍、改用手动录入，或返回重新选择图片。";
+  }
+  $$("[data-scan-action]").forEach((button) => {
+    button.disabled = task.status !== "ready";
+  });
+  const summary = $("#scan-selection-summary");
+  summary.textContent =
+    task.status === "expired"
+      ? "扫描任务已失效，选择状态只读；请重新扫描。"
+      : task.incompleteSelectedCount
+        ? `已选 ${task.selectedCount} 道，其中 ${task.incompleteSelectedCount} 道内容可能不完整。`
+        : `已选 ${task.selectedCount} 道；未选中的候选不会进入题库。`;
+  const importButton = $("#scan-import-button");
+  importButton.disabled = true;
+  $("#scan-import-note").textContent =
+    task.status === "expired"
+      ? "任务已失效，不能再导入；请重新扫描。"
+      : "当前阶段只保存候选，不写入正式题库。批量导入将在下一阶段开放。";
+  renderScanIntake();
+}
+
+async function loadQuestionScan(scanId) {
+  const task = await api(`/api/questions/scans/${scanId}`);
+  renderQuestionScan(task);
+}
+
+async function applyScanSelection(action, candidateId = null) {
+  if (!state.scanTask) return;
+  try {
+    const task = await api(`/api/questions/scans/${state.scanTask.id}/selection`, {
+      method: "POST",
+      body: JSON.stringify({ action, candidateId })
+    });
+    renderQuestionScan(task);
+  } catch (error) {
+    showToast(error.message, true);
+    renderQuestionScan(state.scanTask);
+  }
+}
+
+async function saveScanCandidate(candidateId) {
+  const card = document.querySelector(
+    `.scan-candidate[data-candidate-id="${candidateId}"]`
+  );
+  if (!card || !state.scanTask) return;
+  const text = card.querySelector("[data-scan-text]")?.value || "";
+  const region = {};
+  card.querySelectorAll("[data-scan-region]").forEach((input) => {
+    region[input.dataset.scanRegion] = Number(input.value) / 100;
+  });
+  try {
+    const task = await api(
+      `/api/questions/scans/${state.scanTask.id}/candidates/${candidateId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ text, region })
+      }
+    );
+    renderQuestionScan(task);
+    showToast("候选文字和区域已保存");
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+async function toggleScanCandidateExcluded(candidateId) {
+  if (!state.scanTask) return;
+  const candidate = state.scanTask.candidates.find(
+    (item) => item.id === candidateId
+  );
+  if (!candidate) return;
+  try {
+    const task = await api(
+      `/api/questions/scans/${state.scanTask.id}/candidates/${candidateId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ excluded: candidate.status !== "excluded" })
+      }
+    );
+    renderQuestionScan(task);
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+function resetQuestionScan() {
+  state.scanTask = null;
+  state.scanId = null;
+  history.replaceState(null, "", "#scan");
+  $("#scan-task").hidden = true;
+  $("#scan-intake").hidden = false;
+  $("#scan-task-empty").hidden = true;
+  renderScanIntake();
 }
 
 async function removeDialogAttachment(id) {
@@ -1046,9 +1442,12 @@ function readRoute() {
     view === "settings"
       ? parseSettingsRoute(window.location.hash)
       : { subpage: null, unknown: false };
+  const scanId =
+    view === "scan" && /^\d+$/.test(rawId || "") ? Number(rawId) : null;
   return {
     view,
     mistakeId,
+    scanId,
     settingsSubpage: settings.subpage,
     unknownSettingsSubpage: settings.unknown
   };
@@ -1108,6 +1507,15 @@ function navigateTo(name) {
   showView(name);
   if (name === "review") {
     loadNextReview();
+  } else if (name === "scan") {
+    const route = readRoute();
+    if (route.scanId) {
+      loadQuestionScan(route.scanId).catch((error) =>
+        showToast(error.message, true)
+      );
+    } else if (state.scanTask) {
+      renderQuestionScan(state.scanTask);
+    }
   } else if (name === "feedback") {
     loadFeedback();
   } else if (name === "settings") {
@@ -4680,6 +5088,62 @@ function bindEvents() {
       event.target.value = "";
     });
   }
+  $("#scan-choose-button").addEventListener("click", () => {
+    $("#scan-file-input").click();
+  });
+  $("#scan-file-input").addEventListener("change", (event) => {
+    uploadScanFiles(event.target.files);
+    event.target.value = "";
+  });
+  $("#scan-image-list").addEventListener("click", (event) => {
+    const remove = event.target.closest("[data-remove-scan-image]");
+    if (remove) removeScanAttachment(Number(remove.dataset.removeScanImage));
+  });
+  $("#scan-clear-images").addEventListener("click", clearScanAttachments);
+  $("#scan-consent").addEventListener("change", renderScanIntake);
+  $("#scan-start-button").addEventListener("click", startQuestionScan);
+  $("#scan-task-content").addEventListener("change", (event) => {
+    const checkbox = event.target.closest("[data-scan-select-candidate]");
+    if (!checkbox || !state.scanTask) return;
+    const candidateId = Number(checkbox.dataset.scanSelectCandidate);
+    const candidate = state.scanTask.candidates.find(
+      (item) => item.id === candidateId
+    );
+    if (!candidate) return;
+    if (checkbox.checked) {
+      if (candidate.completenessStatus !== "complete") {
+        const confirmed = window.confirm(
+          "这道候选可能不完整，仍需选择吗？后续补全后才能进入正式题库。"
+        );
+        if (!confirmed) {
+          checkbox.checked = false;
+          return;
+        }
+      }
+      applyScanSelection("select_candidate", candidateId);
+    } else {
+      applyScanSelection("unselect_candidate", candidateId);
+    }
+  });
+  $("#scan-task-content").addEventListener("click", (event) => {
+    const quick = event.target.closest("[data-scan-action]");
+    if (quick) {
+      applyScanSelection(quick.dataset.scanAction);
+      return;
+    }
+    const save = event.target.closest("[data-scan-save]");
+    if (save) {
+      saveScanCandidate(Number(save.dataset.scanSave));
+      return;
+    }
+    const exclude = event.target.closest("[data-scan-exclude]");
+    if (exclude) {
+      toggleScanCandidateExcluded(Number(exclude.dataset.scanExclude));
+    }
+  });
+  $("#scan-task").addEventListener("click", (event) => {
+    if (event.target.closest("[data-scan-reset]")) resetQuestionScan();
+  });
   $("#add-dialog").addEventListener("paste", (event) => {
     if (!$("#add-dialog").open || state.cropEditor) return;
     const files = [...(event.clipboardData?.files || [])];
@@ -4979,6 +5443,16 @@ function bindEvents() {
       loadFeedback().catch((error) => showToast(error.message, true));
     } else if (route.view === "settings") {
       loadSettings().catch((error) => showToast(error.message, true));
+    } else if (route.view === "scan") {
+      if (route.scanId) {
+        loadQuestionScan(route.scanId).catch((error) =>
+          showToast(error.message, true)
+        );
+      } else if (state.scanTask) {
+        renderQuestionScan(state.scanTask);
+      } else {
+        resetQuestionScan();
+      }
     }
   });
 
@@ -5031,6 +5505,8 @@ async function init() {
       }
     } else if (initialRoute.view === "settings") {
       await loadSettings();
+    } else if (initialRoute.view === "scan" && initialRoute.scanId) {
+      await loadQuestionScan(initialRoute.scanId);
     }
   } catch (error) {
     showToast(`页面初始化失败：${error.message}`, true);

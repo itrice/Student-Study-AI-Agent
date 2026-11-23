@@ -2,7 +2,12 @@
 
 > 状态：已实现，自动化与画面自测完成，待真机联调验收
 > 日期：2026-11-17
-> 范围：`GET /api/eink/queue`、`GET /api/eink/page`、`GET /api/eink/preview`
+> 范围：`GET /api/eink/queue`、`GET /api/eink/dashboard`、
+> `GET /api/eink/page`、`GET /api/eink/preview`
+
+首页看板尚未实现。其产品、版面和验收设计见
+[电子墨水屏看板设计](./电子墨水屏看板设计.md)，不得将本文的题目页排版规则
+直接套用到看板。
 
 ## 1. 接口行为
 
@@ -18,6 +23,25 @@ GET /api/eink/queue?limit=20
 - 只返回 `id`、`index`、`kp`、`hasPhoto`、`partCount`，不返回题干、答案、提示或附件 URL。
 - `hasPhoto` 表示该题存在附件记录。附件文件实际损坏或缺失时，由页面接口回退文字页。
 - 没有小问的旧题按 1 个小问返回。
+
+### 学习看板
+
+```http
+GET /api/eink/dashboard
+```
+
+- 返回固定 48000 字节的 800×480 看板设备帧；响应头、强 `ETag`、`If-None-Match`
+  304 和 `Cache-Control: no-transform` 与题目页一致。
+- 内容仅包含 `Asia/Shanghai` 当前日期、当前月学习日历、全部到期题数量和本地励志语。
+- 学习标记来自当前月至少一条作答记录；到期数使用全部到期题，不受队列 `limit` 影响。
+- 励志语从项目内固定列表按日期稳定选择，不联网、不调用模型。
+- 数据读取失败时不伪造零值：看板保留日期和日历骨架，到期区显示“数据暂不可用”。
+- 看板不提供 preview、待办、AI 语录、灰阶或其他扩展功能。
+
+样帧证据见
+[`eink-dashboard-sample-2026-11-23.png`](../reports/eink-dashboard-sample-2026-11-23.png)
+、[`48000 字节设备帧`](../reports/eink-dashboard-sample-2026-11-23.bin)
+及[`evidence.json`](../reports/eink-dashboard-sample-2026-11-23.json)。
 
 ### 设备帧
 
