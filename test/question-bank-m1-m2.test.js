@@ -1236,6 +1236,85 @@ test("答案引用未声明的低置信字块时仍标记待确认", async () =>
   assert.ok(result.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
 });
 
+test("模型漏报 sourceBlockIds 时按 OCR 文本补齐两行候选区域", async () => {
+  const scanner = new OcrTextQuestionScanner({
+    ocrClient: new InternalOcrClient({
+      baseUrl: "https://example.invalid",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            engine: "rapidocr",
+            modelVersion: "PP-OCRv6-small",
+            width: 1000,
+            height: 200,
+            blocks: [
+              {
+                order: 1,
+                text: "因为它们的半径与直径都相",
+                bbox: [100, 0, 600, 20],
+                confidence: 0.9
+              },
+              {
+                order: 2,
+                text: "7. 人民公园有一个半径为200 dm的圆形人工湖，现要在人工湖的周围加一圈护栏。至少",
+                bbox: [20, 30, 950, 70],
+                confidence: 0.98
+              },
+              {
+                order: 3,
+                text: "需要多",
+                bbox: [40, 80, 100, 110],
+                confidence: 1
+              },
+              {
+                order: 4,
+                text: "少米护栏？这个人工湖的占地面积是多少平方本？",
+                bbox: [90, 80, 720, 110],
+                confidence: 0.98
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    }),
+    llmGateway: {
+      model: "fixture-model",
+      isConfigured: () => true,
+      chat: async () => ({
+        provider: "fixture",
+        model: "fixture-model",
+        message: {
+          content: JSON.stringify({
+            candidates: [
+              {
+                text: "7. 人民公园有一个半径为200 dm的圆形人工湖，现要在人工湖的周围加一圈护栏。至少需要多少米护栏？这个人工湖的占地面积是多少平方米？",
+                questionType: "short_answer",
+                completeness: "complete",
+                answerPending: false,
+                confidence: 0.98,
+                region: { x: 0.02, y: 0.15, width: 0.93, height: 0.2 }
+              }
+            ]
+          })
+        }
+      })
+    }
+  });
+  const result = await scanner.scan({
+    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+  });
+  const candidate = result.candidates[0];
+  assert.deepEqual(
+    candidate.sourceBlocks.map((block) => block.id),
+    ["i1b2", "i1b3", "i1b4"]
+  );
+  assert.ok(candidate.region.height > 0.35);
+  assert.equal(
+    candidate.pendingReasons.includes("MISSING_SOURCE_BLOCKS"),
+    false
+  );
+});
+
 test("多小问保留系统答案建议并对公式不足标记待确认", async () => {
   const scanner = new OcrTextQuestionScanner({
     ocrClient: new InternalOcrClient({

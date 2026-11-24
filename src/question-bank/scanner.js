@@ -237,9 +237,48 @@ function publicSourceBlock(block) {
 function resolveCandidateBlocks(candidate, allBlocks, warningsByBlock) {
   const ids = uniqueStrings(candidate?.sourceBlockIds, MAX_SCAN_CANDIDATES * 8);
   const byId = new Map(allBlocks.map((block) => [block.id, block]));
-  return ids
+  const explicit = ids
     .map((id) => byId.get(id))
     .filter(Boolean)
+    .map((block) => ({
+      ...block,
+      warnings: warningsByBlock.get(block.id) || []
+    }));
+  if (explicit.length) return explicit;
+
+  const sourceTexts = [
+    candidate?.text,
+    candidate?.question,
+    candidate?.prompt
+  ]
+    .map((text) => compact(text, 5000))
+    .filter((text) => text.length >= 4);
+  if (!sourceTexts.length) return [];
+
+  return allBlocks
+    .filter((block) => {
+      const blockText = compact(block.text, 5000);
+      if (blockText.length < 2) return false;
+      return sourceTexts.some((sourceText) => {
+        if (
+          sourceText.includes(blockText) ||
+          blockText.includes(sourceText)
+        ) {
+          return true;
+        }
+        if (blockText.length < 4) return false;
+        let matched = 0;
+        let cursor = 0;
+        for (const character of blockText) {
+          const index = sourceText.indexOf(character, cursor);
+          if (index < 0) continue;
+          matched += 1;
+          cursor = index + 1;
+        }
+        return matched / blockText.length >= 0.75;
+      });
+    })
+    .sort((left, right) => left.order - right.order)
     .map((block) => ({
       ...block,
       warnings: warningsByBlock.get(block.id) || []
