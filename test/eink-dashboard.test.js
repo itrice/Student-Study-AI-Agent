@@ -133,6 +133,20 @@ test("看板日期、周一起始日历、到期数和语录规则稳定", async
   assert.match(svg, /11月学习日历/);
   assert.match(svg, />12</);
   assert.match(svg, /道题待复习/);
+  assert.equal(
+    [...svg.matchAll(/class="completion-check"/g)].length,
+    1
+  );
+  assert.match(
+    svg,
+    /<path class="completion-check" d="M [\d.]+ [\d.]+ L [\d.]+ [\d.]+ L [\d.]+ [\d.]+"/
+  );
+  assert.doesNotMatch(svg, /<circle/);
+  assert.doesNotMatch(svg, /✓|✔|😊|☺/);
+  assert.doesNotMatch(
+    dashboardSvg({ ...model, calendarDays: [] }),
+    /class="completion-check"/
+  );
 
   const rendered = await renderEinkDashboard(model);
   assert.equal(rendered.frame.length, EINK_FRAME_BYTES);
