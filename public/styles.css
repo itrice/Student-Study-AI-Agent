@@ -5430,6 +5430,39 @@ body.review-focus-mode #view-review .review-attachments img {
   resize: vertical;
 }
 
+.scan-candidate-field select,
+.scan-candidate-field input {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: #fff;
+  font-size: 16px;
+}
+
+.scan-answer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.scan-candidate-options {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink-soft);
+  background: #f9fbf9;
+  font-size: var(--text-meta);
+}
+
+.scan-candidate-options strong {
+  color: var(--ink);
+}
+
 .scan-region-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -5509,6 +5542,10 @@ body.review-focus-mode #view-review .review-attachments img {
 
   .scan-region-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scan-answer-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .scan-task-head,

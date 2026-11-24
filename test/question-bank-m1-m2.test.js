@@ -12,8 +12,15 @@ import sharp from "sharp";
 import { LearningRepository } from "../src/database.js";
 import { AttachmentStore } from "../src/attachments.js";
 import { migrateDatabase, SCHEMA_MIGRATIONS } from "../src/migrations.js";
-import { createQuestionScan } from "../src/question-bank/scan-service.js";
-import { OpenAICompatibleQuestionScanner } from "../src/question-bank/scanner.js";
+import {
+  createQuestionScan,
+  importQuestionScan
+} from "../src/question-bank/scan-service.js";
+import {
+  InternalOcrClient,
+  OcrTextQuestionScanner,
+  detectOcrBlockWarnings
+} from "../src/question-bank/scanner.js";
 
 const projectRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -50,8 +57,8 @@ function createFixture(directory) {
   return { databasePath, repository, store };
 }
 
-function saveAttachment(repository, store, name = "question.png") {
-  const saved = store.save(PNG, {
+function saveAttachment(repository, store, name = "question.png", buffer = PNG) {
+  const saved = store.save(buffer, {
     declaredMime: "image/png",
     originalName: name,
     kind: "question"
@@ -276,7 +283,12 @@ async function stopServer(child) {
   });
 }
 
-function startFakeVisionServer(responsePayload, status = 200) {
+function startFakeScanPipeline({
+  ocrBlocks,
+  llmCandidates = [],
+  ocrStatus = 200,
+  llmStatus = 200
+}) {
   const requests = [];
   const server = http.createServer((request, response) => {
     let body = "";
@@ -286,20 +298,44 @@ function startFakeVisionServer(responsePayload, status = 200) {
     request.on("end", () => {
       requests.push({
         url: request.url,
-        authorization: request.headers.authorization,
+        authorization: request.headers.authorization || "",
+        contentType: request.headers["content-type"] || "",
         body
       });
-      response.writeHead(status, { "Content-Type": "application/json" });
+      if (request.url === "/v1/ocr") {
+        response.writeHead(ocrStatus, { "Content-Type": "application/json" });
+        response.end(
+          JSON.stringify(
+            ocrStatus === 200
+              ? {
+                  engine: "rapidocr",
+                  modelVersion: "PP-OCRv6-small",
+                  width: 1000,
+                  height: 800,
+                  processingTimeMs: 25,
+                  blocks: ocrBlocks
+                }
+              : { detail: { code: "OCR_PROCESSING_FAILED" } }
+          )
+        );
+        return;
+      }
+      response.writeHead(llmStatus, { "Content-Type": "application/json" });
       response.end(
-        JSON.stringify({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({ candidates: responsePayload })
+        JSON.stringify(
+          llmStatus === 200
+            ? {
+                choices: [
+                  {
+                    message: {
+                      content: JSON.stringify({ candidates: llmCandidates })
+                    }
+                  }
+                ],
+                usage: { prompt_tokens: 10, completion_tokens: 10 }
               }
-            }
-          ]
-        })
+            : { error: { message: "fixture failure" } }
+        )
       );
     });
   });
@@ -311,7 +347,7 @@ function startFakeVisionServer(responsePayload, status = 200) {
   });
 }
 
-test("v13 升级到 v14 保留 15 条现有数据并回填兼容层", () => {
+test("v13 升级到 v15 保留 15 条现有数据并回填兼容层", () => {
   withTemporaryDirectory((directory) => {
     const databasePath = path.join(directory, "learning.sqlite");
     const before = seedV13Database(databasePath);
@@ -325,7 +361,7 @@ test("v13 升级到 v14 保留 15 条现有数据并回填兼容层", () => {
     });
 
     const repository = new LearningRepository(databasePath);
-    assert.equal(repository.getSchemaVersion(), 14);
+    assert.equal(repository.getSchemaVersion(), 15);
     assert.ok(repository.lastBackupPath);
 
     const after = {
@@ -341,6 +377,24 @@ test("v13 升级到 v14 保留 15 条现有数据并回填兼容层", () => {
     assert.equal(tableCount(repository.db, "question_categories"), 15);
     assert.equal(tableCount(repository.db, "question_content_units"), 15);
     assert.equal(tableCount(repository.db, "question_image_derivations"), 16);
+    const taskColumns = new Set(
+      repository.db
+        .prepare("PRAGMA table_info(question_scan_tasks)")
+        .all()
+        .map((row) => row.name)
+    );
+    const candidateColumns = new Set(
+      repository.db
+        .prepare("PRAGMA table_info(question_scan_candidates)")
+        .all()
+        .map((row) => row.name)
+    );
+    for (const column of ["ocr_provider", "ocr_model", "ocr_blocks_json"]) {
+      assert.ok(taskColumns.has(column));
+    }
+    for (const column of ["analysis_json", "imported_question_id"]) {
+      assert.ok(candidateColumns.has(column));
+    }
     for (const row of repository.db
       .prepare(
         `SELECT question_type, completeness_status, source_status,
@@ -470,6 +524,80 @@ test("扫描候选默认不选，快捷选择不自动选残缺或失败候选",
   });
 });
 
+test("候选导入失败会回滚正式题并允许安全重试", async () => {
+  await withTemporaryDirectory(async (directory) => {
+    const { repository, store } = createFixture(directory);
+    const sourceImage = await sharp({
+      create: {
+        width: 20,
+        height: 20,
+        channels: 3,
+        background: { r: 240, g: 240, b: 240 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const attachment = saveAttachment(
+      repository,
+      store,
+      "scan-source.png",
+      sourceImage
+    );
+    let task = createScanTask(repository, attachment.id);
+    const candidateId = task.candidates[0].id;
+    task = repository.updateQuestionScanSelection(task.id, {
+      action: "select_candidate",
+      candidateId
+    });
+    assert.equal(task.candidates[0].selected, true);
+
+    repository.db.exec(`
+      CREATE TRIGGER fail_scan_candidate_import
+      BEFORE UPDATE OF imported_question_id ON question_scan_candidates
+      WHEN NEW.imported_question_id IS NOT NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'forced scan import failure');
+      END;
+    `);
+    const failed = await importQuestionScan({
+      repository,
+      attachmentStore: store,
+      scanId: task.id,
+      candidateIds: [candidateId]
+    });
+    assert.equal(failed.successCount, 0);
+    assert.equal(failed.failedCount, 1);
+    assert.equal(repository.listQuestions().length, 0);
+    assert.equal(tableCount(repository.db, "question_options"), 0);
+    assert.equal(tableCount(repository.db, "attachments"), 1);
+    assert.equal(
+      repository.db
+        .prepare(
+          "SELECT imported_question_id FROM question_scan_candidates WHERE id = ?"
+        )
+        .get(candidateId).imported_question_id,
+      null
+    );
+
+    repository.db.exec("DROP TRIGGER fail_scan_candidate_import");
+    const imported = await importQuestionScan({
+      repository,
+      attachmentStore: store,
+      scanId: task.id,
+      candidateIds: [candidateId]
+    });
+    assert.equal(
+      imported.successCount,
+      1,
+      JSON.stringify(imported.results)
+    );
+    assert.equal(imported.failedCount, 0);
+    assert.equal(repository.listQuestions().length, 1);
+    assert.ok(imported.scan.candidates[0].importedQuestionId);
+    repository.close();
+  });
+});
+
 test("扫描失败、未配置模型和图片读取失败都保留图片且不写正式题库", async () => {
   await withTemporaryDirectory(async (directory) => {
     const { repository, store } = createFixture(directory);
@@ -503,7 +631,7 @@ test("扫描失败、未配置模型和图片读取失败都保留图片且不�
     assert.equal(unconfigured.candidateCount, 0);
     assert.equal(unconfigured.images.length, 1);
     assert.equal(unconfigured.canImport, false);
-    assert.match(unconfigured.errorMessage, /没有配置视觉识别/);
+    assert.match(unconfigured.errorMessage, /没有配置内部 OCR/);
 
     fs.rmSync(path.join(store.directory, attachment.storageKey));
     const readFailure = await createQuestionScan({
@@ -559,26 +687,54 @@ test("扫描失败、未配置模型和图片读取失败都保留图片且不�
   });
 });
 
-test("HTTP 上传页面生成候选且读取裁剪图，未导入不增加正式题", async () => {
+test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", async () => {
   await withTemporaryDirectory(async (directory) => {
-    const fake = await startFakeVisionServer([
-      {
-        text: "1. 完整题",
-        completeness: "complete",
-        suspectedWrong: false,
-        answerPending: false,
-        confidence: 0.9,
-        region: { x: 0, y: 0, width: 1, height: 0.5 }
-      },
-      {
-        text: "2. 残缺题",
-        completeness: "incomplete",
-        suspectedWrong: true,
-        answerPending: false,
-        confidence: 0.8,
-        region: { x: 0, y: 0.5, width: 1, height: 0.5 }
-      }
-    ]);
+    const fake = await startFakeScanPipeline({
+      ocrBlocks: [
+        {
+          order: 1,
+          text: "1. 完整题",
+          bbox: [0, 0, 500, 400],
+          confidence: 0.77
+        },
+        {
+          order: 2,
+          text: "2. 残缺题",
+          bbox: [0, 400, 500, 800],
+          confidence: 0.9
+        }
+      ],
+      llmCandidates: [
+        {
+          text: "1. 完整题",
+          options: [
+            { label: "A", text: "41", sourceBlockIds: ["i1b1"] },
+            { label: "B", text: "42", sourceBlockIds: ["i1b1"] }
+          ],
+          questionType: "fill_blank",
+          studentAnswer: "41",
+          suggestedAnswer: "42",
+          completeness: "complete",
+          suspectedWrong: true,
+          answerPending: false,
+          confidence: 0.9,
+          sourceBlockIds: ["i1b1"],
+          region: { x: 0, y: 0, width: 0.5, height: 0.5 }
+        },
+        {
+          text: "2. 残缺题",
+          questionType: "general",
+          studentAnswer: "",
+          suggestedAnswer: "",
+          completeness: "incomplete",
+          suspectedWrong: true,
+          answerPending: true,
+          confidence: 0.8,
+          sourceBlockIds: ["i1b2"],
+          region: { x: 0, y: 0.5, width: 0.5, height: 0.5 }
+        }
+      ]
+    });
     const port = await freePort();
     const child = spawn(process.execPath, ["src/server.js"], {
       cwd: projectRoot,
@@ -588,9 +744,13 @@ test("HTTP 上传页面生成候选且读取裁剪图，未导入不增加正式
         PORT: String(port),
         DB_PATH: path.join(directory, "learning.sqlite"),
         ATTACHMENTS_DIR: path.join(directory, "attachments"),
-        SCAN_BASE_URL: `http://127.0.0.1:${fake.port}`,
-        SCAN_API_KEY: "fixture-key",
-        SCAN_MODEL: "fixture-model",
+        OCR_BASE_URL: `http://127.0.0.1:${fake.port}`,
+        OCR_TIMEOUT_MS: "5000",
+        OCR_LOW_CONFIDENCE: "0.8",
+        LLM_BASE_URL: `http://127.0.0.1:${fake.port}`,
+        LLM_API_KEY: "fixture-key",
+        LLM_MODEL: "fixture-model",
+        LLM_MAX_RETRIES: "0",
         VISION_BASE_URL: "",
         VISION_API_KEY: "",
         VISION_MODEL: ""
@@ -639,10 +799,32 @@ test("HTTP 上传页面生成候选且读取裁剪图，未导入不增加正式
       assert.equal(task.candidateCount, 2);
       assert.equal(task.selectedCount, 0);
       assert.equal(task.canImport, false);
-      assert.equal(task.importStage, "M3");
+      assert.equal(task.importStage, "ready");
       assert.equal(task.images.length, 1);
-      assert.equal(fake.requests.length, 1);
-      assert.match(fake.requests[0].body, /data:image\/png;base64/);
+      assert.equal(task.ocr.model, "PP-OCRv6-small");
+      assert.equal(task.ocr.blocks.length, 2);
+      assert.equal(task.candidates[0].studentAnswer, "41");
+      assert.equal(task.candidates[0].suggestedAnswer, "42");
+      assert.equal(task.candidates[0].questionType, "fill_blank");
+      assert.equal(task.candidates[0].options.length, 2);
+      assert.equal(task.candidates[0].answerPending, true);
+      assert.ok(task.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
+      assert.equal(fake.requests.length, 2);
+      assert.match(fake.requests[0].contentType, /multipart\/form-data/);
+      assert.equal(fake.requests[0].url, "/v1/ocr");
+      assert.equal(fake.requests[1].url, "/chat/completions");
+      assert.doesNotMatch(fake.requests[1].body, /data:image\/png;base64/);
+
+      const unselectedImport = await fetch(
+        `${baseUrl}/api/questions/scans/${task.id}/import`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ candidateIds: [task.candidates[0].id] })
+        }
+      );
+      assert.equal(unselectedImport.status, 400);
+      assert.match((await unselectedImport.json()).error, /已选择/);
 
       const crop = await fetch(`${baseUrl}${task.candidates[0].imageUrl}`);
       assert.equal(crop.status, 200);
@@ -662,24 +844,52 @@ test("HTTP 上传页面生成候选且读取裁剪图，未导入不增加正式
       assert.equal(selected.selectedCount, 1, "只选择完整候选");
       assert.equal(selected.candidates[0].selected, true);
       assert.equal(selected.candidates[1].selected, false);
+      assert.equal(selected.canImport, true);
 
-      const exclude = await fetch(
-        `${baseUrl}/api/questions/scans/${task.id}/candidates/${task.candidates[0].id}`,
+      const imported = await fetch(
+        `${baseUrl}/api/questions/scans/${task.id}/import`,
         {
-          method: "PATCH",
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ excluded: true })
+          body: JSON.stringify({
+            candidateIds: [task.candidates[0].id],
+            confirmIncomplete: false
+          })
         }
       );
-      assert.equal(exclude.status, 200);
-      const excludedTask = await exclude.json();
-      assert.equal(excludedTask.candidates[0].status, "excluded");
-      assert.equal(excludedTask.candidates[0].selected, false);
+      assert.equal(imported.status, 200);
+      const importResult = await imported.json();
+      assert.equal(importResult.successCount, 1);
+      assert.equal(importResult.failedCount, 0);
+      assert.ok(importResult.scan.candidates[0].importedQuestionId);
+      assert.equal(importResult.scan.candidates[0].selected, false);
 
       const final = await fetch(`${baseUrl}/api/questions`).then((response) =>
         response.json()
       );
-      assert.equal(final.total, 0, "M2 只能保存候选");
+      assert.equal(final.total, 1);
+      assert.equal(final.questions[0].question, "1. 完整题");
+      assert.equal(final.questions[0].studentAnswer, "41");
+      assert.equal(final.questions[0].questionType, "fill_blank");
+      assert.equal(final.questions[0].answerReviewStatus, "pending");
+      assert.equal(final.questions[0].attachments.length, 1);
+      const importedQuestion = await fetch(
+        `${baseUrl}/api/questions/${importResult.results[0].questionId}`
+      ).then((response) => response.json());
+      assert.equal(importedQuestion.options.length, 2);
+      assert.equal(importedQuestion.options[1].text, "42");
+      const importedQuestionId = importResult.results[0].questionId;
+      const verificationDb = new DatabaseSync(
+        path.join(directory, "learning.sqlite"),
+        { readOnly: true }
+      );
+      assert.equal(
+        verificationDb
+          .prepare("SELECT correct_answer FROM mistakes WHERE id = ?")
+          .get(importedQuestionId).correct_answer,
+        "42"
+      );
+      verificationDb.close();
     } finally {
       await stopServer(child);
       await new Promise((resolve) => fake.server.close(resolve));
@@ -687,18 +897,18 @@ test("HTTP 上传页面生成候选且读取裁剪图，未导入不增加正式
   });
 });
 
-test("扫描模型返回非 2xx 时保留上游状态与错误体", async () => {
-  const scanner = new OpenAICompatibleQuestionScanner({
-    baseUrl: "https://example.invalid",
-    apiKey: "fixture-key",
-    model: "fixture-model",
-    fetchImpl: async () =>
-      new Response(
-        JSON.stringify({
-          error: { code: "InvalidParameter", message: "image unsupported" }
-        }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      )
+test("OCR 非 2xx 时保留上游状态与错误体", async () => {
+  const scanner = new OcrTextQuestionScanner({
+    ocrClient: new InternalOcrClient({
+      baseUrl: "https://example.invalid",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            detail: { code: "OCR_PROCESSING_FAILED", message: "decode failed" }
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } }
+        )
+    })
   });
   await assert.rejects(
     () =>
@@ -706,8 +916,150 @@ test("扫描模型返回非 2xx 时保留上游状态与错误体", async () => 
         images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
       }),
     (error) =>
-      error.code === "SCAN_MODEL_FAILED" &&
-      error.details?.upstreamStatus === 400 &&
-      /image unsupported/.test(error.details?.upstreamBody || "")
+      error.code === "OCR_PROCESSING_FAILED" &&
+      error.details?.upstreamStatus === 500 &&
+      /decode failed/.test(error.details?.upstreamBody || "")
   );
+});
+
+test("OCR 文本模型不可用时降级为待确认候选并保留字块", async () => {
+  const scanner = new OcrTextQuestionScanner({
+    ocrClient: new InternalOcrClient({
+      baseUrl: "https://example.invalid",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            engine: "rapidocr",
+            modelVersion: "PP-OCRv6-small",
+            width: 1000,
+            height: 800,
+            blocks: [
+              {
+                order: 1,
+                text: "1. 计算 1/2 + 1/4",
+                bbox: [20, 20, 600, 100],
+                confidence: 0.96
+              },
+              {
+                order: 2,
+                text: "2. 一个圆的半径是 3 厘米",
+                bbox: [20, 140, 700, 220],
+                confidence: 0.72
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    })
+  });
+  const result = await scanner.scan({
+    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+  });
+  assert.equal(result.candidates.length, 2);
+  assert.equal(result.candidates[0].answerPending, true);
+  assert.ok(result.candidates[0].pendingReasons.includes("LLM_NOT_CONFIGURED"));
+  assert.ok(result.candidates[1].pendingReasons.includes("LOW_CONFIDENCE"));
+  assert.equal(result.ocr.blocks.length, 2);
+  assert.ok(result.candidates[0].sourceBlocks[0].bbox.length === 4);
+});
+
+test("答案引用未声明的低置信字块时仍标记待确认", async () => {
+  const scanner = new OcrTextQuestionScanner({
+    ocrClient: new InternalOcrClient({
+      baseUrl: "https://example.invalid",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            engine: "rapidocr",
+            modelVersion: "PP-OCRv6-small",
+            width: 1000,
+            height: 800,
+            blocks: [
+              {
+                order: 1,
+                text: "1. 计算圆的面积",
+                bbox: [20, 20, 700, 100],
+                confidence: 0.96
+              },
+              {
+                order: 2,
+                text: "28.26",
+                bbox: [40, 120, 180, 180],
+                confidence: 0.62
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    }),
+    llmGateway: {
+      model: "fixture-model",
+      isConfigured: () => true,
+      chat: async () => ({
+        provider: "fixture",
+        model: "fixture-model",
+        message: {
+          content: JSON.stringify({
+            candidates: [
+              {
+                text: "1. 计算圆的面积",
+                questionType: "fill_blank",
+                studentAnswer: "28.26",
+                suggestedAnswer: "28.26",
+                completeness: "complete",
+                answerPending: false,
+                sourceBlockIds: ["i1b1"]
+              }
+            ]
+          })
+        }
+      })
+    }
+  });
+  const result = await scanner.scan({
+    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+  });
+  assert.equal(result.candidates[0].answerPending, true);
+  assert.ok(result.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
+});
+
+test("相邻数字旁的额外汇总符号标记待确认", () => {
+  const warnings = detectOcrBlockWarnings(
+    [
+      {
+        id: "a",
+        text: "28.26",
+        bbox: [250, 400, 420, 466]
+      },
+      {
+        id: "b",
+        text: "二",
+        bbox: [210, 420, 245, 455]
+      }
+    ],
+    0.8
+  );
+  assert.ok(warnings.get("a").includes("EXTRA_SYMBOL"));
+  assert.ok(warnings.get("b").includes("EXTRA_SYMBOL"));
+});
+
+test("扫描 UI 展示题型与答案候选并只在选中后允许导入", () => {
+  const app = fs.readFileSync(
+    new URL("../public/app.js", import.meta.url),
+    "utf8"
+  );
+  const html = fs.readFileSync(
+    new URL("../public/index.html", import.meta.url),
+    "utf8"
+  );
+  assert.match(app, /data-scan-question-type/);
+  assert.match(app, /data-scan-student-answer/);
+  assert.match(app, /data-scan-suggested-answer/);
+  assert.match(app, /candidate\.options/);
+  assert.match(app, /scanCandidateInput/);
+  assert.match(app, /importSelectedScanCandidates/);
+  assert.match(app, /candidate\.importedQuestionId/);
+  assert.match(app, /pendingReasons\.map\(scanPendingLabel\)/);
+  assert.match(html, /导入所选题目/);
+  assert.doesNotMatch(html, /M3 开放/);
 });

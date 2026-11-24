@@ -1748,6 +1748,29 @@ const QUESTION_BANK_COMPAT_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: QUESTION_BANK_COMPAT_SCHEMA_SQL
 });
 
+const OCR_SCAN_MIGRATION_SCHEMA_SQL = `
+  ALTER TABLE question_scan_tasks
+    ADD COLUMN ocr_provider TEXT NOT NULL DEFAULT '';
+  ALTER TABLE question_scan_tasks
+    ADD COLUMN ocr_model TEXT NOT NULL DEFAULT '';
+  ALTER TABLE question_scan_tasks
+    ADD COLUMN ocr_blocks_json TEXT NOT NULL DEFAULT '[]';
+
+  ALTER TABLE question_scan_candidates
+    ADD COLUMN analysis_json TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE question_scan_candidates
+    ADD COLUMN imported_question_id INTEGER;
+`;
+
+const OCR_SCAN_MIGRATION_REQUIRED_COLUMNS = {
+  question_scan_tasks: ["ocr_provider", "ocr_model", "ocr_blocks_json"],
+  question_scan_candidates: ["analysis_json", "imported_question_id"]
+};
+
+const OCR_SCAN_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: OCR_SCAN_MIGRATION_SCHEMA_SQL
+});
+
 export const SCHEMA_MIGRATIONS = [
   {
     version: 1,
@@ -1928,6 +1951,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(QUESTION_BANK_COMPAT_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         QUESTION_BANK_COMPAT_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 15,
+    name: "ocr_scan_candidates",
+    checksumSource: OCR_SCAN_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(OCR_SCAN_MIGRATION_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        OCR_SCAN_MIGRATION_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

@@ -488,7 +488,8 @@
               <h2>上传作业或试卷页</h2>
               <p>
                 支持 1 张主图 + 最多 2 张补充图，单次最多 20 道候选。
-                图片会先保存在本机；只有勾选同意后才发送给外部识别模型。
+                图片会先保存在本机；只有勾选同意后才发送给内部 OCR 服务，
+                文本模型只接收 OCR 文字，不接收原图。
               </p>
             </div>
             <input
@@ -510,10 +511,10 @@
             <div id="scan-image-list" class="scan-image-list" aria-live="polite"></div>
             <label class="scan-consent">
               <input id="scan-consent" type="checkbox" />
-              <span>同意将图片发送到外部识别模型，仅用于本次候选识别。</span>
+              <span>同意将图片发送到内部 OCR 服务，仅用于本次候选识别。</span>
             </label>
             <p class="scan-status" id="scan-status" aria-live="polite">
-              请选择图片并勾选同意后开始识别；拒绝外部识别时仍可改用手动录入。
+              请选择图片并勾选同意后开始识别；拒绝内部 OCR 时仍可改用手动录入。
             </p>
             <button class="primary-button" id="scan-start-button" type="button" disabled>
               开始识别候选
@@ -556,7 +557,7 @@
                   重新扫描
                 </button>
                 <button class="primary-button" id="scan-import-button" type="button" disabled>
-                  导入所选（M3 开放）
+                  导入所选题目
                 </button>
               </div>
             </div>
