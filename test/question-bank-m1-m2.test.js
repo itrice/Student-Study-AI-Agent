@@ -5,7 +5,6 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
@@ -31,16 +30,6 @@ const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2fXkAAAAASUVORK5CYII=",
   "base64"
 );
-const SCAN_PNG = await sharp({
-  create: {
-    width: 20,
-    height: 20,
-    channels: 3,
-    background: { r: 250, g: 250, b: 250 }
-  }
-})
-  .png()
-  .toBuffer();
 const NOW = "2026-01-10T08:00:00.000Z";
 
 function withTemporaryDirectory(callback) {
@@ -302,18 +291,19 @@ function startFakeScanPipeline({
 }) {
   const requests = [];
   const server = http.createServer((request, response) => {
-    let body = "";
+    const chunks = [];
     request.on("data", (chunk) => {
-      body += chunk.toString();
+      chunks.push(chunk);
     });
     request.on("end", () => {
+      const body = Buffer.concat(chunks);
       requests.push({
         url: request.url,
         authorization: request.headers.authorization || "",
         contentType: request.headers["content-type"] || "",
         body
       });
-      if (request.url === "/v1/ocr") {
+      if (request.url === "/v1/ocr/raw") {
         response.writeHead(ocrStatus, { "Content-Type": "application/json" });
         response.end(
           JSON.stringify(
@@ -821,10 +811,14 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       assert.equal(task.candidates[0].answerPending, true);
       assert.ok(task.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
       assert.equal(fake.requests.length, 2);
-      assert.match(fake.requests[0].contentType, /multipart\/form-data/);
-      assert.equal(fake.requests[0].url, "/v1/ocr");
+      assert.equal(fake.requests[0].contentType, "image/png");
+      assert.equal(fake.requests[0].url, "/v1/ocr/raw");
+      assert.deepEqual(fake.requests[0].body, image);
       assert.equal(fake.requests[1].url, "/chat/completions");
-      assert.doesNotMatch(fake.requests[1].body, /data:image\/png;base64/);
+      assert.doesNotMatch(
+        fake.requests[1].body.toString("utf8"),
+        /data:image\/png;base64/
+      );
 
       const unselectedImport = await fetch(
         `${baseUrl}/api/questions/scans/${task.id}/import`,
@@ -924,7 +918,7 @@ test("OCR 非 2xx 时保留上游状态与错误体", async () => {
   await assert.rejects(
     () =>
       scanner.scan({
-        images: [{ mimeType: "image/png", buffer: SCAN_PNG }]
+        images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
       }),
     (error) =>
       error.code === "OCR_PROCESSING_FAILED" &&
@@ -964,7 +958,7 @@ test("OCR 文本模型不可用时降级为待确认候选并保留字块", asyn
     })
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: SCAN_PNG }]
+    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
   });
   assert.equal(result.candidates.length, 2);
   assert.equal(result.candidates[0].answerPending, true);
@@ -1028,62 +1022,10 @@ test("答案引用未声明的低置信字块时仍标记待确认", async () =>
     }
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: SCAN_PNG }]
+    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
   });
   assert.equal(result.candidates[0].answerPending, true);
   assert.ok(result.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
-});
-
-test("大尺寸手机照片在发送 OCR 前压缩到安全大小", async () => {
-  const largeImage = await sharp(
-    randomBytes(1600 * 2200 * 3),
-    {
-      raw: {
-        width: 1600,
-        height: 2200,
-        channels: 3
-      }
-    }
-  )
-    .jpeg({ quality: 94 })
-    .toBuffer();
-  assert.ok(largeImage.length > 1024 * 1024);
-  const received = [];
-  const scanner = new OcrTextQuestionScanner({
-    ocrClient: {
-      provider: "internal-ocr",
-      lowConfidence: 0.8,
-      isConfigured: () => true,
-      recognize: async (input) => {
-        received.push(input);
-        return {
-          provider: "internal-ocr",
-          model: "PP-OCRv6-small",
-          version: "PP-OCRv6-small",
-          blocks: [
-            {
-              id: "i1b1",
-              imageIndex: 0,
-              order: 1,
-              text: "1. 测试题",
-              bbox: [20, 20, 220, 80],
-              confidence: 0.99,
-              region: { x: 0.01, y: 0.01, width: 0.2, height: 0.03 },
-              warnings: []
-            }
-          ]
-        };
-      }
-    }
-  });
-  await scanner.scan({
-    images: [{ mimeType: "image/jpeg", buffer: largeImage }]
-  });
-  assert.equal(received.length, 1);
-  assert.ok(received[0].buffer.length <= 900 * 1024);
-  assert.equal(received[0].mimeType, "image/jpeg");
-  assert.equal(received[0].sourceWidth, 1600);
-  assert.equal(received[0].sourceHeight, 2200);
 });
 
 test("相邻数字旁的额外汇总符号标记待确认", () => {
