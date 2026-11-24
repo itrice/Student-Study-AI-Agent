@@ -1,4 +1,4 @@
-export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-parts-3";
+export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-parts-4";
 export const INTERNAL_OCR_TEXT_VERSION = "internal-ocr-1";
 export const MAX_SCAN_CANDIDATES = 20;
 
@@ -29,13 +29,23 @@ const SCAN_SYSTEM_PROMPT = [
   "印刷题干、学生手写答案和标准答案必须分开；不确定的字段留空，不得编造答案。",
   "学生手写答案只能根据文字块整理，不得把题目编号、批改符号或额外符号当作答案。",
   "识别题目中的全部小问；没有明确小问时只生成 1 个默认小问。",
+  "必须返回 parts 数组；一个题干中每个独立问句都要成为单独小问，不能只把整题填成一个小问。",
   "标准答案建议只能在题意完整、公式和几何关系足够时给出；信息不足时留空并标记 FORMULA_UNCERTAIN 或 GEOMETRY_UNCERTAIN。",
+  "题意完整且可通过六年级数学计算得到时，必须给出 suggestedAnswer；不得因为需要计算而留空。",
   "同一小问的等价标准答案用中文分号“；”分隔。",
   "返回严格 JSON：",
   "{\"candidates\":[{\"text\":\"整题题干\",\"options\":[{\"label\":\"A\",\"text\":\"选项内容\",\"sourceBlockIds\":[\"b2\"]}],\"questionType\":\"general|single_choice|multiple_choice|true_false|fill_blank|short_answer|proof|drawing|composite\",\"parts\":[{\"partNo\":1,\"label\":\"小问 1\",\"prompt\":\"小问文字\",\"studentAnswer\":\"\",\"suggestedAnswer\":\"\",\"answerType\":\"auto|text|number|fraction|percent|ratio\",\"confidence\":0.8,\"sourceBlockIds\":[\"b1\"],\"pendingReasons\":[]}],\"completeness\":\"complete|incomplete|unknown\",\"suspectedWrong\":false,\"answerPending\":false,\"confidence\":0.8,\"sourceBlockIds\":[\"b1\"],\"region\":{\"x\":0,\"y\":0,\"width\":1,\"height\":0.2},\"pendingReasons\":[]}]}",
   "候选题必须按阅读顺序，单次最多 20 道；region 是相对主图的 0～1 坐标。",
   "字块置信度低、字块被拆分、存在额外符号、公式或几何关系不足时，answerPending 必须为 true，并在对应 pendingReasons 说明原因。",
   "图形没有可识别结构时只保留题目图片关联，不编造几何信息。"
+].join("\n");
+
+const SCAN_PART_REPAIR_PROMPT = [
+  "你是六年级数学题结构化助手。",
+  "严格依据 OCR 文字和候选题干，只返回 JSON：{\"candidates\":[{\"candidateNo\":1,\"parts\":[{\"label\":\"小问 1\",\"prompt\":\"小问文字\",\"studentAnswer\":\"\",\"suggestedAnswer\":\"\",\"answerType\":\"auto|text|number|fraction|percent|ratio\",\"confidence\":0.8,\"pendingReasons\":[]}]}]}。",
+  "题干中每个独立问句都必须是单独小问；家长式或复合题保留原顺序。",
+  "学生答案只能来自 OCR 文字；不确定就留空并标记待确认。",
+  "信息完整且可计算时必须给出标准答案建议，等价答案用中文分号分隔；公式或几何关系不足时留空并标记 FORMULA_UNCERTAIN 或 GEOMETRY_UNCERTAIN。"
 ].join("\n");
 
 export class QuestionScanError extends Error {
@@ -392,29 +402,73 @@ function normalizePartFromLlm(
   };
 }
 
+function inferPartPrompts(text) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return [""];
+
+  const markers = [
+    ...normalized.matchAll(/(?:^|\s)(?:\((\d{1,2})\)|(\d{1,2})[.、．])\s*/gu)
+  ];
+  if (markers.length >= 2) {
+    return markers.map((marker, index) => {
+      const start = marker.index + marker[0].length;
+      const end =
+        index + 1 < markers.length ? markers[index + 1].index : normalized.length;
+      return normalized.slice(start, end).trim();
+    });
+  }
+
+  const questions = normalized
+    .split(/(?<=？)/u)
+    .map((question) => question.trim())
+    .filter(Boolean);
+  if (questions.length > 1) return questions;
+  return [normalized.replace(/^\s*\d{1,2}\s*[.、．]\s*/u, "")];
+}
+
+function inferAnswerType(prompt) {
+  if (/[%％]/u.test(prompt)) return "percent";
+  if (/比|比例/u.test(prompt)) return "ratio";
+  if (/几分之几|分数/u.test(prompt)) return "fraction";
+  if (/多少|求|计算/u.test(prompt)) return "number";
+  return "auto";
+}
+
 function normalizeCandidateParts(
   candidate,
   allBlocks,
   warningsByBlock,
   lowConfidence
 ) {
+  const inferredPrompts = inferPartPrompts(
+    candidate?.text || candidate?.question || ""
+  );
   const rawParts =
     Array.isArray(candidate?.parts) && candidate.parts.length
       ? candidate.parts
-      : [
-          {
-            partNo: 1,
-            label: "小问 1",
-            prompt: candidate?.text || candidate?.question || "",
-            studentAnswer: candidate?.studentAnswer || "",
-            suggestedAnswer:
-              candidate?.suggestedAnswer || candidate?.correctAnswer || "",
-            answerType: candidate?.answerType || "auto",
-            confidence: candidate?.confidence,
-            sourceBlockIds: candidate?.sourceBlockIds,
-            pendingReasons: candidate?.pendingReasons
-          }
-        ];
+      : inferredPrompts.map((prompt, index) => ({
+          partNo: index + 1,
+          label: `小问 ${index + 1}`,
+          prompt,
+          studentAnswer:
+            inferredPrompts.length === 1 ? candidate?.studentAnswer || "" : "",
+          suggestedAnswer:
+            inferredPrompts.length === 1
+              ? candidate?.suggestedAnswer || candidate?.correctAnswer || ""
+              : "",
+          answerType:
+            candidate?.answerType || inferAnswerType(prompt),
+          confidence: candidate?.confidence,
+          sourceBlockIds: candidate?.sourceBlockIds,
+          pendingReasons: uniqueStrings([
+            ...(Array.isArray(candidate?.pendingReasons)
+              ? candidate.pendingReasons
+              : candidate?.pendingReasons
+                ? [candidate.pendingReasons]
+                : []),
+            ...(inferredPrompts.length > 1 ? ["PART_SPLIT_INFERRED"] : [])
+          ])
+        }));
   return rawParts
     .slice(0, 20)
     .map((part, partIndex) =>
@@ -581,6 +635,62 @@ function normalizeLlmCandidates(
     );
   }
   return candidates;
+}
+
+function candidateNeedsPartRepair(rawOutput) {
+  const parsed = parseJson(rawOutput);
+  const candidates = Array.isArray(parsed?.candidates)
+    ? parsed.candidates
+    : Array.isArray(parsed?.questions)
+      ? parsed.questions
+      : [];
+  return candidates.some((candidate) => {
+    const inferredCount = inferPartPrompts(
+      candidate?.text || candidate?.question || ""
+    ).length;
+    return (
+      !Array.isArray(candidate?.parts) ||
+      candidate.parts.length === 0 ||
+      (inferredCount > 1 && candidate.parts.length < inferredCount)
+    );
+  });
+}
+
+function mergePartRepair(rawOutput, repairOutput) {
+  const original = parseJson(rawOutput);
+  const repaired = parseJson(repairOutput);
+  const originalCandidates = Array.isArray(original?.candidates)
+    ? original.candidates
+    : Array.isArray(original?.questions)
+      ? original.questions
+      : [];
+  const repairedCandidates = Array.isArray(repaired?.candidates)
+    ? repaired.candidates
+    : Array.isArray(repaired?.questions)
+      ? repaired.questions
+      : repaired?.parts
+        ? [{ candidateNo: 1, parts: repaired.parts }]
+        : [];
+  if (!originalCandidates.length || !repairedCandidates.length) return null;
+  const hasExplicitCandidateIds = repairedCandidates.some((item) =>
+    Number.isInteger(
+      Number(item?.candidateNo ?? item?.index ?? item?.no)
+    )
+  );
+  return JSON.stringify({
+    candidates: originalCandidates.map((candidate, index) => {
+      const repairedCandidate = hasExplicitCandidateIds
+        ? repairedCandidates.find(
+            (item) =>
+              Number(item?.candidateNo ?? item?.index ?? item?.no) === index + 1
+          )
+        : repairedCandidates[index];
+      return Array.isArray(repairedCandidate?.parts) &&
+        repairedCandidate.parts.length
+        ? { ...candidate, parts: repairedCandidate.parts }
+        : candidate;
+    })
+  });
 }
 
 function fallbackCandidates(blocks, warningsByBlock, fallbackReason) {
@@ -887,6 +997,44 @@ export class OcrTextQuestionScanner {
           responseFormat: { type: "json_object" }
         });
         rawOutput = responseContent(result.message);
+        if (candidateNeedsPartRepair(rawOutput)) {
+          try {
+            const parsed = parseJson(rawOutput);
+            const candidateText = (
+              Array.isArray(parsed?.candidates)
+                ? parsed.candidates
+                : parsed?.questions || []
+            )
+              .map(
+                (candidate, index) =>
+                  `候选 ${index + 1}：${String(
+                    candidate?.text || candidate?.question || ""
+                  ).trim()}`
+              )
+              .join("\n");
+            const repaired = await this.llmGateway.chat({
+              messages: [
+                { role: "system", content: SCAN_PART_REPAIR_PROMPT },
+                {
+                  role: "user",
+                  content:
+                    "OCR 字块：\n" +
+                    ocrText +
+                    "\n候选题干：\n" +
+                    candidateText
+                }
+              ],
+              responseFormat: { type: "json_object" }
+            });
+            const merged = mergePartRepair(
+              rawOutput,
+              responseContent(repaired.message)
+            );
+            if (merged) rawOutput = merged;
+          } catch {
+            // Structural splitting below remains available if repair fails.
+          }
+        }
         candidates = normalizeLlmCandidates(
           rawOutput,
           withWarnings,

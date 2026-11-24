@@ -288,6 +288,7 @@ async function stopServer(child) {
 function startFakeScanPipeline({
   ocrBlocks,
   llmCandidates = [],
+  repairCandidates = [],
   ocrStatus = 200,
   llmStatus = 200
 }) {
@@ -323,6 +324,16 @@ function startFakeScanPipeline({
         );
         return;
       }
+      const requestPayload = body.length
+        ? JSON.parse(body.toString("utf8"))
+        : {};
+      const isRepair = Array.isArray(requestPayload.messages)
+        ? requestPayload.messages.some(
+            (message) =>
+              typeof message.content === "string" &&
+              message.content.includes("结构化助手")
+          )
+        : false;
       response.writeHead(llmStatus, { "Content-Type": "application/json" });
       response.end(
         JSON.stringify(
@@ -331,7 +342,11 @@ function startFakeScanPipeline({
                 choices: [
                   {
                     message: {
-                      content: JSON.stringify({ candidates: llmCandidates })
+                      content: JSON.stringify({
+                        candidates: isRepair
+                          ? repairCandidates
+                          : llmCandidates
+                      })
                     }
                   }
                 ],
@@ -845,6 +860,24 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
           sourceBlockIds: ["i1b2"],
           region: { x: 0, y: 0.5, width: 0.5, height: 0.5 }
         }
+      ],
+      repairCandidates: [
+        {
+          candidateNo: 2,
+          parts: [
+            {
+              partNo: 1,
+              label: "小问 1",
+              prompt: "2. 残缺题",
+              studentAnswer: "",
+              suggestedAnswer: "",
+              answerType: "auto",
+              confidence: 0.8,
+              sourceBlockIds: ["i1b2"],
+              pendingReasons: ["ANSWER_PENDING"]
+            }
+          ]
+        }
       ]
     });
     const port = await freePort();
@@ -950,14 +983,19 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       assert.equal(task.candidates[0].options.length, 2);
       assert.equal(task.candidates[0].answerPending, true);
       assert.ok(task.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
-      assert.equal(fake.requests.length, 3);
+      assert.equal(fake.requests.length, 4);
       assert.equal(fake.requests[1].contentType, "image/png");
       assert.equal(fake.requests[1].url, "/v1/ocr/raw");
       assert.deepEqual(fake.requests[1].body, image);
       assert.equal(fake.requests[2].url, "/chat/completions");
+      assert.equal(fake.requests[3].url, "/chat/completions");
       assert.doesNotMatch(
         fake.requests[2].body.toString("utf8"),
         /data:image\/png;base64/
+      );
+      assert.match(
+        fake.requests[3].body.toString("utf8"),
+        /结构化助手/
       );
 
       const unselectedImport = await fetch(
@@ -1313,6 +1351,68 @@ test("模型漏报 sourceBlockIds 时按 OCR 文本补齐两行候选区域", as
     candidate.pendingReasons.includes("MISSING_SOURCE_BLOCKS"),
     false
   );
+});
+
+test("结构修复失败时按问句拆分两个小问", async () => {
+  let calls = 0;
+  const scanner = new OcrTextQuestionScanner({
+    ocrClient: new InternalOcrClient({
+      baseUrl: "https://example.invalid",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            engine: "rapidocr",
+            modelVersion: "PP-OCRv6-small",
+            width: 1000,
+            height: 200,
+            blocks: [
+              {
+                order: 1,
+                text: "人民公园有一个半径为200 dm的圆形人工湖。至少需要多少米护栏？这个人工湖的占地面积是多少平方米？",
+                bbox: [20, 30, 950, 150],
+                confidence: 0.98
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    }),
+    llmGateway: {
+      model: "fixture-model",
+      isConfigured: () => true,
+      chat: async () => {
+        calls += 1;
+        if (calls > 1) throw new Error("repair unavailable");
+        return {
+          provider: "fixture",
+          model: "fixture-model",
+          message: {
+            content: JSON.stringify({
+              candidates: [
+                {
+                  text: "人民公园有一个半径为200 dm的圆形人工湖。至少需要多少米护栏？这个人工湖的占地面积是多少平方米？",
+                  questionType: "short_answer",
+                  completeness: "complete",
+                  answerPending: false,
+                  confidence: 0.98,
+                  region: { x: 0.02, y: 0.15, width: 0.93, height: 0.6 }
+                }
+              ]
+            })
+          }
+        };
+      }
+    }
+  });
+  const result = await scanner.scan({
+    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+  });
+  const parts = result.candidates[0].parts;
+  assert.equal(parts.length, 2);
+  assert.match(parts[0].prompt, /多少米护栏/);
+  assert.match(parts[1].prompt, /占地面积/);
+  assert.ok(parts[0].pendingReasons.includes("PART_SPLIT_INFERRED"));
+  assert.ok(parts[1].pendingReasons.includes("ANSWER_PENDING"));
 });
 
 test("多小问保留系统答案建议并对公式不足标记待确认", async () => {
