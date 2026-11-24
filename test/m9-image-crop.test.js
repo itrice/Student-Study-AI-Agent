@@ -444,7 +444,7 @@ test("备份恢复同时保留原图、裁剪图和裁剪元数据", () => {
       databasePath: restoredDatabase,
       attachmentsDir: restoredAttachments
     });
-    assert.equal(restored.schemaVersion, 14);
+    assert.equal(restored.schemaVersion, 15);
     assert.equal(restored.attachmentCount, 2);
 
     const db = new DatabaseSync(restoredDatabase, { readOnly: true });

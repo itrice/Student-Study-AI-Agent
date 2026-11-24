@@ -576,6 +576,7 @@ function mapQuestionSource(row) {
 }
 
 function mapQuestionScanCandidate(row, scanId) {
+  const analysis = parseJsonObject(row.analysis_json);
   return {
     id: row.id,
     candidateNo: row.candidate_no,
@@ -586,10 +587,21 @@ function mapQuestionScanCandidate(row, scanId) {
     selected: row.selected === 1,
     manuallySelected: row.manually_selected === 1,
     text: row.recognized_text,
+    questionType: analysis.questionType || "general",
+    options: Array.isArray(analysis.options) ? analysis.options : [],
+    studentAnswer: analysis.studentAnswer || "",
+    suggestedAnswer: analysis.suggestedAnswer || "",
+    pendingReasons: Array.isArray(analysis.pendingReasons)
+      ? analysis.pendingReasons
+      : [],
+    sourceBlocks: Array.isArray(analysis.sourceBlocks)
+      ? analysis.sourceBlocks
+      : [],
     confidence: row.confidence,
     region: normalizeScanRegion(parseJsonObject(row.region_json)),
     recognitionError: row.recognition_error,
     imageUrl: `/api/questions/scans/${scanId}/candidates/${row.id}/image`,
+    importedQuestionId: row.imported_question_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -3515,8 +3527,7 @@ export class LearningRepository {
     };
   }
 
-  createMistake(input) {
-    assertToolWriteAllowed();
+  prepareMistakeCreation(input) {
     const student = this.getStudent();
     const attachmentIds = normalizeAttachmentIds(input.attachmentIds);
     const question = String(input.question || "").trim();
@@ -3553,71 +3564,102 @@ export class LearningRepository {
       diagnosis.knowledgePoint,
       student
     );
+    return {
+      student,
+      attachmentIds,
+      question,
+      studentAnswer: combinedStudentAnswer,
+      correctAnswer: combinedCorrectAnswer,
+      analysis: String(input.analysis || ""),
+      parts,
+      diagnosis,
+      curriculum
+    };
+  }
+
+  insertMistakeRecord({
+    student,
+    attachmentIds,
+    question,
+    studentAnswer,
+    correctAnswer,
+    analysis,
+    parts,
+    diagnosis,
+    curriculum
+  }) {
     const timestamp = nowIso();
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const result = this.db
-        .prepare(
-          `INSERT INTO mistakes (
-            student_id, question, student_answer, correct_answer, analysis,
-            knowledge_point, textbook_id, curriculum_point_id,
-            curriculum_status, error_type, hint, method_steps, common_errors,
-            diagnosis, status, due_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`
-        )
-        .run(
-          student.id,
-          question,
-          combinedStudentAnswer,
-          combinedCorrectAnswer,
-          input.analysis || "",
-          curriculum.knowledgePoint,
-          curriculum.textbookId,
-          curriculum.curriculumPointId,
-          curriculum.curriculumStatus,
-          diagnosis.errorType,
-          diagnosis.hint,
-          JSON.stringify(diagnosis.methodSteps),
-          JSON.stringify(diagnosis.commonErrors),
-          diagnosis.diagnosis,
-          timestamp,
-          timestamp,
-          timestamp
-        );
-      const mistakeId = Number(result.lastInsertRowid);
-      this.insertMistakeParts(
-        mistakeId,
-        parts,
-        timestamp,
-        diagnosis.knowledgePoint
-      );
-      this.bindNewAttachments(mistakeId, attachmentIds, timestamp);
-      this.ensureQuestionCompatibility(
-        mistakeId,
+    const result = this.db
+      .prepare(
+        `INSERT INTO mistakes (
+          student_id, question, student_answer, correct_answer, analysis,
+          knowledge_point, textbook_id, curriculum_point_id,
+          curriculum_status, error_type, hint, method_steps, common_errors,
+          diagnosis, status, due_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`
+      )
+      .run(
+        student.id,
         question,
-        attachmentIds,
+        studentAnswer,
+        correctAnswer,
+        analysis,
+        curriculum.knowledgePoint,
+        curriculum.textbookId,
+        curriculum.curriculumPointId,
+        curriculum.curriculumStatus,
+        diagnosis.errorType,
+        diagnosis.hint,
+        JSON.stringify(diagnosis.methodSteps),
+        JSON.stringify(diagnosis.commonErrors),
+        diagnosis.diagnosis,
+        timestamp,
+        timestamp,
         timestamp
       );
-      this.insertDiagnosis(mistakeId, diagnosis, timestamp);
-      const reviewScheduleId = this.insertReviewSchedule({
-        mistakeId,
-        nextReviewAt: timestamp,
-        intervalDays: REVIEW_INTERVAL_DAYS.newMistake,
-        reason: "new_mistake",
-        ruleVersion: LEARNING_POLICY_VERSION,
-        createdAt: timestamp
-      });
-      this.insertMasteryEvidence({
-        mistakeId,
-        evidenceType: "created",
-        ruleVersion: LEARNING_POLICY_VERSION,
-        previousStatus: "",
-        nextStatus: "new",
-        reviewScheduleId,
-        reason: "mistake_created",
-        detail: { source: "create_mistake" },
-        createdAt: timestamp
-      });
+    const mistakeId = Number(result.lastInsertRowid);
+    this.insertMistakeParts(
+      mistakeId,
+      parts,
+      timestamp,
+      diagnosis.knowledgePoint
+    );
+    this.bindNewAttachments(mistakeId, attachmentIds, timestamp);
+    this.ensureQuestionCompatibility(
+      mistakeId,
+      question,
+      attachmentIds,
+      timestamp
+    );
+    this.insertDiagnosis(mistakeId, diagnosis, timestamp);
+    const reviewScheduleId = this.insertReviewSchedule({
+      mistakeId,
+      nextReviewAt: timestamp,
+      intervalDays: REVIEW_INTERVAL_DAYS.newMistake,
+      reason: "new_mistake",
+      ruleVersion: LEARNING_POLICY_VERSION,
+      createdAt: timestamp
+    });
+    this.insertMasteryEvidence({
+      mistakeId,
+      evidenceType: "created",
+      ruleVersion: LEARNING_POLICY_VERSION,
+      previousStatus: "",
+      nextStatus: "new",
+      reviewScheduleId,
+      reason: "mistake_created",
+      detail: { source: "create_mistake" },
+      createdAt: timestamp
+    });
+    return { mistakeId, timestamp };
+  }
+
+  createMistake(input) {
+    assertToolWriteAllowed();
+    const prepared = this.prepareMistakeCreation(input);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const { mistakeId } = this.insertMistakeRecord(prepared);
       this.db.exec("COMMIT");
       return this.getMistake(mistakeId, { includeSolution: true });
     } catch (error) {
@@ -3880,7 +3922,8 @@ export class LearningRepository {
     candidates = [],
     status = "ready",
     errorMessage = "",
-    scanner = {}
+    scanner = {},
+    ocr = {}
   } = {}) {
     if (!Array.isArray(attachmentIds) || !attachmentIds.length) {
       throw new LearningValidationError(
@@ -3951,8 +3994,9 @@ export class LearningRepository {
           `INSERT INTO question_scan_tasks (
             student_id, status, error_message, candidate_count,
             scanner_provider, scanner_model, prompt_version,
+            ocr_provider, ocr_model, ocr_blocks_json,
             created_at, updated_at, expires_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           student.id,
@@ -3962,6 +4006,9 @@ export class LearningRepository {
           String(scanner.provider || "").slice(0, 100),
           String(scanner.model || "").slice(0, 200),
           String(scanner.promptVersion || "").slice(0, 100),
+          String(ocr.provider || "").slice(0, 100),
+          String(ocr.model || "").slice(0, 200),
+          JSON.stringify(Array.isArray(ocr.blocks) ? ocr.blocks : []),
           timestamp,
           timestamp,
           expiresAt
@@ -3986,9 +4033,10 @@ export class LearningRepository {
           `INSERT INTO question_scan_candidates (
             scan_task_id, candidate_no, status, completeness_status,
             suspected_wrong, answer_pending, selected, manually_selected,
-            recognized_text, confidence, region_json, recognition_error,
+            recognized_text, confidence, region_json, analysis_json,
+            imported_question_id, recognition_error,
             created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, NULL, ?, ?, ?)`
         );
         candidates.forEach((candidate, index) => {
           const candidateNo = index + 1;
@@ -4007,6 +4055,25 @@ export class LearningRepository {
               ? Number(candidate.confidence)
               : null,
             JSON.stringify(normalizeScanRegion(candidate.region)),
+            JSON.stringify({
+              questionType: candidate.questionType || "general",
+              options: Array.isArray(candidate.options)
+                ? candidate.options.slice(0, 20)
+                : [],
+              studentAnswer: String(candidate.studentAnswer || "").slice(0, 2000),
+              suggestedAnswer: String(
+                candidate.suggestedAnswer || ""
+              ).slice(0, 2000),
+              pendingReasons: Array.isArray(candidate.pendingReasons)
+                ? candidate.pendingReasons
+                    .map((reason) => String(reason || "").trim().slice(0, 100))
+                    .filter(Boolean)
+                    .slice(0, 20)
+                : [],
+              sourceBlocks: Array.isArray(candidate.sourceBlocks)
+                ? candidate.sourceBlocks.slice(0, 80)
+                : []
+            }),
             String(candidate.recognitionError || "").slice(0, 1000),
             timestamp,
             timestamp
@@ -4074,10 +4141,17 @@ export class LearningRepository {
         model: row.scanner_model,
         promptVersion: row.prompt_version
       },
+      ocr: {
+        provider: row.ocr_provider,
+        model: row.ocr_model,
+        blocks: parseJson(row.ocr_blocks_json)
+      },
       images,
       candidates,
-      canImport: false,
-      importStage: "M3",
+      canImport:
+        effectiveStatus === "ready" &&
+        selectedCandidates.some((item) => !item.importedQuestionId),
+      importStage: "ready",
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       expiresAt: row.expires_at
@@ -4127,7 +4201,9 @@ export class LearningRepository {
           .prepare(
             `UPDATE question_scan_candidates
              SET selected = CASE
-               WHEN status = 'ready' AND completeness_status = 'complete' THEN 1
+               WHEN status = 'ready'
+                 AND completeness_status = 'complete'
+                 AND imported_question_id IS NULL THEN 1
                WHEN manually_selected = 1 THEN 1
                ELSE 0
              END,
@@ -4142,6 +4218,7 @@ export class LearningRepository {
              SET selected = CASE
                WHEN status = 'ready'
                  AND completeness_status = 'complete'
+                 AND imported_question_id IS NULL
                  AND suspected_wrong = 1 THEN 1
                WHEN manually_selected = 1 THEN 1
                ELSE 0
@@ -4177,6 +4254,12 @@ export class LearningRepository {
             throw new LearningValidationError(
               "SCAN_CANDIDATE_NOT_SELECTABLE",
               "识别失败或已排除的候选不能选择"
+            );
+          }
+          if (candidate.imported_question_id) {
+            throw new LearningValidationError(
+              "SCAN_CANDIDATE_ALREADY_IMPORTED",
+              "这道候选题已经导入题库"
             );
           }
           this.db
@@ -4238,10 +4321,44 @@ export class LearningRepository {
         "没有找到这道候选题"
       );
     }
+    if (current.imported_question_id) {
+      throw new LearningValidationError(
+        "SCAN_CANDIDATE_ALREADY_IMPORTED",
+        "已经导入题库的候选不能再修改"
+      );
+    }
     let text = current.recognized_text;
     if (Object.hasOwn(input, "text")) {
       text = String(input.text || "").trim().slice(0, 5000);
     }
+    const currentAnalysis = parseJsonObject(current.analysis_json);
+    const questionType =
+      input.questionType === undefined
+        ? currentAnalysis.questionType || "general"
+        : String(input.questionType || "general");
+    const studentAnswer =
+      input.studentAnswer === undefined
+        ? String(currentAnalysis.studentAnswer || "")
+        : String(input.studentAnswer || "").trim().slice(0, 2000);
+    const suggestedAnswer =
+      input.suggestedAnswer === undefined
+        ? String(currentAnalysis.suggestedAnswer || "")
+        : String(input.suggestedAnswer || "").trim().slice(0, 2000);
+    const pendingReasons =
+      input.pendingReasons === undefined
+        ? Array.isArray(currentAnalysis.pendingReasons)
+          ? currentAnalysis.pendingReasons
+          : []
+        : Array.isArray(input.pendingReasons)
+          ? input.pendingReasons
+              .map((reason) => String(reason || "").trim().slice(0, 100))
+              .filter(Boolean)
+              .slice(0, 20)
+          : [];
+    const answerPending =
+      input.answerPending === undefined
+        ? current.answer_pending === 1
+        : input.answerPending === true;
     let region = normalizeScanRegion(parseJsonObject(current.region_json));
     if (Object.hasOwn(input, "region")) {
       region = normalizeScanRegion(input.region, { strict: true });
@@ -4261,6 +4378,7 @@ export class LearningRepository {
       .prepare(
         `UPDATE question_scan_candidates
          SET status = ?, recognized_text = ?, region_json = ?,
+             answer_pending = ?, analysis_json = ?,
              selected = ?, manually_selected = ?, updated_at = ?
          WHERE id = ?`
       )
@@ -4268,6 +4386,20 @@ export class LearningRepository {
         status,
         text,
         JSON.stringify(region),
+        answerPending ? 1 : 0,
+        JSON.stringify({
+          ...currentAnalysis,
+          questionType,
+          options: Array.isArray(currentAnalysis.options)
+            ? currentAnalysis.options
+            : [],
+          studentAnswer,
+          suggestedAnswer,
+          pendingReasons,
+          sourceBlocks: Array.isArray(currentAnalysis.sourceBlocks)
+            ? currentAnalysis.sourceBlocks
+            : []
+        }),
         selected,
         manuallySelected,
         timestamp,
@@ -4313,6 +4445,157 @@ export class LearningRepository {
       height: primary.height,
       region
     };
+  }
+
+  applyQuestionScanCandidateImport({
+    scanId,
+    candidateId,
+    questionId,
+    questionType,
+    completenessStatus,
+    answerPending,
+    suspectedWrong,
+    options = [],
+    timestamp = nowIso()
+  }) {
+    this.db
+      .prepare(
+        `UPDATE mistakes
+         SET question_type = ?, completeness_status = ?,
+             answer_review_status = ?, source_status = 'none',
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        String(questionType || "general"),
+        ["confirmed", "incomplete", "unknown"].includes(completenessStatus)
+          ? completenessStatus
+          : "unknown",
+        answerPending ? "pending" : "confirmed",
+        timestamp,
+        Number(questionId)
+      );
+    this.db
+      .prepare(
+        `DELETE FROM question_categories
+         WHERE question_id = ? AND category = 'mistake' AND source = 'legacy'`
+      )
+      .run(Number(questionId));
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO question_categories
+         (question_id, category, source, created_at)
+         VALUES (?, ?, 'scan', ?)`
+      )
+      .run(
+        Number(questionId),
+        suspectedWrong ? "mistake" : "normal",
+        timestamp
+      );
+    const insertOption = this.db.prepare(
+      `INSERT INTO question_options (
+        question_id, part_id, position, label, text_content,
+        image_attachment_id, is_correct, created_at
+      ) VALUES (?, NULL, ?, ?, ?, NULL, 0, ?)`
+    );
+    const normalizedOptions = Array.isArray(options) ? options.slice(0, 20) : [];
+    normalizedOptions.forEach((option, index) => {
+      const text = String(option?.text || "").trim().slice(0, 2000);
+      if (!text) return;
+      insertOption.run(
+        Number(questionId),
+        index + 1,
+        String(option?.label || "").trim().slice(0, 20),
+        text,
+        timestamp
+      );
+    });
+    this.db
+      .prepare(
+        `UPDATE question_scan_candidates
+         SET imported_question_id = ?, selected = 0, manually_selected = 0,
+             updated_at = ?
+         WHERE id = ? AND scan_task_id = ?`
+      )
+      .run(Number(questionId), timestamp, Number(candidateId), Number(scanId));
+    this.db
+      .prepare("UPDATE question_scan_tasks SET updated_at = ? WHERE id = ?")
+      .run(timestamp, Number(scanId));
+  }
+
+  importQuestionScanCandidate({
+    scanId,
+    candidateId,
+    input,
+    questionType,
+    completenessStatus,
+    answerPending,
+    suspectedWrong,
+    options = []
+  }) {
+    assertToolWriteAllowed();
+    const current = this.db
+      .prepare(
+        `SELECT * FROM question_scan_candidates
+         WHERE id = ? AND scan_task_id = ?`
+      )
+      .get(Number(candidateId), Number(scanId));
+    if (!current) {
+      throw new LearningValidationError(
+        "SCAN_CANDIDATE_NOT_FOUND",
+        "没有找到这道候选题"
+      );
+    }
+    if (current.imported_question_id) {
+      return {
+        alreadyImported: true,
+        question: this.getQuestion(current.imported_question_id)
+      };
+    }
+
+    const prepared = this.prepareMistakeCreation(input);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const lockedCandidate = this.db
+        .prepare(
+          `SELECT imported_question_id FROM question_scan_candidates
+           WHERE id = ? AND scan_task_id = ?`
+        )
+        .get(Number(candidateId), Number(scanId));
+      if (!lockedCandidate) {
+        throw new LearningValidationError(
+          "SCAN_CANDIDATE_NOT_FOUND",
+          "没有找到这道候选题"
+        );
+      }
+      if (lockedCandidate.imported_question_id) {
+        this.db.exec("ROLLBACK");
+        return {
+          alreadyImported: true,
+          question: this.getQuestion(lockedCandidate.imported_question_id)
+        };
+      }
+      const { mistakeId, timestamp } = this.insertMistakeRecord(prepared);
+      this.applyQuestionScanCandidateImport({
+        scanId,
+        candidateId,
+        questionId: mistakeId,
+        questionType,
+        completenessStatus,
+        answerPending,
+        suspectedWrong,
+        options,
+        timestamp
+      });
+      this.db.exec("COMMIT");
+      return {
+        alreadyImported: false,
+        question: this.getQuestion(mistakeId)
+      };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   insertDiagnosis(mistakeId, diagnosis, timestamp) {

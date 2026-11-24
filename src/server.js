@@ -41,7 +41,10 @@ import {
   createQuestionScannerFromEnvironment,
   QuestionScanError
 } from "./question-bank/scanner.js";
-import { createQuestionScan } from "./question-bank/scan-service.js";
+import {
+  createQuestionScan,
+  importQuestionScan
+} from "./question-bank/scan-service.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, "..");
@@ -68,7 +71,9 @@ const einkPageService = new EinkPageService({
   attachmentStore
 });
 const visionExtractor = createVisionExtractorFromEnvironment(process.env);
-const questionScanner = createQuestionScannerFromEnvironment(process.env);
+const questionScanner = createQuestionScannerFromEnvironment(process.env, {
+  gateway: llmGateway
+});
 const diagnosisAgent = createDiagnosisAgent({
   repository,
   tools: learningTools,
@@ -392,6 +397,17 @@ const COMPARISON_RULES = new Set([
   "numeric",
   "ratio",
   "text"
+]);
+const QUESTION_TYPES = new Set([
+  "general",
+  "single_choice",
+  "multiple_choice",
+  "true_false",
+  "fill_blank",
+  "short_answer",
+  "proof",
+  "drawing",
+  "composite"
 ]);
 
 function parseMistakeParts(
@@ -784,6 +800,30 @@ async function handleApi(request, response, url) {
     );
   }
 
+  const scanImportMatch = url.pathname.match(
+    /^\/api\/questions\/scans\/(\d+)\/import$/
+  );
+  if (scanImportMatch && request.method === "POST") {
+    const body = await readJson(request);
+    if (!Array.isArray(body.candidateIds) || !body.candidateIds.length) {
+      throw new HttpError(400, "请先选择要导入的题目");
+    }
+    if (body.candidateIds.length > 20) {
+      throw new HttpError(400, "单次最多导入 20 道题");
+    }
+    return sendJson(
+      response,
+      200,
+      await importQuestionScan({
+        repository,
+        attachmentStore,
+        scanId: parseId(scanImportMatch[1]),
+        candidateIds: body.candidateIds.map(parseId),
+        confirmIncomplete: body.confirmIncomplete === true
+      })
+    );
+  }
+
   const scanCandidateMatch = url.pathname.match(
     /^\/api\/questions\/scans\/(\d+)\/candidates\/(\d+)$/
   );
@@ -792,6 +832,31 @@ async function handleApi(request, response, url) {
     const input = {};
     if (Object.hasOwn(body, "text")) {
       input.text = optionalText(body.text, 5000);
+    }
+    if (Object.hasOwn(body, "questionType")) {
+      const questionType = String(body.questionType || "general");
+      if (!QUESTION_TYPES.has(questionType)) {
+        throw new HttpError(400, "题型无效");
+      }
+      input.questionType = questionType;
+    }
+    if (Object.hasOwn(body, "studentAnswer")) {
+      input.studentAnswer = optionalText(body.studentAnswer, 2000);
+    }
+    if (Object.hasOwn(body, "suggestedAnswer")) {
+      input.suggestedAnswer = optionalText(body.suggestedAnswer, 2000);
+    }
+    if (Object.hasOwn(body, "answerPending")) {
+      input.answerPending = body.answerPending === true;
+    }
+    if (Object.hasOwn(body, "pendingReasons")) {
+      if (!Array.isArray(body.pendingReasons)) {
+        throw new HttpError(400, "待确认项格式无效");
+      }
+      input.pendingReasons = body.pendingReasons
+        .slice(0, 20)
+        .map((reason) => optionalText(reason, 100))
+        .filter(Boolean);
     }
     if (Object.hasOwn(body, "region")) {
       input.region = body.region;
@@ -1720,8 +1785,8 @@ server.listen(port, host, () => {
   console.log(`数据文件：${databasePath}`);
   console.log(
     questionScanner.isConfigured()
-      ? `视觉扫描：${questionScanner.model} @ ${questionScanner.baseUrl}`
-      : "视觉扫描：未配置"
+      ? `OCR 扫描：${questionScanner.model}`
+      : "OCR 扫描：未配置"
   );
 });
 
