@@ -9,3 +9,6 @@ data:
   ATTACHMENTS_DIR: /app/data/attachments
   BACKUP_DIR: /app/data/backups
   TZ: Asia/Shanghai
+  OCR_BASE_URL: http://student-study-ai-agent-ocr.student-study-ai-agent-ocr.svc.cluster.local:8000
+  OCR_TIMEOUT_MS: "60000"
+  OCR_LOW_CONFIDENCE: "0.8"

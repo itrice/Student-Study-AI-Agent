@@ -1555,9 +1555,16 @@ const questionScanCandidateSchema = {
     "selected",
     "manuallySelected",
     "text",
+    "questionType",
+    "options",
+    "studentAnswer",
+    "suggestedAnswer",
+    "pendingReasons",
+    "sourceBlocks",
     "confidence",
     "region",
-    "imageUrl"
+    "imageUrl",
+    "importedQuestionId"
   ],
   properties: {
     id: { type: "integer", minimum: 1 },
@@ -1578,6 +1585,49 @@ const questionScanCandidateSchema = {
       description: "是否由学生手动选择；快捷选择会保留手动项。"
     },
     text: { type: "string" },
+    questionType: {
+      type: "string",
+      enum: [
+        "general",
+        "single_choice",
+        "multiple_choice",
+        "true_false",
+        "fill_blank",
+        "short_answer",
+        "proof",
+        "drawing",
+        "composite"
+      ]
+    },
+    options: {
+      type: "array",
+      maxItems: 20,
+      items: {
+        type: "object",
+        properties: {
+          position: { type: "integer", minimum: 1 },
+          label: { type: "string" },
+          text: { type: "string" },
+          sourceBlockIds: {
+            type: "array",
+            items: { type: "string" }
+          },
+          pendingReasons: {
+            type: "array",
+            items: { type: "string" }
+          }
+        },
+        additionalProperties: false
+      }
+    },
+    studentAnswer: { type: "string" },
+    suggestedAnswer: { type: "string" },
+    pendingReasons: { type: "array", items: { type: "string" } },
+    sourceBlocks: {
+      type: "array",
+      items: { type: "object", additionalProperties: true },
+      description: "OCR 字块文字、原图坐标和置信度。"
+    },
     confidence: anyOfNullable({ type: "number", minimum: 0, maximum: 1 }),
     region: ref("QuestionScanRegion"),
     recognitionError: { type: "string" },
@@ -1585,6 +1635,7 @@ const questionScanCandidateSchema = {
       type: "string",
       description: "候选区域裁剪图地址，返回 PNG 二进制。"
     },
+    importedQuestionId: anyOfNullable({ type: "integer", minimum: 1 }),
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" }
   },
@@ -1629,6 +1680,19 @@ const questionScanSchema = {
       },
       additionalProperties: false
     },
+    ocr: {
+      type: "object",
+      properties: {
+        provider: { type: "string" },
+        model: { type: "string" },
+        version: { type: "string" },
+        blocks: {
+          type: "array",
+          items: { type: "object", additionalProperties: true }
+        }
+      },
+      additionalProperties: false
+    },
     images: {
       type: "array",
       items: {
@@ -1654,10 +1718,9 @@ const questionScanSchema = {
     },
     canImport: {
       type: "boolean",
-      enum: [false],
-      description: "M2 只保存候选；批量导入在 M3 开放。"
+      description: "是否至少有一道已选择且尚未导入的候选。"
     },
-    importStage: { type: "string", enum: ["M3"] },
+    importStage: { type: "string", enum: ["ready"] },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
     expiresAt: { type: "string", format: "date-time" }
@@ -1689,7 +1752,7 @@ const createQuestionScanInputSchema = {
     consent: {
       type: "boolean",
       enum: [true],
-      description: "必须明确同意把图片发送给外部识别模型。"
+      description: "必须明确同意把图片发送给内部 OCR 服务。"
     }
   },
   additionalProperties: false
@@ -1725,8 +1788,45 @@ const updateQuestionScanCandidateInputSchema = {
   minProperties: 1,
   properties: {
     text: { type: "string", maxLength: 5000 },
+    questionType: {
+      type: "string",
+      enum: [
+        "general",
+        "single_choice",
+        "multiple_choice",
+        "true_false",
+        "fill_blank",
+        "short_answer",
+        "proof",
+        "drawing",
+        "composite"
+      ]
+    },
+    studentAnswer: { type: "string", maxLength: 2000 },
+    suggestedAnswer: { type: "string", maxLength: 2000 },
+    answerPending: { type: "boolean" },
+    pendingReasons: {
+      type: "array",
+      maxItems: 20,
+      items: { type: "string", maxLength: 100 }
+    },
     region: ref("QuestionScanRegion"),
     excluded: { type: "boolean" }
+  },
+  additionalProperties: false
+};
+
+const importQuestionScanInputSchema = {
+  type: "object",
+  required: ["candidateIds"],
+  properties: {
+    candidateIds: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: { type: "integer", minimum: 1 }
+    },
+    confirmIncomplete: { type: "boolean", default: false }
   },
   additionalProperties: false
 };
@@ -1736,7 +1836,7 @@ const TAGS = [
   { name: "教材", description: "教材目录、切换预演/执行和不可篡改的切换审计日志。" },
   { name: "附件", description: "图片上传、读取、裁剪与可选文字识别。" },
   { name: "错题", description: "错题录入、修改、诊断、作答和掌握证据。" },
-  { name: "题库", description: "兼容题库读取与扫描候选；候选默认不选，M2 不写正式题库。" },
+  { name: "题库", description: "兼容题库读取、扫描候选和用户确认后的批量导入。" },
   { name: "复习", description: "复习队列、分级提示与追问。" },
   { name: "知识库", description: "知识点统计、可追溯知识卡片与全文检索。" },
   { name: "反馈", description: "日总结、周报和家长可读报告。" },
@@ -1773,6 +1873,7 @@ const components = {
     ExtractionResult: extractionResultSchema,
     EditSessionResult: editSessionResultSchema,
     UpdateResult: updateResultSchema,
+    ImportQuestionScanInput: importQuestionScanInputSchema,
     MasteryEvidence: masteryEvidenceSchema,
     KnowledgePointSummary: knowledgePointSummarySchema,
     KnowledgeCard: knowledgeCardSchema,
@@ -1816,7 +1917,7 @@ const paths = {
         200: jsonResponse(
           "服务正常",
           ref("Health"),
-          { ok: true, schemaVersion: 14, toolCount: 9 }
+          { ok: true, schemaVersion: 15, toolCount: 9 }
         )
       }
     }
@@ -3142,13 +3243,13 @@ Object.assign(paths, {
       tags: ["题库"],
       summary: "创建扫描候选任务",
       description:
-        "接收 1～3 张已上传图片，调用可选视觉识别生成最多 20 道候选。候选默认不选；任务有效 24 小时。未配置模型、图片读取失败或识别失败时仍创建 failed 任务并保留图片，不产生正式题目。M2 只保存候选，不写入正式题库。",
+        "接收 1～3 张已上传图片，先调用内部 OCR 保留文字、坐标和置信度，再用现有纯文本 LLM 整理题干、题型、学生答案和标准答案候选。候选默认不选；任务有效 24 小时。OCR/LLM 失败时保留图片并降级或不创建正式题目。",
       operationId: "createQuestionScan",
       requestBody: requestBody(ref("CreateQuestionScanInput")),
       responses: {
         201: jsonResponse("扫描任务", ref("QuestionScan")),
         400: errorResponse(
-          "图片数量无效或未勾选外部识别同意",
+          "图片数量无效或未勾选内部 OCR 处理同意",
           { error: "发送图片到外部识别模型前需要明确同意", code: "VISION_CONSENT_REQUIRED" }
         )
       }
@@ -3159,7 +3260,7 @@ Object.assign(paths, {
       tags: ["题库"],
       summary: "读取扫描任务",
       description:
-        "返回扫描任务、候选、选择统计和有效期。过期任务只读，canImport 固定为 false。",
+        "返回扫描任务、OCR 字块、候选、选择统计和有效期。过期任务只读。",
       operationId: "getQuestionScan",
       parameters: [
         {
@@ -3205,7 +3306,7 @@ Object.assign(paths, {
       tags: ["题库"],
       summary: "修改候选文字、区域或排除状态",
       description:
-        "可修改候选题干文字、相对框选区域，或排除/恢复候选。不能通过此接口创建正式题目。",
+        "可修改候选题干、题型、学生答案、标准答案候选、相对框选区域，或排除/恢复候选。不能通过此接口创建正式题目。",
       operationId: "updateQuestionScanCandidate",
       parameters: [
         {
@@ -3229,6 +3330,52 @@ Object.assign(paths, {
         400: errorResponse("文字、区域或排除参数无效"),
         404: errorResponse("没有找到这道候选题"),
         409: errorResponse("扫描任务已失效")
+      }
+    }
+  },
+  "/api/questions/scans/{id}/import": {
+    post: {
+      tags: ["题库"],
+      summary: "导入用户确认的扫描候选",
+      description:
+        "只导入当前已选择候选；每道候选生成题目区域图片并写入现有统一题库。允许逐题部分成功，已导入候选不会重复创建。内容可能不完整时必须显式确认。",
+      operationId: "importQuestionScan",
+      parameters: [
+        {
+          name: "id",
+          in: "path",
+          required: true,
+          description: "扫描任务编号",
+          schema: { type: "integer", minimum: 1 }
+        }
+      ],
+      requestBody: requestBody(ref("ImportQuestionScanInput")),
+      responses: {
+        200: jsonResponse(
+          "逐题导入结果",
+          {
+            type: "object",
+            required: [
+              "scan",
+              "successCount",
+              "failedCount",
+              "results"
+            ],
+            properties: {
+              scan: ref("QuestionScan"),
+              successCount: { type: "integer", minimum: 0 },
+              failedCount: { type: "integer", minimum: 0 },
+              results: {
+                type: "array",
+                items: { type: "object", additionalProperties: true }
+              }
+            },
+            additionalProperties: false
+          }
+        ),
+        400: errorResponse("未选择、候选未选中或残缺题未确认"),
+        404: errorResponse("没有找到扫描任务"),
+        409: errorResponse("扫描任务已失效或不可导入")
       }
     }
   },
@@ -3279,14 +3426,14 @@ const INFO_DESCRIPTION = [
   "",
   "1. `GET /api/health` 检查服务；`GET /api/bootstrap` 读取当前学生和教材。",
   "2. 文字题直接 `POST /api/mistakes`；图片题先 `POST /api/attachments`，再带 `attachmentIds` 保存。",
-  "3. 作业页可先 `POST /api/questions/scans` 生成候选；M2 候选默认不选且不写正式题库，导入在 M3 开放。",
+  "3. 作业页可先 `POST /api/questions/scans` 生成 OCR+文本模型候选；用户选择并核对后调用 `/import` 写入统一题库。",
   "4. 通过 `GET /api/review/queue` 取题，`POST /api/mistakes/{id}/attempts` 提交作答。",
   "5. 使用 `GET /api/feedback/daily`、`/weekly`、`/calendar` 和 `/day` 展示学习反馈。"
 ].join("\n");
 
 export function buildOpenApiDocument({
   baseUrl = "/",
-  version = "0.18.0"
+  version = "0.19.0"
 } = {}) {
   return {
     openapi: "3.1.0",

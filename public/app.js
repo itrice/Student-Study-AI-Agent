@@ -339,6 +339,32 @@ async function uploadImageFiles(fileList) {
 }
 
 const MAX_SCAN_IMAGES = 3;
+const SCAN_QUESTION_TYPES = [
+  ["general", "通用题"],
+  ["single_choice", "单选题"],
+  ["multiple_choice", "多选题"],
+  ["true_false", "判断题"],
+  ["fill_blank", "填空题"],
+  ["short_answer", "简答题"],
+  ["proof", "证明题"],
+  ["drawing", "作图题"],
+  ["composite", "复合题"]
+];
+const SCAN_PENDING_LABELS = {
+  LOW_CONFIDENCE: "OCR 置信度偏低",
+  SPLIT_TEXT_BLOCK: "文字块可能被拆分",
+  EXTRA_SYMBOL: "发现疑似额外符号",
+  MISSING_SOURCE_BLOCKS: "缺少对应 OCR 字块",
+  SUPPLEMENT_IMAGE_REGION: "候选项来自补充图",
+  LLM_NOT_CONFIGURED: "文本模型未配置",
+  LLM_UNAVAILABLE: "文本模型暂不可用",
+  LLM_TIMEOUT: "文本模型超时",
+  ANSWER_PENDING: "答案待人工确认"
+};
+
+function scanPendingLabel(reason) {
+  return SCAN_PENDING_LABELS[reason] || String(reason || "待确认");
+}
 
 function scanCompletenessLabel(candidate) {
   if (candidate.status === "failed") return "识别失败";
@@ -492,7 +518,10 @@ function renderScanCandidate(candidate, task) {
   checkbox.className = "scan-candidate-checkbox";
   checkbox.checked = candidate.selected;
   checkbox.disabled =
-    task.status !== "ready" || candidate.status === "failed" || candidate.status === "excluded";
+    task.status !== "ready" ||
+    candidate.status === "failed" ||
+    candidate.status === "excluded" ||
+    Boolean(candidate.importedQuestionId);
   checkbox.dataset.scanSelectCandidate = String(candidate.id);
   const label = document.createElement("label");
   label.className = "scan-candidate-title";
@@ -516,6 +545,9 @@ function renderScanCandidate(candidate, task) {
   );
   if (candidate.suspectedWrong) tags.append(scanCandidateTag("疑似错误", "is-wrong"));
   if (candidate.answerPending) tags.append(scanCandidateTag("答案待确认", "is-pending"));
+  if (candidate.importedQuestionId) {
+    tags.append(scanCandidateTag(`已导入 #${candidate.importedQuestionId}`, "is-complete"));
+  }
   if (candidate.manuallySelected) tags.append(scanCandidateTag("手动选择", "is-manual"));
   head.append(tags);
   card.append(head);
@@ -559,9 +591,78 @@ function renderScanCandidate(candidate, task) {
   textarea.rows = 3;
   textarea.value = candidate.text;
   textarea.dataset.scanText = String(candidate.id);
-  textarea.disabled = task.status !== "ready" || candidate.status === "excluded";
+  textarea.disabled =
+    task.status !== "ready" ||
+    candidate.status === "excluded" ||
+    Boolean(candidate.importedQuestionId);
   textLabel.append(textarea);
   card.append(textLabel);
+
+  const typeLabel = document.createElement("label");
+  typeLabel.className = "scan-candidate-field";
+  typeLabel.append(createElement("span", "", "题型"));
+  const typeSelect = document.createElement("select");
+  typeSelect.dataset.scanQuestionType = String(candidate.id);
+  typeSelect.disabled =
+    task.status !== "ready" ||
+    candidate.status === "excluded" ||
+    Boolean(candidate.importedQuestionId);
+  for (const [value, text] of SCAN_QUESTION_TYPES) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = text;
+    typeSelect.append(option);
+  }
+  typeSelect.value = candidate.questionType || "general";
+  typeLabel.append(typeSelect);
+  card.append(typeLabel);
+
+  const answerFields = createElement("div", "scan-answer-grid");
+  for (const [key, labelText, value] of [
+    ["studentAnswer", "学生答案", candidate.studentAnswer],
+    ["suggestedAnswer", "标准答案候选", candidate.suggestedAnswer]
+  ]) {
+    const field = document.createElement("label");
+    field.className = "scan-candidate-field";
+    field.append(createElement("span", "", labelText));
+    const input = document.createElement("textarea");
+    input.rows = 2;
+    input.value = value || "";
+    input.dataset[key === "studentAnswer" ? "scanStudentAnswer" : "scanSuggestedAnswer"] =
+      String(candidate.id);
+    input.disabled =
+      task.status !== "ready" ||
+      candidate.status === "excluded" ||
+      Boolean(candidate.importedQuestionId);
+    field.append(input);
+    answerFields.append(field);
+  }
+  card.append(answerFields);
+
+  if (candidate.options?.length) {
+    const options = createElement("div", "scan-candidate-options");
+    options.append(createElement("strong", "", "识别选项"));
+    for (const option of candidate.options) {
+      options.append(
+        createElement(
+          "span",
+          "",
+          `${option.label ? `${option.label}. ` : ""}${option.text}`
+        )
+      );
+    }
+    card.append(options);
+  }
+
+  if (candidate.pendingReasons?.length) {
+    card.append(
+      createElement(
+        "p",
+        "scan-candidate-warning",
+        `待确认：${candidate.pendingReasons.map(scanPendingLabel).join("；")}`
+      )
+    );
+  }
 
   const region = createElement("div", "scan-region-grid");
   const fields = [
@@ -581,7 +682,10 @@ function renderScanCandidate(candidate, task) {
     input.value = String(Math.round(value));
     input.dataset.scanRegion = key;
     input.dataset.candidateId = String(candidate.id);
-    input.disabled = task.status !== "ready" || candidate.status === "excluded";
+    input.disabled =
+      task.status !== "ready" ||
+      candidate.status === "excluded" ||
+      Boolean(candidate.importedQuestionId);
     field.append(input);
     region.append(field);
   }
@@ -591,7 +695,10 @@ function renderScanCandidate(candidate, task) {
   const save = createElement("button", "secondary-button compact", "保存文字与框选");
   save.type = "button";
   save.dataset.scanSave = String(candidate.id);
-  save.disabled = task.status !== "ready" || candidate.status === "excluded";
+  save.disabled =
+    task.status !== "ready" ||
+    candidate.status === "excluded" ||
+    Boolean(candidate.importedQuestionId);
   const exclude = createElement(
     "button",
     "text-button",
@@ -599,7 +706,10 @@ function renderScanCandidate(candidate, task) {
   );
   exclude.type = "button";
   exclude.dataset.scanExclude = String(candidate.id);
-  exclude.disabled = task.status !== "ready" || candidate.status === "failed";
+  exclude.disabled =
+    task.status !== "ready" ||
+    candidate.status === "failed" ||
+    Boolean(candidate.importedQuestionId);
   actions.append(save, exclude);
   card.append(actions);
   return card;
@@ -647,11 +757,13 @@ function renderQuestionScan(task) {
         ? `已选 ${task.selectedCount} 道，其中 ${task.incompleteSelectedCount} 道内容可能不完整。`
         : `已选 ${task.selectedCount} 道；未选中的候选不会进入题库。`;
   const importButton = $("#scan-import-button");
-  importButton.disabled = true;
+  importButton.disabled = !task.canImport;
   $("#scan-import-note").textContent =
     task.status === "expired"
       ? "任务已失效，不能再导入；请重新扫描。"
-      : "当前阶段只保存候选，不写入正式题库。批量导入将在下一阶段开放。";
+      : task.canImport
+        ? "确认题干、题型、学生答案和标准答案后，点击导入所选题目。"
+        : "未选择可导入的候选；未选中的题目不会进入题库。";
   renderScanIntake();
 }
 
@@ -674,28 +786,106 @@ async function applyScanSelection(action, candidateId = null) {
   }
 }
 
-async function saveScanCandidate(candidateId) {
+function scanCandidateInput(candidateId) {
   const card = document.querySelector(
     `.scan-candidate[data-candidate-id="${candidateId}"]`
   );
-  if (!card || !state.scanTask) return;
+  if (!card) return null;
   const text = card.querySelector("[data-scan-text]")?.value || "";
+  const questionType = card.querySelector("[data-scan-question-type]")?.value || "general";
+  const studentAnswer =
+    card.querySelector("[data-scan-student-answer]")?.value || "";
+  const suggestedAnswer =
+    card.querySelector("[data-scan-suggested-answer]")?.value || "";
   const region = {};
   card.querySelectorAll("[data-scan-region]").forEach((input) => {
     region[input.dataset.scanRegion] = Number(input.value) / 100;
   });
+  return {
+    text,
+    region,
+    questionType,
+    studentAnswer,
+    suggestedAnswer
+  };
+}
+
+async function saveScanCandidate(candidateId) {
+  const input = scanCandidateInput(candidateId);
+  if (!input || !state.scanTask) return;
   try {
     const task = await api(
       `/api/questions/scans/${state.scanTask.id}/candidates/${candidateId}`,
       {
         method: "PATCH",
-        body: JSON.stringify({ text, region })
+        body: JSON.stringify(input)
       }
     );
     renderQuestionScan(task);
-    showToast("候选文字和区域已保存");
+    showToast("候选题目与答案候选已保存");
   } catch (error) {
     showToast(error.message, true);
+  }
+}
+
+async function importSelectedScanCandidates() {
+  if (!state.scanTask) return;
+  const selected = state.scanTask.candidates.filter(
+    (candidate) => candidate.selected && !candidate.importedQuestionId
+  );
+  if (!selected.length) {
+    showToast("请先选择要导入的题目", true);
+    return;
+  }
+  const incompleteCount = selected.filter(
+    (candidate) => candidate.completenessStatus !== "complete"
+  ).length;
+  if (
+    incompleteCount > 0 &&
+    !window.confirm(
+      `有 ${incompleteCount} 道题可能不完整，确认仍然导入吗？`
+    )
+  ) {
+    return;
+  }
+  const button = $("#scan-import-button");
+  setBusy(button, true, "正在导入…");
+  try {
+    for (const candidate of selected) {
+      const input = scanCandidateInput(candidate.id);
+      if (!input) continue;
+      await api(
+        `/api/questions/scans/${state.scanTask.id}/candidates/${candidate.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(input)
+        }
+      );
+    }
+    const result = await api(
+      `/api/questions/scans/${state.scanTask.id}/import`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          candidateIds: selected.map((candidate) => candidate.id),
+          confirmIncomplete: incompleteCount > 0
+        })
+      }
+    );
+    renderQuestionScan(result.scan);
+    showToast(
+      result.failedCount
+        ? `导入完成：成功 ${result.successCount} 道，失败 ${result.failedCount} 道`
+        : `已导入 ${result.successCount} 道题`,
+      result.failedCount > 0
+    );
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    setBusy(button, false);
+    if (state.scanTask) {
+      button.disabled = !state.scanTask.canImport;
+    }
   }
 }
 
@@ -5102,6 +5292,7 @@ function bindEvents() {
   $("#scan-clear-images").addEventListener("click", clearScanAttachments);
   $("#scan-consent").addEventListener("change", renderScanIntake);
   $("#scan-start-button").addEventListener("click", startQuestionScan);
+  $("#scan-import-button").addEventListener("click", importSelectedScanCandidates);
   $("#scan-task-content").addEventListener("change", (event) => {
     const checkbox = event.target.closest("[data-scan-select-candidate]");
     if (!checkbox || !state.scanTask) return;
