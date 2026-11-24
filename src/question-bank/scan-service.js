@@ -15,15 +15,8 @@ export async function createQuestionScan({
   repository,
   attachmentStore,
   scanner,
-  attachmentIds,
-  consent
+  attachmentIds
 }) {
-  if (consent !== true) {
-    throw new LearningValidationError(
-      "VISION_CONSENT_REQUIRED",
-      "发送图片到内部 OCR 服务前需要明确同意；拒绝后可改用手动录入"
-    );
-  }
   const ids = Array.isArray(attachmentIds) ? attachmentIds : [];
   if (!scanner?.isConfigured()) {
     return failedScan(

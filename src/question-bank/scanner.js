@@ -1,4 +1,5 @@
 export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-text-2";
+export const INTERNAL_OCR_TEXT_VERSION = "internal-ocr-1";
 export const MAX_SCAN_CANDIDATES = 20;
 
 const QUESTION_TYPES = new Set([
@@ -699,6 +700,46 @@ export class OcrTextQuestionScanner {
       }
     };
   }
+}
+
+export class InternalOcrTextExtractor {
+  constructor({ ocrClient }) {
+    this.ocrClient = ocrClient;
+  }
+
+  isConfigured() {
+    return this.ocrClient?.isConfigured() === true;
+  }
+
+  async extract({ buffer, mimeType }) {
+    const result = await this.ocrClient.recognize({
+      buffer,
+      mimeType,
+      imageIndex: 0
+    });
+    return {
+      rawOutput: JSON.stringify(result.blocks),
+      normalizedText: result.blocks
+        .map((block) => String(block.text || "").trim())
+        .filter(Boolean)
+        .join("\n"),
+      confidence: null,
+      provider: result.engine || result.provider || "internal-ocr",
+      model: result.model,
+      promptVersion: INTERNAL_OCR_TEXT_VERSION
+    };
+  }
+}
+
+export function createInternalOcrTextExtractorFromEnvironment(
+  environment = process.env
+) {
+  return new InternalOcrTextExtractor({
+    ocrClient: new InternalOcrClient({
+      baseUrl: environment.OCR_BASE_URL || "",
+      timeoutMs: Number(environment.OCR_TIMEOUT_MS || 60_000)
+    })
+  });
 }
 
 export function createQuestionScannerFromEnvironment(

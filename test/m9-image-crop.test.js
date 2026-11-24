@@ -350,8 +350,7 @@ test("OCR 只发送裁剪区域，恢复原图后改发原图", async () => {
       repository,
       attachmentStore: store,
       extractor,
-      attachmentId: attachment.id,
-      consent: true
+      attachmentId: attachment.id
     });
     assert.equal(cropped.available, true);
     assert.equal(cropped.usedCrop, true);
@@ -367,8 +366,7 @@ test("OCR 只发送裁剪区域，恢复原图后改发原图", async () => {
       repository,
       attachmentStore: store,
       extractor,
-      attachmentId: attachment.id,
-      consent: true
+      attachmentId: attachment.id
     });
     assert.equal(original.available, true);
     assert.equal(original.usedCrop, false);

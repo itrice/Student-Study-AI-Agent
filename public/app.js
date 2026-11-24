@@ -419,8 +419,7 @@ function renderScanIntake() {
   if (start) {
     start.disabled =
       state.scanBusy ||
-      !state.scanAttachments.length ||
-      !$("#scan-consent").checked;
+      !state.scanAttachments.length;
     start.textContent = state.scanBusy ? "正在识别…" : "开始识别候选";
   }
 }
@@ -491,10 +490,6 @@ async function startQuestionScan() {
     showToast("请先选择扫描图片", true);
     return;
   }
-  if (!$("#scan-consent").checked) {
-    showToast("发送外部识别前请先勾选同意", true);
-    return;
-  }
   state.scanBusy = true;
   $("#scan-loading").hidden = false;
   renderScanIntake();
@@ -502,8 +497,7 @@ async function startQuestionScan() {
     const task = await api("/api/questions/scans", {
       method: "POST",
       body: JSON.stringify({
-        attachmentIds: state.scanAttachments.map((attachment) => attachment.id),
-        consent: true
+        attachmentIds: state.scanAttachments.map((attachment) => attachment.id)
       })
     });
     state.scanTask = task;
@@ -1488,7 +1482,6 @@ function startOcrForAttachment(id) {
   $("#ocr-attachment-label").textContent = attachment.hasCrop
     ? `识别第 ${index + 1} 张图片裁剪区域中的文字（可选）`
     : `识别第 ${index + 1} 张图片中的文字（可选）`;
-  $("#ocr-consent").checked = false;
   $("#ocr-message").textContent = "";
   $("#ocr-candidate").hidden = true;
   $("#ocr-text").value = "";
@@ -1498,10 +1491,6 @@ function startOcrForAttachment(id) {
 async function runOcr() {
   const id = state.ocrAttachmentId;
   if (!id) return;
-  if (!$("#ocr-consent").checked) {
-    $("#ocr-message").textContent = "请先勾选同意，图片才会发送到外部视觉模型。";
-    return;
-  }
   const button = $("#run-ocr-button");
   setBusy(button, true, "识别中…");
   $("#ocr-message").textContent = "";
@@ -1509,7 +1498,7 @@ async function runOcr() {
   try {
     const result = await api(`/api/attachments/${id}/extract`, {
       method: "POST",
-      body: JSON.stringify({ consent: true })
+      body: JSON.stringify({})
     });
     if (!result.available) {
       $("#ocr-message").textContent = result.message;
@@ -5346,7 +5335,6 @@ function bindEvents() {
     if (remove) removeScanAttachment(Number(remove.dataset.removeScanImage));
   });
   $("#scan-clear-images").addEventListener("click", clearScanAttachments);
-  $("#scan-consent").addEventListener("change", renderScanIntake);
   $("#scan-start-button").addEventListener("click", startQuestionScan);
   $("#scan-import-button").addEventListener("click", importSelectedScanCandidates);
   $("#scan-task-content").addEventListener("change", (event) => {

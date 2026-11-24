@@ -673,8 +673,7 @@ test("拍照选题使用原图的裁剪区域进行 OCR", async () => {
           };
         }
       },
-      attachmentIds: [attachment.id],
-      consent: true
+      attachmentIds: [attachment.id]
     });
 
     assert.deepEqual(seen.buffer, crop);
@@ -701,34 +700,17 @@ test("拍照选题使用原图的裁剪区域进行 OCR", async () => {
   });
 });
 
-test("扫描失败、未配置模型和图片读取失败都保留图片且不写正式题库", async () => {
+test("扫描未配置和图片读取失败都保留图片且不写正式题库", async () => {
   await withTemporaryDirectory(async (directory) => {
     const { repository, store } = createFixture(directory);
     const attachment = saveAttachment(repository, store);
     const before = repository.listQuestions().length;
 
-    await assert.rejects(
-      () =>
-        createQuestionScan({
-          repository,
-          attachmentStore: store,
-          scanner: { isConfigured: () => false },
-          attachmentIds: [attachment.id],
-          consent: false
-        }),
-      (error) => error.code === "VISION_CONSENT_REQUIRED"
-    );
-    assert.equal(
-      repository.db.prepare("SELECT COUNT(*) AS count FROM question_scan_tasks").get().count,
-      0
-    );
-
     const unconfigured = await createQuestionScan({
       repository,
       attachmentStore: store,
       scanner: { isConfigured: () => false },
-      attachmentIds: [attachment.id],
-      consent: true
+      attachmentIds: [attachment.id]
     });
     assert.equal(unconfigured.status, "failed");
     assert.equal(unconfigured.candidateCount, 0);
@@ -746,8 +728,7 @@ test("扫描失败、未配置模型和图片读取失败都保留图片且不�
           throw new Error("should not be called");
         }
       },
-      attachmentIds: [attachment.id],
-      consent: true
+      attachmentIds: [attachment.id]
     });
     assert.equal(readFailure.status, "failed");
     assert.equal(readFailure.images.length, 1);
@@ -776,8 +757,7 @@ test("扫描失败、未配置模型和图片读取失败都保留图片且不�
           ]
         })
       },
-      attachmentIds: [second.id],
-      consent: true
+      attachmentIds: [second.id]
     });
     assert.equal(ready.status, "ready");
     assert.equal(ready.candidateCount, 1);
@@ -853,10 +833,7 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
         LLM_BASE_URL: `http://127.0.0.1:${fake.port}`,
         LLM_API_KEY: "fixture-key",
         LLM_MODEL: "fixture-model",
-        LLM_MAX_RETRIES: "0",
-        VISION_BASE_URL: "",
-        VISION_API_KEY: "",
-        VISION_MODEL: ""
+        LLM_MAX_RETRIES: "0"
       },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true
@@ -891,10 +868,28 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       const attachment = await upload.json();
       assert.equal(attachment.mimeType, "image/png");
 
+      const extractResponse = await fetch(
+        `${baseUrl}/api/attachments/${attachment.id}/extract`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        }
+      );
+      assert.equal(extractResponse.status, 200);
+      const extracted = await extractResponse.json();
+      assert.equal(extracted.available, true);
+      assert.equal(extracted.text, "1. 完整题\n2. 残缺题");
+      assert.equal(extracted.provider, "rapidocr");
+      assert.equal(extracted.model, "PP-OCRv6-small");
+      assert.equal(fake.requests.length, 1);
+      assert.equal(fake.requests[0].url, "/v1/ocr/raw");
+      assert.deepEqual(fake.requests[0].body, image);
+
       const scanResponse = await fetch(`${baseUrl}/api/questions/scans`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attachmentIds: [attachment.id], consent: true })
+        body: JSON.stringify({ attachmentIds: [attachment.id] })
       });
       assert.equal(scanResponse.status, 201);
       const task = await scanResponse.json();
@@ -912,13 +907,13 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       assert.equal(task.candidates[0].options.length, 2);
       assert.equal(task.candidates[0].answerPending, true);
       assert.ok(task.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
-      assert.equal(fake.requests.length, 2);
-      assert.equal(fake.requests[0].contentType, "image/png");
-      assert.equal(fake.requests[0].url, "/v1/ocr/raw");
-      assert.deepEqual(fake.requests[0].body, image);
-      assert.equal(fake.requests[1].url, "/chat/completions");
+      assert.equal(fake.requests.length, 3);
+      assert.equal(fake.requests[1].contentType, "image/png");
+      assert.equal(fake.requests[1].url, "/v1/ocr/raw");
+      assert.deepEqual(fake.requests[1].body, image);
+      assert.equal(fake.requests[2].url, "/chat/completions");
       assert.doesNotMatch(
-        fake.requests[1].body.toString("utf8"),
+        fake.requests[2].body.toString("utf8"),
         /data:image\/png;base64/
       );
 

@@ -25,7 +25,6 @@ import {
   readAttachmentContent,
   saveAttachmentCrop
 } from "./attachment-crop.js";
-import { createVisionExtractorFromEnvironment } from "./llm/vision.js";
 import {
   EinkPageService,
   etagMatches
@@ -38,6 +37,7 @@ import {
 } from "./feedback-calendar.js";
 import { buildOpenApiDocument } from "./openapi.js";
 import {
+  createInternalOcrTextExtractorFromEnvironment,
   createQuestionScannerFromEnvironment,
   QuestionScanError
 } from "./question-bank/scanner.js";
@@ -70,7 +70,8 @@ const einkPageService = new EinkPageService({
   repository,
   attachmentStore
 });
-const visionExtractor = createVisionExtractorFromEnvironment(process.env);
+const internalOcrTextExtractor =
+  createInternalOcrTextExtractorFromEnvironment(process.env);
 const questionScanner = createQuestionScannerFromEnvironment(process.env, {
   gateway: llmGateway
 });
@@ -730,8 +731,7 @@ async function handleApi(request, response, url) {
         repository,
         attachmentStore,
         scanner: questionScanner,
-        attachmentIds: parseAttachmentIds(body.attachmentIds),
-        consent: body.consent === true
+        attachmentIds: parseAttachmentIds(body.attachmentIds)
       })
     );
   }
@@ -1014,16 +1014,15 @@ async function handleApi(request, response, url) {
     /^\/api\/attachments\/(\d+)\/extract$/
   );
   if (attachmentExtractMatch && request.method === "POST") {
-    const body = await readJson(request);
+    await readJson(request);
     return sendJson(
       response,
       200,
       await extractAttachmentText({
         repository,
         attachmentStore,
-        extractor: visionExtractor,
-        attachmentId: parseId(attachmentExtractMatch[1]),
-        consent: body.consent === true
+        extractor: internalOcrTextExtractor,
+        attachmentId: parseId(attachmentExtractMatch[1])
       })
     );
   }
