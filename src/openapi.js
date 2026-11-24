@@ -725,7 +725,7 @@ const extractionResultSchema = {
   example: {
     available: false,
     requiresConfirmation: true,
-    message: "当前没有配置视觉识别，可直接填写题目文字并使用图片保存。"
+    message: "当前没有配置内部 OCR，可直接填写题目文字并使用图片保存。"
   }
 };
 
@@ -1468,16 +1468,9 @@ const editSessionInputSchema = {
 
 const extractAttachmentInputSchema = {
   type: "object",
-  required: ["consent"],
-  properties: {
-    consent: {
-      type: "boolean",
-      enum: [true],
-      description: "明确同意后才会把图片发送给已配置的视觉模型"
-    }
-  },
+  properties: {},
   additionalProperties: false,
-  example: { consent: true }
+  example: {}
 };
 
 const questionScanRegionSchema = {
@@ -1543,6 +1536,67 @@ const questionSchema = {
   description: "题库兼容视图。题目文字、附件、作答历史等旧字段保持原语义。"
 };
 
+const questionScanPartSchema = {
+  type: "object",
+  required: [
+    "partNo",
+    "label",
+    "prompt",
+    "studentAnswer",
+    "suggestedAnswer",
+    "answerType",
+    "confidence",
+    "pendingReasons",
+    "answerSource"
+  ],
+  properties: {
+    partNo: { type: "integer", minimum: 1, maximum: 20 },
+    label: { type: "string", maxLength: 50 },
+    prompt: { type: "string", maxLength: 2000 },
+    studentAnswer: { type: "string", maxLength: 2000 },
+    suggestedAnswer: {
+      type: "string",
+      maxLength: 2000,
+      description: "标准答案建议；等价答案用中文分号分隔"
+    },
+    answerType: {
+      type: "string",
+      enum: ["auto", "text", "number", "fraction", "percent", "ratio"]
+    },
+    confidence: anyOfNullable({ type: "number", minimum: 0, maximum: 1 }),
+    pendingReasons: { type: "array", items: { type: "string" } },
+    answerSource: {
+      type: "string",
+      enum: ["system_suggested", "user_confirmed"],
+      description: "OCR 模型生成时标记为 system_suggested；用户修改后标记为 user_confirmed"
+    }
+  },
+  additionalProperties: false
+};
+
+const questionScanPartInputSchema = {
+  type: "object",
+  required: ["prompt", "studentAnswer", "suggestedAnswer", "answerType"],
+  properties: {
+    partNo: { type: "integer", minimum: 1, maximum: 20 },
+    label: { type: "string", maxLength: 50 },
+    prompt: { type: "string", maxLength: 2000 },
+    studentAnswer: { type: "string", maxLength: 2000 },
+    suggestedAnswer: { type: "string", maxLength: 2000 },
+    answerType: {
+      type: "string",
+      enum: ["auto", "text", "number", "fraction", "percent", "ratio"]
+    },
+    confidence: anyOfNullable({ type: "number", minimum: 0, maximum: 1 }),
+    pendingReasons: { type: "array", maxItems: 20, items: { type: "string" } },
+    answerSource: {
+      type: "string",
+      enum: ["system_suggested", "user_confirmed"]
+    }
+  },
+  additionalProperties: false
+};
+
 const questionScanCandidateSchema = {
   type: "object",
   required: [
@@ -1559,6 +1613,7 @@ const questionScanCandidateSchema = {
     "options",
     "studentAnswer",
     "suggestedAnswer",
+    "parts",
     "pendingReasons",
     "sourceBlocks",
     "confidence",
@@ -1620,8 +1675,20 @@ const questionScanCandidateSchema = {
         additionalProperties: false
       }
     },
-    studentAnswer: { type: "string" },
-    suggestedAnswer: { type: "string" },
+    studentAnswer: {
+      type: "string",
+      description: "各小问学生答案的兼容汇总"
+    },
+    suggestedAnswer: {
+      type: "string",
+      description: "各小问标准答案建议的兼容汇总"
+    },
+    parts: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: ref("QuestionScanPart")
+    },
     pendingReasons: { type: "array", items: { type: "string" } },
     sourceBlocks: {
       type: "array",
@@ -1740,7 +1807,7 @@ const questionListSchema = {
 
 const createQuestionScanInputSchema = {
   type: "object",
-  required: ["attachmentIds", "consent"],
+  required: ["attachmentIds"],
   properties: {
     attachmentIds: {
       type: "array",
@@ -1748,11 +1815,6 @@ const createQuestionScanInputSchema = {
       maxItems: 3,
       items: { type: "integer", minimum: 1 },
       description: "已通过 POST /api/attachments 上传的图片编号。"
-    },
-    consent: {
-      type: "boolean",
-      enum: [true],
-      description: "必须明确同意把图片发送给内部 OCR 服务。"
     }
   },
   additionalProperties: false
@@ -1804,6 +1866,12 @@ const updateQuestionScanCandidateInputSchema = {
     },
     studentAnswer: { type: "string", maxLength: 2000 },
     suggestedAnswer: { type: "string", maxLength: 2000 },
+    parts: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: ref("QuestionScanPartInput")
+    },
     answerPending: { type: "boolean" },
     pendingReasons: {
       type: "array",
@@ -1851,6 +1919,8 @@ const components = {
     AttachmentCrop: attachmentCropSchema,
     Question: questionSchema,
     QuestionScanRegion: questionScanRegionSchema,
+    QuestionScanPart: questionScanPartSchema,
+    QuestionScanPartInput: questionScanPartInputSchema,
     QuestionScanCandidate: questionScanCandidateSchema,
     QuestionScan: questionScanSchema,
     QuestionList: questionListSchema,
@@ -2289,16 +2359,12 @@ const paths = {
       tags: ["附件"],
       summary: "可选图片文字识别",
       description:
-        "只有 consent=true 才会发送图片（有裁剪时仅发送裁剪区域）到已配置的视觉模型。识别结果只是候选文字，必须由学生确认；失败或未配置时返回 available=false，仍可用图片 + 文字保存。",
+        "由用户点击“识别文字”后调用。图片（有裁剪时仅发送裁剪区域）只发送到同一部署环境内的内部 OCR 服务。识别结果只是候选文字，必须由学生确认；失败或未配置时返回 available=false，仍可用图片 + 文字保存。",
       operationId: "extractAttachmentText",
       parameters: [idParameter("附件编号")],
       requestBody: requestBody(ref("ExtractAttachmentInput")),
       responses: {
         200: jsonResponse("识别或降级结果", ref("ExtractionResult")),
-        400: errorResponse(
-          "未明确同意或图片不存在",
-          { error: "发送图片前需要先明确同意", code: "VISION_CONSENT_REQUIRED" }
-        ),
         404: errorResponse("没有找到这张题目图片")
       }
     }
@@ -3248,10 +3314,7 @@ Object.assign(paths, {
       requestBody: requestBody(ref("CreateQuestionScanInput")),
       responses: {
         201: jsonResponse("扫描任务", ref("QuestionScan")),
-        400: errorResponse(
-          "图片数量无效或未勾选内部 OCR 处理同意",
-          { error: "发送图片到外部识别模型前需要明确同意", code: "VISION_CONSENT_REQUIRED" }
-        )
+        400: errorResponse("图片数量或图片状态无效")
       }
     }
   },
@@ -3420,6 +3483,7 @@ const INFO_DESCRIPTION = [
   "- 所有 JSON 错误统一为 `{ error, code? }`；路由不存在时为 404 + `ROUTE_NOT_FOUND`。",
   "- 写接口使用 `Idempotency-Key` 时，同键重放返回首次结果；不同请求复用同键会冲突。",
   "- 图片上传、裁剪使用图片二进制请求体；读取图片返回二进制，不返回本地路径。",
+  "- 单图 OCR 和批量扫描只调用同一部署环境内的 OCR Service，不发送给外部多模态模型，也不需要额外同意参数。",
   "- `DELETE /api/learning-data` 会不可逆删除全部学习数据，调用前必须先备份。",
   "",
   "### 推荐接入流程",
@@ -3433,7 +3497,7 @@ const INFO_DESCRIPTION = [
 
 export function buildOpenApiDocument({
   baseUrl = "/",
-  version = "0.19.0"
+  version = "0.21.0"
 } = {}) {
   return {
     openapi: "3.1.0",

@@ -5,15 +5,8 @@ export async function extractAttachmentText({
   repository,
   attachmentStore,
   extractor,
-  attachmentId,
-  consent
+  attachmentId
 }) {
-  if (consent !== true) {
-    throw new LearningValidationError(
-      "VISION_CONSENT_REQUIRED",
-      "发送图片前需要先明确同意"
-    );
-  }
   const attachment = repository.getAttachment(attachmentId, {
     includeStorageKey: true
   });
@@ -27,7 +20,7 @@ export async function extractAttachmentText({
     return {
       available: false,
       requiresConfirmation: true,
-      message: "当前没有配置视觉识别，可直接填写题目文字并使用图片保存。"
+      message: "当前没有配置内部 OCR，可直接填写题目文字并使用图片保存。"
     };
   }
 

@@ -11,6 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 import sharp from "sharp";
 import { LearningRepository } from "../src/database.js";
 import { AttachmentStore } from "../src/attachments.js";
+import { saveAttachmentCrop } from "../src/attachment-crop.js";
 import { migrateDatabase, SCHEMA_MIGRATIONS } from "../src/migrations.js";
 import {
   createQuestionScan,
@@ -189,6 +190,7 @@ function createScanTask(repository, attachmentId) {
         completenessStatus: "complete",
         suspectedWrong: false,
         answerPending: true,
+        suggestedAnswer: "42",
         region: { x: 0, y: 0, width: 1, height: 0.2 }
       },
       {
@@ -291,18 +293,19 @@ function startFakeScanPipeline({
 }) {
   const requests = [];
   const server = http.createServer((request, response) => {
-    let body = "";
+    const chunks = [];
     request.on("data", (chunk) => {
-      body += chunk.toString();
+      chunks.push(chunk);
     });
     request.on("end", () => {
+      const body = Buffer.concat(chunks);
       requests.push({
         url: request.url,
         authorization: request.headers.authorization || "",
         contentType: request.headers["content-type"] || "",
         body
       });
-      if (request.url === "/v1/ocr") {
+      if (request.url === "/v1/ocr/raw") {
         response.writeHead(ocrStatus, { "Content-Type": "application/json" });
         response.end(
           JSON.stringify(
@@ -568,6 +571,8 @@ test("候选导入失败会回滚正式题并允许安全重试", async () => {
     assert.equal(failed.successCount, 0);
     assert.equal(failed.failedCount, 1);
     assert.equal(repository.listQuestions().length, 0);
+    assert.equal(tableCount(repository.db, "mistake_parts"), 0);
+    assert.equal(tableCount(repository.db, "accepted_answers"), 0);
     assert.equal(tableCount(repository.db, "question_options"), 0);
     assert.equal(tableCount(repository.db, "attachments"), 1);
     assert.equal(
@@ -593,39 +598,124 @@ test("候选导入失败会回滚正式题并允许安全重试", async () => {
     );
     assert.equal(imported.failedCount, 0);
     assert.equal(repository.listQuestions().length, 1);
+    assert.equal(tableCount(repository.db, "mistake_parts"), 1);
+    assert.equal(tableCount(repository.db, "accepted_answers"), 1);
     assert.ok(imported.scan.candidates[0].importedQuestionId);
     repository.close();
   });
 });
 
-test("扫描失败、未配置模型和图片读取失败都保留图片且不写正式题库", async () => {
+test("拍照选题使用原图的裁剪区域进行 OCR", async () => {
+  await withTemporaryDirectory(async (directory) => {
+    const { repository, store } = createFixture(directory);
+    const original = await sharp({
+      create: {
+        width: 20,
+        height: 20,
+        channels: 3,
+        background: { r: 245, g: 245, b: 245 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const attachment = saveAttachment(
+      repository,
+      store,
+      "scan-original.png",
+      original
+    );
+    const crop = await sharp({
+      create: {
+        width: 8,
+        height: 6,
+        channels: 3,
+        background: { r: 230, g: 240, b: 235 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const cropped = saveAttachmentCrop({
+      repository,
+      attachmentStore: store,
+      attachmentId: attachment.id,
+      buffer: crop,
+      declaredMime: "image/png",
+      crop: {
+        x: 2,
+        y: 3,
+        width: 8,
+        height: 6,
+        rotation: 0,
+        sourceWidth: 20,
+        sourceHeight: 20
+      }
+    });
+    assert.equal(cropped.hasCrop, true);
+
+    let seen = null;
+    const task = await createQuestionScan({
+      repository,
+      attachmentStore: store,
+      scanner: {
+        isConfigured: () => true,
+        provider: "fixture",
+        model: "fixture-model",
+        promptVersion: "m2-scan-crop",
+        scan: async ({ images }) => {
+          seen = images[0];
+          return {
+            provider: "fixture",
+            model: "fixture-model",
+            promptVersion: "m2-scan-crop",
+            candidates: [
+              {
+                text: "1. 裁剪区域中的题目",
+                completenessStatus: "complete",
+                suspectedWrong: false,
+                region: { x: 0, y: 0, width: 1, height: 1 }
+              }
+            ]
+          };
+        }
+      },
+      attachmentIds: [attachment.id]
+    });
+
+    assert.deepEqual(seen.buffer, crop);
+    assert.equal(seen.mimeType, "image/png");
+    assert.equal(task.images[0].width, 8);
+    assert.equal(task.images[0].height, 6);
+    assert.match(task.images[0].url, /variant=crop/);
+    const context = repository.getQuestionScanImageContext(
+      task.id,
+      task.candidates[0].id
+    );
+    assert.deepEqual(store.read(context.storageKey), crop);
+    assert.equal(context.width, 8);
+    assert.equal(context.height, 6);
+    assert.deepEqual(
+      store.read(
+        repository.getAttachment(attachment.id, {
+          includeStorageKey: true
+        }).storageKey
+      ),
+      original
+    );
+    repository.close();
+  });
+});
+
+test("扫描未配置和图片读取失败都保留图片且不写正式题库", async () => {
   await withTemporaryDirectory(async (directory) => {
     const { repository, store } = createFixture(directory);
     const attachment = saveAttachment(repository, store);
     const before = repository.listQuestions().length;
 
-    await assert.rejects(
-      () =>
-        createQuestionScan({
-          repository,
-          attachmentStore: store,
-          scanner: { isConfigured: () => false },
-          attachmentIds: [attachment.id],
-          consent: false
-        }),
-      (error) => error.code === "VISION_CONSENT_REQUIRED"
-    );
-    assert.equal(
-      repository.db.prepare("SELECT COUNT(*) AS count FROM question_scan_tasks").get().count,
-      0
-    );
-
     const unconfigured = await createQuestionScan({
       repository,
       attachmentStore: store,
       scanner: { isConfigured: () => false },
-      attachmentIds: [attachment.id],
-      consent: true
+      attachmentIds: [attachment.id]
     });
     assert.equal(unconfigured.status, "failed");
     assert.equal(unconfigured.candidateCount, 0);
@@ -643,8 +733,7 @@ test("扫描失败、未配置模型和图片读取失败都保留图片且不�
           throw new Error("should not be called");
         }
       },
-      attachmentIds: [attachment.id],
-      consent: true
+      attachmentIds: [attachment.id]
     });
     assert.equal(readFailure.status, "failed");
     assert.equal(readFailure.images.length, 1);
@@ -673,8 +762,7 @@ test("扫描失败、未配置模型和图片读取失败都保留图片且不�
           ]
         })
       },
-      attachmentIds: [second.id],
-      consent: true
+      attachmentIds: [second.id]
     });
     assert.equal(ready.status, "ready");
     assert.equal(ready.candidateCount, 1);
@@ -714,6 +802,30 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
           questionType: "fill_blank",
           studentAnswer: "41",
           suggestedAnswer: "42",
+          parts: [
+            {
+              partNo: 1,
+              label: "（1）",
+              prompt: "圆的半径是多少？",
+              studentAnswer: "3",
+              suggestedAnswer: "3厘米",
+              answerType: "number",
+              confidence: 0.9,
+              sourceBlockIds: ["i1b1"],
+              pendingReasons: []
+            },
+            {
+              partNo: 2,
+              label: "（2）",
+              prompt: "圆的面积是多少？",
+              studentAnswer: "28.26",
+              suggestedAnswer: "28.26平方厘米；9π平方厘米",
+              answerType: "number",
+              confidence: 0.88,
+              sourceBlockIds: ["i1b2"],
+              pendingReasons: []
+            }
+          ],
           completeness: "complete",
           suspectedWrong: true,
           answerPending: false,
@@ -750,10 +862,7 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
         LLM_BASE_URL: `http://127.0.0.1:${fake.port}`,
         LLM_API_KEY: "fixture-key",
         LLM_MODEL: "fixture-model",
-        LLM_MAX_RETRIES: "0",
-        VISION_BASE_URL: "",
-        VISION_API_KEY: "",
-        VISION_MODEL: ""
+        LLM_MAX_RETRIES: "0"
       },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true
@@ -788,10 +897,28 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       const attachment = await upload.json();
       assert.equal(attachment.mimeType, "image/png");
 
+      const extractResponse = await fetch(
+        `${baseUrl}/api/attachments/${attachment.id}/extract`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        }
+      );
+      assert.equal(extractResponse.status, 200);
+      const extracted = await extractResponse.json();
+      assert.equal(extracted.available, true);
+      assert.equal(extracted.text, "1. 完整题\n2. 残缺题");
+      assert.equal(extracted.provider, "rapidocr");
+      assert.equal(extracted.model, "PP-OCRv6-small");
+      assert.equal(fake.requests.length, 1);
+      assert.equal(fake.requests[0].url, "/v1/ocr/raw");
+      assert.deepEqual(fake.requests[0].body, image);
+
       const scanResponse = await fetch(`${baseUrl}/api/questions/scans`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attachmentIds: [attachment.id], consent: true })
+        body: JSON.stringify({ attachmentIds: [attachment.id] })
       });
       assert.equal(scanResponse.status, 201);
       const task = await scanResponse.json();
@@ -803,17 +930,35 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       assert.equal(task.images.length, 1);
       assert.equal(task.ocr.model, "PP-OCRv6-small");
       assert.equal(task.ocr.blocks.length, 2);
-      assert.equal(task.candidates[0].studentAnswer, "41");
-      assert.equal(task.candidates[0].suggestedAnswer, "42");
+      assert.equal(task.candidates[0].studentAnswer, "3；28.26");
+      assert.equal(
+        task.candidates[0].suggestedAnswer,
+        "3厘米；28.26平方厘米；9π平方厘米"
+      );
+      assert.equal(task.candidates[0].parts.length, 2);
+      assert.equal(task.candidates[0].parts[0].label, "（1）");
+      assert.equal(
+        task.candidates[0].parts[1].suggestedAnswer,
+        "28.26平方厘米；9π平方厘米"
+      );
+      assert.equal(
+        task.candidates[0].parts[0].answerSource,
+        "system_suggested"
+      );
+      assert.equal(task.candidates[1].parts.length, 1, "无小问时生成默认小问");
       assert.equal(task.candidates[0].questionType, "fill_blank");
       assert.equal(task.candidates[0].options.length, 2);
       assert.equal(task.candidates[0].answerPending, true);
       assert.ok(task.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
-      assert.equal(fake.requests.length, 2);
-      assert.match(fake.requests[0].contentType, /multipart\/form-data/);
-      assert.equal(fake.requests[0].url, "/v1/ocr");
-      assert.equal(fake.requests[1].url, "/chat/completions");
-      assert.doesNotMatch(fake.requests[1].body, /data:image\/png;base64/);
+      assert.equal(fake.requests.length, 3);
+      assert.equal(fake.requests[1].contentType, "image/png");
+      assert.equal(fake.requests[1].url, "/v1/ocr/raw");
+      assert.deepEqual(fake.requests[1].body, image);
+      assert.equal(fake.requests[2].url, "/chat/completions");
+      assert.doesNotMatch(
+        fake.requests[2].body.toString("utf8"),
+        /data:image\/png;base64/
+      );
 
       const unselectedImport = await fetch(
         `${baseUrl}/api/questions/scans/${task.id}/import`,
@@ -846,6 +991,40 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       assert.equal(selected.candidates[1].selected, false);
       assert.equal(selected.canImport, true);
 
+      const editedPartsResponse = await fetch(
+        `${baseUrl}/api/questions/scans/${task.id}/candidates/${task.candidates[0].id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            parts: [
+              {
+                ...task.candidates[0].parts[1],
+                answerSource: "user_confirmed",
+                pendingReasons: []
+              },
+              {
+                ...task.candidates[0].parts[0],
+                answerSource: "user_confirmed",
+                pendingReasons: []
+              }
+            ]
+          })
+        }
+      );
+      assert.equal(editedPartsResponse.status, 200);
+      const editedTask = await editedPartsResponse.json();
+      assert.equal(editedTask.candidates[0].parts[0].prompt, "圆的面积是多少？");
+      assert.equal(editedTask.candidates[0].parts[0].partNo, 1);
+      assert.equal(
+        editedTask.candidates[0].parts[0].answerSource,
+        "user_confirmed"
+      );
+      assert.equal(
+        editedTask.candidates[0].studentAnswer,
+        "28.26；3"
+      );
+
       const imported = await fetch(
         `${baseUrl}/api/questions/scans/${task.id}/import`,
         {
@@ -869,7 +1048,9 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       );
       assert.equal(final.total, 1);
       assert.equal(final.questions[0].question, "1. 完整题");
-      assert.equal(final.questions[0].studentAnswer, "41");
+      assert.equal(final.questions[0].studentAnswer, "28.26；3");
+      assert.equal(final.questions[0].parts.length, 2);
+      assert.equal(final.questions[0].parts[0].prompt, "圆的面积是多少？");
       assert.equal(final.questions[0].questionType, "fill_blank");
       assert.equal(final.questions[0].answerReviewStatus, "pending");
       assert.equal(final.questions[0].attachments.length, 1);
@@ -887,7 +1068,29 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
         verificationDb
           .prepare("SELECT correct_answer FROM mistakes WHERE id = ?")
           .get(importedQuestionId).correct_answer,
-        "42"
+        "28.26平方厘米；3厘米"
+      );
+      assert.equal(
+        verificationDb
+          .prepare(
+            `SELECT COUNT(*) AS count FROM mistake_parts
+             WHERE mistake_id = ? AND active = 1`
+          )
+          .get(importedQuestionId).count,
+        2
+      );
+      assert.deepEqual(
+        verificationDb
+          .prepare(
+            `SELECT aa.answer
+             FROM accepted_answers aa
+             JOIN mistake_parts mp ON mp.id = aa.part_id
+             WHERE mp.mistake_id = ?
+             ORDER BY mp.part_no, aa.position`
+          )
+          .all(importedQuestionId)
+          .map((row) => row.answer),
+        ["28.26平方厘米", "9π平方厘米", "3厘米"]
       );
       verificationDb.close();
     } finally {
@@ -959,6 +1162,16 @@ test("OCR 文本模型不可用时降级为待确认候选并保留字块", asyn
   assert.equal(result.candidates[0].answerPending, true);
   assert.ok(result.candidates[0].pendingReasons.includes("LLM_NOT_CONFIGURED"));
   assert.ok(result.candidates[1].pendingReasons.includes("LOW_CONFIDENCE"));
+  assert.equal(result.candidates[0].parts.length, 1);
+  assert.equal(
+    result.candidates[0].parts[0].answerSource,
+    "system_suggested"
+  );
+  assert.ok(
+    result.candidates[0].parts[0].pendingReasons.includes(
+      "LLM_NOT_CONFIGURED"
+    )
+  );
   assert.equal(result.ocr.blocks.length, 2);
   assert.ok(result.candidates[0].sourceBlocks[0].bbox.length === 4);
 });
@@ -1023,6 +1236,170 @@ test("答案引用未声明的低置信字块时仍标记待确认", async () =>
   assert.ok(result.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
 });
 
+test("模型漏报 sourceBlockIds 时按 OCR 文本补齐两行候选区域", async () => {
+  const scanner = new OcrTextQuestionScanner({
+    ocrClient: new InternalOcrClient({
+      baseUrl: "https://example.invalid",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            engine: "rapidocr",
+            modelVersion: "PP-OCRv6-small",
+            width: 1000,
+            height: 200,
+            blocks: [
+              {
+                order: 1,
+                text: "因为它们的半径与直径都相",
+                bbox: [100, 0, 600, 20],
+                confidence: 0.9
+              },
+              {
+                order: 2,
+                text: "7. 人民公园有一个半径为200 dm的圆形人工湖，现要在人工湖的周围加一圈护栏。至少",
+                bbox: [20, 30, 950, 70],
+                confidence: 0.98
+              },
+              {
+                order: 3,
+                text: "需要多",
+                bbox: [40, 80, 100, 110],
+                confidence: 1
+              },
+              {
+                order: 4,
+                text: "少米护栏？这个人工湖的占地面积是多少平方本？",
+                bbox: [90, 80, 720, 110],
+                confidence: 0.98
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    }),
+    llmGateway: {
+      model: "fixture-model",
+      isConfigured: () => true,
+      chat: async () => ({
+        provider: "fixture",
+        model: "fixture-model",
+        message: {
+          content: JSON.stringify({
+            candidates: [
+              {
+                text: "7. 人民公园有一个半径为200 dm的圆形人工湖，现要在人工湖的周围加一圈护栏。至少需要多少米护栏？这个人工湖的占地面积是多少平方米？",
+                questionType: "short_answer",
+                completeness: "complete",
+                answerPending: false,
+                confidence: 0.98,
+                region: { x: 0.02, y: 0.15, width: 0.93, height: 0.2 }
+              }
+            ]
+          })
+        }
+      })
+    }
+  });
+  const result = await scanner.scan({
+    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+  });
+  const candidate = result.candidates[0];
+  assert.deepEqual(
+    candidate.sourceBlocks.map((block) => block.id),
+    ["i1b2", "i1b3", "i1b4"]
+  );
+  assert.ok(candidate.region.height > 0.35);
+  assert.equal(
+    candidate.pendingReasons.includes("MISSING_SOURCE_BLOCKS"),
+    false
+  );
+});
+
+test("多小问保留系统答案建议并对公式不足标记待确认", async () => {
+  const scanner = new OcrTextQuestionScanner({
+    ocrClient: new InternalOcrClient({
+      baseUrl: "https://example.invalid",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            engine: "rapidocr",
+            modelVersion: "PP-OCRv6-small",
+            width: 1000,
+            height: 800,
+            blocks: [
+              {
+                order: 1,
+                text: "求圆的面积和周长",
+                bbox: [20, 20, 700, 100],
+                confidence: 0.98
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    }),
+    llmGateway: {
+      model: "fixture-model",
+      isConfigured: () => true,
+      chat: async () => ({
+        provider: "fixture",
+        model: "fixture-model",
+        message: {
+          content: JSON.stringify({
+            candidates: [
+              {
+                text: "求圆的面积和周长",
+                questionType: "composite",
+                parts: [
+                  {
+                    partNo: 1,
+                    label: "（1）",
+                    prompt: "求面积",
+                    studentAnswer: "28.26",
+                    suggestedAnswer: "28.26平方厘米；9π平方厘米",
+                    answerType: "number",
+                    confidence: 0.92,
+                    sourceBlockIds: ["i1b1"],
+                    pendingReasons: []
+                  },
+                  {
+                    partNo: 2,
+                    label: "（2）",
+                    prompt: "根据图中公式求周长",
+                    studentAnswer: "",
+                    suggestedAnswer: "",
+                    answerType: "number",
+                    confidence: 0.9,
+                    sourceBlockIds: ["i1b1"],
+                    pendingReasons: ["FORMULA_UNCERTAIN"]
+                  }
+                ],
+                completeness: "complete",
+                answerPending: false,
+                sourceBlockIds: ["i1b1"],
+                region: { x: 0, y: 0, width: 1, height: 1 }
+              }
+            ]
+          })
+        }
+      })
+    }
+  });
+  const result = await scanner.scan({
+    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+  });
+  const candidate = result.candidates[0];
+  assert.equal(candidate.parts.length, 2);
+  assert.equal(candidate.parts[0].answerSource, "system_suggested");
+  assert.equal(
+    candidate.parts[0].suggestedAnswer,
+    "28.26平方厘米；9π平方厘米"
+  );
+  assert.ok(candidate.parts[1].pendingReasons.includes("FORMULA_UNCERTAIN"));
+  assert.ok(candidate.parts[1].pendingReasons.includes("ANSWER_PENDING"));
+  assert.equal(candidate.answerPending, true);
+});
+
 test("相邻数字旁的额外汇总符号标记待确认", () => {
   const warnings = detectOcrBlockWarnings(
     [
@@ -1053,13 +1430,23 @@ test("扫描 UI 展示题型与答案候选并只在选中后允许导入", () =
     "utf8"
   );
   assert.match(app, /data-scan-question-type/);
-  assert.match(app, /data-scan-student-answer/);
-  assert.match(app, /data-scan-suggested-answer/);
+  assert.match(app, /scan-parts-editor/);
+  assert.match(app, /data-scan-part-field/);
+  assert.match(app, /scanPartSourceLabel/);
+  assert.match(app, /data-scan-add-part/);
+  assert.match(app, /data-scan-remove-part/);
+  assert.match(app, /data-scan-move-part/);
+  assert.match(app, /标准答案（用户已修改）/);
   assert.match(app, /candidate\.options/);
   assert.match(app, /scanCandidateInput/);
   assert.match(app, /importSelectedScanCandidates/);
   assert.match(app, /candidate\.importedQuestionId/);
   assert.match(app, /pendingReasons\.map\(scanPendingLabel\)/);
+  assert.match(app, /crop\.dataset\.cropContext = "scan"/);
+  assert.match(
+    app,
+    /openCropEditor\(\s*Number\(crop\.dataset\.cropAttachment\),\s*crop\.dataset\.cropContext/
+  );
   assert.match(html, /导入所选题目/);
   assert.doesNotMatch(html, /M3 开放/);
 });

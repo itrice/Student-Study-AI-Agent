@@ -381,7 +381,7 @@ test("拒绝超限、伪造格式、损坏图片和超过数量的附件", () =>
   });
 });
 
-test("视觉识别必须显式同意，失败时可退回图片加文字保存", async () => {
+test("内部 OCR 无需额外同意，失败时可退回图片加文字保存", async () => {
   await withTemporaryDirectory(async (directory) => {
     const { repository, store } = createFixture(directory);
     const attachment = saveAttachment(repository, store);
@@ -394,24 +394,11 @@ test("视觉识别必须显式同意，失败时可退回图片加文字保存",
       }
     };
 
-    await assert.rejects(
-      extractAttachmentText({
-        repository,
-        attachmentStore: store,
-        extractor,
-        attachmentId: attachment.id,
-        consent: false
-      }),
-      /明确同意/
-    );
-    assert.equal(calls, 0);
-
     const failed = await extractAttachmentText({
       repository,
       attachmentStore: store,
       extractor,
-      attachmentId: attachment.id,
-      consent: true
+      attachmentId: attachment.id
     });
     assert.equal(failed.available, false);
     assert.match(failed.message, /可直接填写/);
@@ -433,8 +420,7 @@ test("视觉识别必须显式同意，失败时可退回图片加文字保存",
           };
         }
       },
-      attachmentId: attachment.id,
-      consent: true
+      attachmentId: attachment.id
     });
     assert.equal(success.available, true);
     assert.equal(success.text, "识别出的题目");
@@ -450,7 +436,7 @@ test("视觉识别必须显式同意，失败时可退回图片加文字保存",
   });
 });
 
-test("图片录入 UI 提供拍照、相册、粘贴和隐私确认入口", () => {
+test("图片录入 UI 提供拍照、相册、粘贴和内部 OCR 入口", () => {
   const html = fs.readFileSync(
     new URL("../public/index.html", import.meta.url),
     "utf8"
@@ -462,7 +448,12 @@ test("图片录入 UI 提供拍照、相册、粘贴和隐私确认入口", () =
 
   assert.match(html, /id="take-photo-input"[\s\S]*capture="environment"/);
   assert.match(html, /id="choose-image-input"[\s\S]*multiple/);
-  assert.match(html, /外部视觉模型/);
+  assert.match(html, /内部 OCR 服务/);
+  assert.doesNotMatch(html, /ocr-consent|scan-consent|外部视觉模型/);
+  assert.doesNotMatch(app, /ocr-consent|scan-consent|consent:\s*true/);
+  assert.match(app, /body:\s*JSON\.stringify\(\{\}\)/);
+  assert.match(app, /cropEditorElement\?\.closest\("dialog"\)/);
+  assert.match(app, /document\.body\.append\(cropEditorElement\)/);
   assert.match(app, /addEventListener\("paste"/);
   assert.match(app, /clipboardData\?\.files/);
   assert.doesNotMatch(app, /crypto\.randomUUID\s*\(/);

@@ -1,7 +1,8 @@
 # M9.1 + M9.2 图片录题最小切片
 
-> 状态：M9.1/M9.2 最小切片已验收；图片裁剪 P1 已实现待验收
-> 范围：图片附件闭环与可选文字识别辅助；不包含 M9.3 图形推理
+> 状态：M9.1/M9.2 最小切片已验收；图片裁剪 P1 已实现待验收；
+> 2026-11-24 起使用内部 OCR，上传图片不再要求二次确认
+> 范围：图片附件闭环与内部 OCR 文字识别辅助；不包含 M9.3 图形推理
 
 本文档冻结本轮图片录题的最小数据契约、API 契约、文件生命周期、隐私边界和备份恢复方式。
 前端与后端都以此为准，后续扩展不应改变已有字段含义。
@@ -13,9 +14,10 @@
 - 支持手机拍照、相册选择，以及桌面端从剪贴板粘贴图片。
 - 原图保存在本机附件目录，SQLite 只保存元数据。
 - 题目文字可手动录入和修改；文字与图片至少存在一项。
-- OCR/视觉识别是可选辅助，必须由学生明确同意并核对后才回填文字。
-- 识别失败、未配置视觉模型或图片读取失败时，仍可退回“图片 + 文字”保存。
-- 不保存视觉识别结果为正式错题，只有正常保存错题请求才会创建错题。
+- 内部 OCR 是可选辅助；学生上传图片即表示发起本次内部 OCR，不再显示同意勾选或二次确认。
+- OCR 结果必须由学生核对后才回填题目文字，不会静默覆盖手工输入。
+- OCR 服务不可用或图片读取失败时，仍可退回“图片 + 文字”保存。
+- 不保存 OCR 候选为正式错题，只有正常保存错题请求才会创建错题。
 
 本轮不包含：图形推理、复杂手写公式识别、多图批注、云端同步和多人协作。
 
@@ -187,11 +189,12 @@ DELETE /api/attachments/:id
 POST /api/attachments/:id/extract
 Content-Type: application/json
 
-{"consent": true}
+{}
 ```
 
-`consent` 必须严格为布尔值 `true` 才会调用外部视觉模型。存在裁剪时只读取裁剪图；
-没有裁剪时读取原图。识别不会创建错题，也不会自动覆盖题目文字。
+该接口不再接收或要求 `consent`。学生主动上传图片后即可调用部署在同一环境内的
+内部 OCR 服务，不弹出二次确认。存在裁剪时只读取裁剪图；没有裁剪时读取原图。
+识别不会创建错题，也不会自动覆盖题目文字。
 
 成功：
 
@@ -201,8 +204,8 @@ Content-Type: application/json
   "requiresConfirmation": true,
   "text": "识别出的题目文字",
   "confidence": null,
-  "provider": "openai-compatible",
-  "model": "vision-model"
+  "provider": "rapidocr",
+  "model": "PP-OCRv6-small"
 }
 ```
 
@@ -217,6 +220,39 @@ Content-Type: application/json
 ```
 
 前端必须把 `text` 放入可编辑候选框，学生点击“使用这段文字”后才回填题目输入框。
+
+### 批量扫描候选的小问
+
+批量扫描候选在 `parts[]` 中保存小问识别结果。纯文本 LLM 只接收 OCR 文字、坐标和
+置信度；没有明确小问时返回 1 个默认小问，不得把整页其他题目当作该候选的小问。
+
+```json
+{
+  "parts": [
+    {
+      "partNo": 1,
+      "label": "（1）",
+      "prompt": "求圆的面积",
+      "studentAnswer": "28.26",
+      "suggestedAnswer": "28.26平方厘米；9π平方厘米",
+      "answerType": "number",
+      "confidence": 0.92,
+      "pendingReasons": [],
+      "answerSource": "system_suggested"
+    }
+  ]
+}
+```
+
+- `suggestedAnswer` 是系统标准答案建议，等价答案继续用中文分号分隔。
+- 低置信度、公式信息不足或几何关系不足时，对应小问必须带 `pendingReasons`；
+  标准答案无法可靠确定时留空，不得编造。
+- 用户可以修改小问文字、学生答案、标准答案和答案类型，并增加、删除或调整顺序。
+- 修改标准答案后 `answerSource` 变为 `user_confirmed`；未修改的系统答案保持
+  `system_suggested`。
+- 只有用户选择并确认候选后才导入。导入与正式题目创建处于同一 SQLite 事务，
+  小问写入现有 `mistake_parts`，标准答案变体写入现有 `accepted_answers`；
+  不新增正式小问事实表。
 
 ### 创建和修改错题
 
@@ -272,27 +308,26 @@ Content-Type: application/json
 
 ## 6. 隐私边界
 
-- 图片默认只保存在本机，不会因上传而自动发送到外部。
-- 只有学生勾选同意并点击“识别文字”后，当前图片才以 base64 发送给配置的 OpenAI-compatible 视觉模型。
-- 存在裁剪时只发送裁剪区域，不发送整张原图；页面上的提示文案必须与此一致。
-- 未设置 `VISION_MODEL` 时视觉识别不可用，不影响手工文字 + 图片保存。
+- 图片上传是用户发起的本地录题操作，不再要求额外的同意勾选或二次确认。
+- 图片只发送到同一部署环境内的 OCR Service，不发送给外部多模态模型。
+- OCR 后的纯文本模型只接收文字、坐标和置信度，不接收图片。
+- 存在裁剪时 OCR 只读取裁剪区域，不读取整张原图；页面上的说明文字必须与此一致。
+- OCR 服务不可用时不影响手工文字 + 图片保存。
 - 普通日志只记录数据库路径，不记录附件文件名、存储键或磁盘路径。
 - 原图保留原始 EXIF；备份也是未加密文件，应按本机隐私数据保护。
 - 当前为单学生、无账号隔离应用，不应直接暴露到公网。
 
-## 7. 视觉识别配置
+## 7. 内部 OCR 配置
 
-可选环境变量：
+内部服务地址与超时配置：
 
 ```dotenv
-VISION_BASE_URL=https://api.openai.com/v1
-VISION_API_KEY=replace-with-your-api-key
-VISION_MODEL=replace-with-a-vision-model
-VISION_PROVIDER=openai-compatible
-VISION_TIMEOUT_MS=30000
+OCR_BASE_URL=http://student-study-ai-agent-ocr.student-study-ai-agent-ocr.svc.cluster.local:8000
+OCR_TIMEOUT_MS=60000
 ```
 
-未单独设置时，`VISION_BASE_URL`、`VISION_API_KEY`、`VISION_PROVIDER` 回退到对应 `LLM_*` 配置；`VISION_MODEL` 必须显式设置，避免把纯文本模型误用于图片。
+OCR Service 必须部署在内部集群网络，不配置公网入口。OCR 结果仅作为可编辑候选；
+题目拆分、学生答案和标准答案建议由纯文本模型根据 OCR 字块生成。
 
 ## 8. 备份与恢复
 

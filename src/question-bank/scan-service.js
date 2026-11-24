@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { LearningValidationError } from "../domain/errors.js";
+import { readAttachmentContent } from "../attachment-crop.js";
 
 function failedScan(repository, attachmentIds, message, scanner = {}) {
   return repository.createQuestionScanTask({
@@ -14,15 +15,8 @@ export async function createQuestionScan({
   repository,
   attachmentStore,
   scanner,
-  attachmentIds,
-  consent
+  attachmentIds
 }) {
-  if (consent !== true) {
-    throw new LearningValidationError(
-      "VISION_CONSENT_REQUIRED",
-      "发送图片到内部 OCR 服务前需要明确同意；拒绝后可改用手动录入"
-    );
-  }
   const ids = Array.isArray(attachmentIds) ? attachmentIds : [];
   if (!scanner?.isConfigured()) {
     return failedScan(
@@ -44,9 +38,10 @@ export async function createQuestionScan({
           "扫描图片不存在或已被清理"
         );
       }
+      const content = readAttachmentContent(attachment, attachmentStore);
       images.push({
-        mimeType: attachment.mimeType,
-        buffer: attachmentStore.read(attachment.storageKey)
+        mimeType: content.mimeType,
+        buffer: content.buffer
       });
     }
   } catch {
@@ -93,6 +88,13 @@ function scanImportError(code, message, status = 400) {
   const error = new LearningValidationError(code, message);
   error.status = status;
   return error;
+}
+
+function splitAcceptedAnswers(value) {
+  return String(value || "")
+    .split(/[或;；\n]/)
+    .map((answer) => answer.trim())
+    .filter(Boolean);
 }
 
 async function createCandidateAttachment({
@@ -235,17 +237,48 @@ export async function importQuestionScan({
         context,
         candidate
       });
+      const parts = (
+        candidate.parts?.length
+          ? candidate.parts
+          : [
+              {
+                label: "小问 1",
+                prompt: candidate.text,
+                studentAnswer: candidate.studentAnswer,
+                suggestedAnswer: candidate.suggestedAnswer,
+                answerType: "auto",
+                pendingReasons: candidate.pendingReasons,
+                answerSource: "system_suggested"
+              }
+            ]
+      ).map((part, index) => ({
+        label: part.label || `小问 ${index + 1}`,
+        prompt: part.prompt || (index === 0 ? candidate.text : ""),
+        studentAnswer: part.studentAnswer || "",
+        answerType: part.answerType || "auto",
+        comparisonRule: "auto",
+        acceptedAnswers: splitAcceptedAnswers(part.suggestedAnswer)
+      }));
+      const studentAnswer = parts
+        .map((part) => part.studentAnswer)
+        .filter(Boolean)
+        .join("；");
+      const suggestedAnswer = parts
+        .map((part) => part.acceptedAnswers[0] || "")
+        .filter(Boolean)
+        .join("；");
       const imported = repository.importQuestionScanCandidate({
         scanId,
         candidateId: candidate.id,
         input: {
           question: candidate.text,
-          studentAnswer: candidate.studentAnswer || "",
-          correctAnswer: candidate.suggestedAnswer || "",
+          studentAnswer,
+          correctAnswer: suggestedAnswer,
           analysis: "",
           knowledgePoint: "",
           errorType: candidate.suspectedWrong ? "扫描识别待确认" : "",
-          attachmentIds: [attachment.id]
+          attachmentIds: [attachment.id],
+          parts
         },
         questionType: candidate.questionType,
         completenessStatus:
@@ -255,7 +288,12 @@ export async function importQuestionScan({
         answerPending:
           candidate.answerPending ||
           candidate.pendingReasons.length > 0 ||
-          !candidate.suggestedAnswer,
+          candidate.parts?.some(
+            (part) =>
+              part.pendingReasons.length > 0 ||
+              part.answerSource !== "user_confirmed" ||
+              !part.suggestedAnswer
+          ),
         suspectedWrong: candidate.suspectedWrong,
         options: candidate.options
       });
