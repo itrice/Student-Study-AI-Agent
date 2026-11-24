@@ -185,7 +185,12 @@ function calendarElements(monthKey, calendarDays, todayKey) {
     );
     if (cell.hasActivity) {
       elements.push(
-        `<circle cx="${centerX}" cy="${cellY + 27}" r="2" fill="black"/>`
+        `<path class="completion-check" d="` +
+          `M ${cellX + cellWidth - 21} ${cellY + 22} ` +
+          `L ${cellX + cellWidth - 17} ${cellY + 26} ` +
+          `L ${cellX + cellWidth - 10} ${cellY + 16}" ` +
+          `fill="none" stroke="black" stroke-width="2" ` +
+          `stroke-linecap="square" stroke-linejoin="miter"/>`
       );
     }
   });
