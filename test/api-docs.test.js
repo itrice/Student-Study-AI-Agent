@@ -416,7 +416,11 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   assert.match(document.info.description, /Idempotency-Key/);
   assert.match(document.info.description, /未内置账号体系|无内置鉴权|鉴权/);
   assert.match(document.info.description, /尾斜杠/);
-  assert.equal(document.info.version, "0.20.0");
+  assert.equal(document.info.version, "0.21.0");
+  assert.deepEqual(
+    document.components.schemas.QuestionScanCandidate.properties.parts.items.$ref,
+    "#/components/schemas/QuestionScanPart"
+  );
   assert.equal(
     Object.hasOwn(
       document.components.schemas.ExtractAttachmentInput.properties,

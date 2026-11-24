@@ -1,4 +1,4 @@
-export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-text-2";
+export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-parts-3";
 export const INTERNAL_OCR_TEXT_VERSION = "internal-ocr-1";
 export const MAX_SCAN_CANDIDATES = 20;
 
@@ -14,15 +14,27 @@ const QUESTION_TYPES = new Set([
   "composite"
 ]);
 
+const ANSWER_TYPES = new Set([
+  "auto",
+  "text",
+  "number",
+  "fraction",
+  "percent",
+  "ratio"
+]);
+
 const SCAN_SYSTEM_PROMPT = [
   "你是六年级数学作业页的 OCR 文本整理器。",
-  "只能使用输入的 OCR 文字块、坐标和置信度，不解题，不推测图像里没有的文字或几何关系。",
-  "印刷题干、学生手写答案和标准答案必须分开；不确定的字段留空。",
+  "只能使用输入的 OCR 文字块、坐标和置信度，不推测图像里没有的文字或几何关系。",
+  "印刷题干、学生手写答案和标准答案必须分开；不确定的字段留空，不得编造答案。",
   "学生手写答案只能根据文字块整理，不得把题目编号、批改符号或额外符号当作答案。",
+  "识别题目中的全部小问；没有明确小问时只生成 1 个默认小问。",
+  "标准答案建议只能在题意完整、公式和几何关系足够时给出；信息不足时留空并标记 FORMULA_UNCERTAIN 或 GEOMETRY_UNCERTAIN。",
+  "同一小问的等价标准答案用中文分号“；”分隔。",
   "返回严格 JSON：",
-  "{\"candidates\":[{\"text\":\"题干\",\"options\":[{\"label\":\"A\",\"text\":\"选项内容\",\"sourceBlockIds\":[\"b2\"]}],\"questionType\":\"general|single_choice|multiple_choice|true_false|fill_blank|short_answer|proof|drawing|composite\",\"studentAnswer\":\"\",\"suggestedAnswer\":\"\",\"completeness\":\"complete|incomplete|unknown\",\"suspectedWrong\":false,\"answerPending\":false,\"confidence\":0.8,\"sourceBlockIds\":[\"b1\"],\"region\":{\"x\":0,\"y\":0,\"width\":1,\"height\":0.2},\"pendingReasons\":[]}]}",
+  "{\"candidates\":[{\"text\":\"整题题干\",\"options\":[{\"label\":\"A\",\"text\":\"选项内容\",\"sourceBlockIds\":[\"b2\"]}],\"questionType\":\"general|single_choice|multiple_choice|true_false|fill_blank|short_answer|proof|drawing|composite\",\"parts\":[{\"partNo\":1,\"label\":\"小问 1\",\"prompt\":\"小问文字\",\"studentAnswer\":\"\",\"suggestedAnswer\":\"\",\"answerType\":\"auto|text|number|fraction|percent|ratio\",\"confidence\":0.8,\"sourceBlockIds\":[\"b1\"],\"pendingReasons\":[]}],\"completeness\":\"complete|incomplete|unknown\",\"suspectedWrong\":false,\"answerPending\":false,\"confidence\":0.8,\"sourceBlockIds\":[\"b1\"],\"region\":{\"x\":0,\"y\":0,\"width\":1,\"height\":0.2},\"pendingReasons\":[]}]}",
   "候选题必须按阅读顺序，单次最多 20 道；region 是相对主图的 0～1 坐标。",
-  "字块置信度低、字块被拆分或存在额外符号时，answerPending 必须为 true，并在 pendingReasons 说明原因。",
+  "字块置信度低、字块被拆分、存在额外符号、公式或几何关系不足时，answerPending 必须为 true，并在对应 pendingReasons 说明原因。",
   "图形没有可识别结构时只保留题目图片关联，不编造几何信息。"
 ].join("\n");
 
@@ -100,6 +112,11 @@ function normalizeRegion(value, index = 0, total = 1) {
 function normalizeQuestionType(value) {
   const type = String(value || "general").trim();
   return QUESTION_TYPES.has(type) ? type : "general";
+}
+
+function normalizeAnswerType(value) {
+  const type = String(value || "auto").trim();
+  return ANSWER_TYPES.has(type) ? type : "auto";
 }
 
 function uniqueStrings(values, max = 12) {
@@ -230,7 +247,20 @@ function resolveCandidateBlocks(candidate, allBlocks, warningsByBlock) {
 }
 
 function warningReasonsForAnswers(candidate, allBlocks, warningsByBlock) {
-  const answers = [candidate?.studentAnswer, candidate?.suggestedAnswer]
+  const answers = [
+    candidate?.studentAnswer,
+    candidate?.suggestedAnswer,
+    ...(Array.isArray(candidate?.parts)
+      ? candidate.parts.flatMap((part) => [
+          part?.studentAnswer,
+          part?.suggestedAnswer,
+          part?.correctAnswer,
+          ...(Array.isArray(part?.acceptedAnswers)
+            ? part.acceptedAnswers
+            : [])
+        ])
+      : [])
+  ]
     .map((answer) => compact(answer, 2000))
     .filter(Boolean);
   if (!answers.length) return [];
@@ -250,7 +280,125 @@ function warningReasonsForAnswers(candidate, allBlocks, warningsByBlock) {
   );
 }
 
-function candidateFromLlm(candidate, index, total, allBlocks, warningsByBlock) {
+function normalizePartFromLlm(
+  part,
+  partIndex,
+  partCount,
+  candidate,
+  allBlocks,
+  warningsByBlock,
+  lowConfidence
+) {
+  const sourceBlocks = resolveCandidateBlocks(
+    part,
+    allBlocks,
+    warningsByBlock
+  );
+  const suggestedAnswer = String(
+    part?.suggestedAnswer ||
+      part?.correctAnswer ||
+      (Array.isArray(part?.acceptedAnswers)
+        ? part.acceptedAnswers.join("；")
+        : "")
+  )
+    .trim()
+    .slice(0, 2000);
+  const prompt =
+    String(
+      part?.prompt ||
+        part?.text ||
+        (partCount === 1 ? candidate?.text || candidate?.question || "" : "")
+    )
+      .trim()
+      .slice(0, 2000);
+  const confidenceValues = [
+    Number(part?.confidence),
+    ...sourceBlocks.map((block) => Number(block.confidence))
+  ].filter(Number.isFinite);
+  const confidence = confidenceValues.length
+    ? Math.min(...confidenceValues)
+    : null;
+  const pendingReasons = uniqueStrings([
+    ...sourceBlocks.flatMap((block) => block.warnings),
+    ...warningReasonsForAnswers(part, allBlocks, warningsByBlock),
+    ...(Array.isArray(part?.pendingReasons)
+      ? part.pendingReasons
+      : part?.pendingReasons
+        ? [part.pendingReasons]
+        : []),
+    ...(confidence !== null && confidence < lowConfidence
+      ? ["LOW_CONFIDENCE"]
+      : []),
+    ...(!suggestedAnswer ? ["ANSWER_PENDING"] : []),
+    ...(!prompt ? ["PART_PROMPT_MISSING"] : [])
+  ]);
+  return {
+    partNo: partIndex + 1,
+    label: String(part?.label || `小问 ${partIndex + 1}`)
+      .trim()
+      .slice(0, 50),
+    prompt,
+    studentAnswer: String(
+      part?.studentAnswer ||
+        (partCount === 1 ? candidate?.studentAnswer || "" : "")
+    )
+      .trim()
+      .slice(0, 2000),
+    suggestedAnswer,
+    answerType: normalizeAnswerType(part?.answerType),
+    confidence,
+    sourceBlockIds: sourceBlocks.map((block) => block.id),
+    pendingReasons,
+    answerSource: "system_suggested"
+  };
+}
+
+function normalizeCandidateParts(
+  candidate,
+  allBlocks,
+  warningsByBlock,
+  lowConfidence
+) {
+  const rawParts =
+    Array.isArray(candidate?.parts) && candidate.parts.length
+      ? candidate.parts
+      : [
+          {
+            partNo: 1,
+            label: "小问 1",
+            prompt: candidate?.text || candidate?.question || "",
+            studentAnswer: candidate?.studentAnswer || "",
+            suggestedAnswer:
+              candidate?.suggestedAnswer || candidate?.correctAnswer || "",
+            answerType: candidate?.answerType || "auto",
+            confidence: candidate?.confidence,
+            sourceBlockIds: candidate?.sourceBlockIds,
+            pendingReasons: candidate?.pendingReasons
+          }
+        ];
+  return rawParts
+    .slice(0, 20)
+    .map((part, partIndex) =>
+      normalizePartFromLlm(
+        part,
+        partIndex,
+        rawParts.length,
+        candidate,
+        allBlocks,
+        warningsByBlock,
+        lowConfidence
+      )
+    );
+}
+
+function candidateFromLlm(
+  candidate,
+  index,
+  total,
+  allBlocks,
+  warningsByBlock,
+  lowConfidence
+) {
   const text = String(candidate?.text || candidate?.question || "").trim();
   if (!text) return null;
   const sourceBlocks = resolveCandidateBlocks(
@@ -307,14 +455,30 @@ function candidateFromLlm(candidate, index, total, allBlocks, warningsByBlock) {
       };
     })
     .filter(Boolean);
+  const parts = normalizeCandidateParts(
+    candidate,
+    allBlocks,
+    warningsByBlock,
+    lowConfidence
+  );
+  const partPending = parts.some((part) => part.pendingReasons.length > 0);
+  const studentAnswer = String(
+    parts.map((part) => part.studentAnswer).filter(Boolean).join("；")
+  )
+    .trim()
+    .slice(0, 2000);
+  const suggestedAnswer = String(
+    parts.map((part) => part.suggestedAnswer).filter(Boolean).join("；")
+  )
+    .trim()
+    .slice(0, 2000);
   return {
     text,
     options,
     questionType: normalizeQuestionType(candidate.questionType),
-    studentAnswer: String(candidate.studentAnswer || "").trim().slice(0, 2000),
-    suggestedAnswer: String(
-      candidate.suggestedAnswer || candidate.correctAnswer || ""
-    ).trim().slice(0, 2000),
+    studentAnswer,
+    suggestedAnswer,
+    parts,
     completenessStatus: ["complete", "incomplete", "unknown"].includes(
       candidate.completeness
     )
@@ -322,7 +486,9 @@ function candidateFromLlm(candidate, index, total, allBlocks, warningsByBlock) {
       : "unknown",
     suspectedWrong: candidate.suspectedWrong === true,
     answerPending:
-      candidate.answerPending === true || pendingReasons.length > 0,
+      candidate.answerPending === true ||
+      pendingReasons.length > 0 ||
+      partPending,
     confidence,
     region: unionBlockRegion(
       sourceBlocks,
@@ -333,7 +499,12 @@ function candidateFromLlm(candidate, index, total, allBlocks, warningsByBlock) {
   };
 }
 
-function normalizeLlmCandidates(rawOutput, allBlocks, warningsByBlock) {
+function normalizeLlmCandidates(
+  rawOutput,
+  allBlocks,
+  warningsByBlock,
+  lowConfidence
+) {
   const parsed = parseJson(rawOutput);
   const rawCandidates = Array.isArray(parsed?.candidates)
     ? parsed.candidates
@@ -359,7 +530,8 @@ function normalizeLlmCandidates(rawOutput, allBlocks, warningsByBlock) {
         index,
         rawCandidates.length,
         allBlocks,
-        warningsByBlock
+        warningsByBlock,
+        lowConfidence
       )
     )
     .filter(Boolean);
@@ -421,27 +593,44 @@ function fallbackCandidates(blocks, warningsByBlock, fallbackReason) {
           : null;
       })
       .filter(Boolean);
+    const pendingReasons = uniqueStrings([
+      fallbackReason,
+      "ANSWER_PENDING",
+      ...blockWarnings
+    ]);
+    const confidence = confidenceValues.length
+      ? Math.min(...confidenceValues)
+      : null;
+    const parts = [
+      {
+        partNo: 1,
+        label: "小问 1",
+        prompt: sourceBlocks.map((block) => block.text.trim()).join("\n"),
+        studentAnswer: "",
+        suggestedAnswer: "",
+        answerType: "auto",
+        confidence,
+        sourceBlockIds: sourceBlocks.map((block) => block.id),
+        pendingReasons,
+        answerSource: "system_suggested"
+      }
+    ];
     return {
       text: sourceBlocks.map((block) => block.text.trim()).join("\n"),
       options,
       questionType: "general",
       studentAnswer: "",
       suggestedAnswer: "",
+      parts,
       completenessStatus: "complete",
       suspectedWrong: false,
       answerPending: true,
-      confidence: confidenceValues.length
-        ? Math.min(...confidenceValues)
-        : null,
+      confidence,
       region: unionBlockRegion(
         sourceBlocks,
         normalizeRegion(null, index, groups.length)
       ),
-      pendingReasons: uniqueStrings([
-        fallbackReason,
-        "ANSWER_PENDING",
-        ...blockWarnings
-      ]),
+      pendingReasons,
       sourceBlocks: sourceBlocks.map(publicSourceBlock)
     };
   });
@@ -662,7 +851,8 @@ export class OcrTextQuestionScanner {
         candidates = normalizeLlmCandidates(
           rawOutput,
           withWarnings,
-          warningsByBlock
+          warningsByBlock,
+          Number(this.ocrClient.lowConfidence) || 0.8
         );
         provider = `${this.ocrClient.provider || "ocr"}+${result.provider || "llm"}`;
         model = result.model || this.llmGateway.model;

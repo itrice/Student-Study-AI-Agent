@@ -90,6 +90,13 @@ function scanImportError(code, message, status = 400) {
   return error;
 }
 
+function splitAcceptedAnswers(value) {
+  return String(value || "")
+    .split(/[或;；\n]/)
+    .map((answer) => answer.trim())
+    .filter(Boolean);
+}
+
 async function createCandidateAttachment({
   repository,
   attachmentStore,
@@ -230,17 +237,48 @@ export async function importQuestionScan({
         context,
         candidate
       });
+      const parts = (
+        candidate.parts?.length
+          ? candidate.parts
+          : [
+              {
+                label: "小问 1",
+                prompt: candidate.text,
+                studentAnswer: candidate.studentAnswer,
+                suggestedAnswer: candidate.suggestedAnswer,
+                answerType: "auto",
+                pendingReasons: candidate.pendingReasons,
+                answerSource: "system_suggested"
+              }
+            ]
+      ).map((part, index) => ({
+        label: part.label || `小问 ${index + 1}`,
+        prompt: part.prompt || (index === 0 ? candidate.text : ""),
+        studentAnswer: part.studentAnswer || "",
+        answerType: part.answerType || "auto",
+        comparisonRule: "auto",
+        acceptedAnswers: splitAcceptedAnswers(part.suggestedAnswer)
+      }));
+      const studentAnswer = parts
+        .map((part) => part.studentAnswer)
+        .filter(Boolean)
+        .join("；");
+      const suggestedAnswer = parts
+        .map((part) => part.acceptedAnswers[0] || "")
+        .filter(Boolean)
+        .join("；");
       const imported = repository.importQuestionScanCandidate({
         scanId,
         candidateId: candidate.id,
         input: {
           question: candidate.text,
-          studentAnswer: candidate.studentAnswer || "",
-          correctAnswer: candidate.suggestedAnswer || "",
+          studentAnswer,
+          correctAnswer: suggestedAnswer,
           analysis: "",
           knowledgePoint: "",
           errorType: candidate.suspectedWrong ? "扫描识别待确认" : "",
-          attachmentIds: [attachment.id]
+          attachmentIds: [attachment.id],
+          parts
         },
         questionType: candidate.questionType,
         completenessStatus:
@@ -250,7 +288,12 @@ export async function importQuestionScan({
         answerPending:
           candidate.answerPending ||
           candidate.pendingReasons.length > 0 ||
-          !candidate.suggestedAnswer,
+          candidate.parts?.some(
+            (part) =>
+              part.pendingReasons.length > 0 ||
+              part.answerSource !== "user_confirmed" ||
+              !part.suggestedAnswer
+          ),
         suspectedWrong: candidate.suspectedWrong,
         options: candidate.options
       });

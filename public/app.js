@@ -359,6 +359,9 @@ const SCAN_PENDING_LABELS = {
   LOW_CONFIDENCE: "OCR 置信度偏低",
   SPLIT_TEXT_BLOCK: "文字块可能被拆分",
   EXTRA_SYMBOL: "发现疑似额外符号",
+  FORMULA_UNCERTAIN: "公式信息不足",
+  GEOMETRY_UNCERTAIN: "几何关系不足",
+  PART_PROMPT_MISSING: "小问文字缺失",
   MISSING_SOURCE_BLOCKS: "缺少对应 OCR 字块",
   SUPPLEMENT_IMAGE_REGION: "候选项来自补充图",
   LLM_NOT_CONFIGURED: "文本模型未配置",
@@ -524,6 +527,146 @@ function scanCandidateTag(text, className = "") {
   return createElement("span", `tag scan-candidate-tag ${className}`.trim(), text);
 }
 
+function scanPartSourceLabel(source) {
+  return source === "user_confirmed" ? "用户已修改" : "系统建议";
+}
+
+function createScanPartEditor(part, index, total, disabled) {
+  const editor = createElement("article", "scan-part-editor");
+  editor.dataset.answerSource = part.answerSource || "system_suggested";
+  editor.dataset.label = part.label || `小问 ${index + 1}`;
+  editor.dataset.confidence =
+    part.confidence === null || part.confidence === undefined
+      ? ""
+      : String(part.confidence);
+  editor.dataset.pendingReasons = JSON.stringify(part.pendingReasons || []);
+
+  const head = createElement("div", "scan-part-head");
+  head.append(createElement("strong", "scan-part-title", `小问 ${index + 1}`));
+  const source = createElement(
+    "span",
+    "tag scan-part-source",
+    scanPartSourceLabel(editor.dataset.answerSource)
+  );
+  head.append(source);
+  const actions = createElement("div", "scan-part-actions");
+  for (const [direction, label, text] of [
+    [-1, "上移", "↑"],
+    [1, "下移", "↓"]
+  ]) {
+    const button = createElement("button", "text-button", text);
+    button.type = "button";
+    button.dataset.scanMovePart = String(direction);
+    button.dataset.tooltip = label;
+    button.setAttribute("aria-label", label);
+    button.disabled = disabled || (direction < 0 ? index === 0 : index === total - 1);
+    actions.append(button);
+  }
+  const remove = createElement("button", "text-button danger", "删除");
+  remove.type = "button";
+  remove.dataset.scanRemovePart = "";
+  remove.disabled = disabled || total === 1;
+  actions.append(remove);
+  head.append(actions);
+  editor.append(head);
+
+  const promptLabel = document.createElement("label");
+  promptLabel.className = "scan-candidate-field";
+  promptLabel.append(createElement("span", "", "小问文字"));
+  const prompt = document.createElement("textarea");
+  prompt.rows = 2;
+  prompt.value = part.prompt || "";
+  prompt.dataset.scanPartField = "prompt";
+  prompt.disabled = disabled;
+  promptLabel.append(prompt);
+  editor.append(promptLabel);
+
+  const answers = createElement("div", "scan-part-answer-grid");
+  for (const [field, labelText, value] of [
+    ["studentAnswer", "学生手写答案", part.studentAnswer],
+    [
+      "suggestedAnswer",
+      editor.dataset.answerSource === "user_confirmed"
+        ? "标准答案（用户已修改）"
+        : "标准答案（系统建议）",
+      part.suggestedAnswer
+    ]
+  ]) {
+    const label = document.createElement("label");
+    label.className = "scan-candidate-field";
+    label.append(createElement("span", "", labelText));
+    const input = document.createElement("textarea");
+    input.rows = 2;
+    input.value = value || "";
+    input.dataset.scanPartField = field;
+    input.disabled = disabled;
+    label.append(input);
+    answers.append(label);
+  }
+  editor.append(answers);
+
+  const footer = createElement("div", "scan-part-footer");
+  const typeLabel = document.createElement("label");
+  typeLabel.className = "scan-candidate-field";
+  typeLabel.append(createElement("span", "", "答案类型"));
+  const type = document.createElement("select");
+  type.dataset.scanPartField = "answerType";
+  type.disabled = disabled;
+  for (const [value, text] of [
+    ["auto", "自动判断"],
+    ["text", "文字"],
+    ["number", "数值"],
+    ["fraction", "分数"],
+    ["percent", "百分数"],
+    ["ratio", "比"]
+  ]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = text;
+    type.append(option);
+  }
+  type.value = part.answerType || "auto";
+  typeLabel.append(type);
+  footer.append(typeLabel);
+  if (part.confidence !== null && part.confidence !== undefined) {
+    footer.append(
+      createElement(
+        "small",
+        "scan-part-meta",
+        `OCR 置信度 ${Math.round(Number(part.confidence) * 100)}%`
+      )
+    );
+  }
+  editor.append(footer);
+
+  if (part.pendingReasons?.length) {
+    editor.append(
+      createElement(
+        "p",
+        "scan-candidate-warning",
+        `待确认：${part.pendingReasons.map(scanPendingLabel).join("；")}`
+      )
+    );
+  }
+  return editor;
+}
+
+function renumberScanPartEditors(card) {
+  const editors = $$(".scan-part-editor", card);
+  const addPart = $("[data-scan-add-part]", card);
+  editors.forEach((editor, index) => {
+    $(".scan-part-title", editor).textContent = `小问 ${index + 1}`;
+    const moves = $$("[data-scan-move-part]", editor);
+    moves[0].disabled = index === 0;
+    moves[1].disabled = index === editors.length - 1;
+    $("[data-scan-remove-part]", editor).disabled = editors.length === 1;
+  });
+  if (addPart) {
+    addPart.disabled =
+      addPart.dataset.locked === "true" || editors.length >= 20;
+  }
+}
+
 function renderScanCandidate(candidate, task) {
   const card = createElement(
     "article",
@@ -639,27 +782,46 @@ function renderScanCandidate(candidate, task) {
   typeLabel.append(typeSelect);
   card.append(typeLabel);
 
-  const answerFields = createElement("div", "scan-answer-grid");
-  for (const [key, labelText, value] of [
-    ["studentAnswer", "学生答案", candidate.studentAnswer],
-    ["suggestedAnswer", "标准答案候选", candidate.suggestedAnswer]
-  ]) {
-    const field = document.createElement("label");
-    field.className = "scan-candidate-field";
-    field.append(createElement("span", "", labelText));
-    const input = document.createElement("textarea");
-    input.rows = 2;
-    input.value = value || "";
-    input.dataset[key === "studentAnswer" ? "scanStudentAnswer" : "scanSuggestedAnswer"] =
-      String(candidate.id);
-    input.disabled =
-      task.status !== "ready" ||
-      candidate.status === "excluded" ||
-      Boolean(candidate.importedQuestionId);
-    field.append(input);
-    answerFields.append(field);
-  }
-  card.append(answerFields);
+  const partsSection = createElement("section", "scan-parts-editor");
+  const partsHead = createElement("div", "scan-parts-head");
+  partsHead.append(
+    createElement("strong", "", "小问与标准答案"),
+    createElement("small", "", "系统建议需核对；修改后的标准答案按分号拆分等价答案。")
+  );
+  const addPart = createElement("button", "secondary-button compact", "添加小问");
+  addPart.type = "button";
+  addPart.dataset.scanAddPart = String(candidate.id);
+  addPart.dataset.locked = String(
+    task.status !== "ready" ||
+    candidate.status === "excluded" ||
+      Boolean(candidate.importedQuestionId)
+  );
+  addPart.disabled = addPart.dataset.locked === "true";
+  partsHead.append(addPart);
+  const partsList = createElement("div", "scan-parts-list");
+  const parts =
+    candidate.parts?.length
+      ? candidate.parts
+      : [
+          {
+            label: "小问 1",
+            prompt: candidate.text,
+            studentAnswer: candidate.studentAnswer,
+            suggestedAnswer: candidate.suggestedAnswer,
+            answerType: "auto",
+            confidence: candidate.confidence,
+            pendingReasons: candidate.pendingReasons,
+            answerSource: "system_suggested"
+          }
+        ];
+  parts.forEach((part, index) => {
+    partsList.append(
+      createScanPartEditor(part, index, parts.length, addPart.disabled)
+    );
+  });
+  partsSection.append(partsHead, partsList);
+  card.append(partsSection);
+  renumberScanPartEditors(card);
 
   if (candidate.options?.length) {
     const options = createElement("div", "scan-candidate-options");
@@ -714,7 +876,7 @@ function renderScanCandidate(candidate, task) {
   card.append(region);
 
   const actions = createElement("div", "scan-candidate-actions");
-  const save = createElement("button", "secondary-button compact", "保存文字与框选");
+  const save = createElement("button", "secondary-button compact", "保存候选与小问");
   save.type = "button";
   save.dataset.scanSave = String(candidate.id);
   save.disabled =
@@ -784,7 +946,7 @@ function renderQuestionScan(task) {
     task.status === "expired"
       ? "任务已失效，不能再导入；请重新扫描。"
       : task.canImport
-        ? "确认题干、题型、学生答案和标准答案后，点击导入所选题目。"
+        ? "确认题干、小问、学生答案和标准答案后，点击导入所选题目。"
         : "未选择可导入的候选；未选中的题目不会进入题库。";
   renderScanIntake();
 }
@@ -815,10 +977,36 @@ function scanCandidateInput(candidateId) {
   if (!card) return null;
   const text = card.querySelector("[data-scan-text]")?.value || "";
   const questionType = card.querySelector("[data-scan-question-type]")?.value || "general";
-  const studentAnswer =
-    card.querySelector("[data-scan-student-answer]")?.value || "";
-  const suggestedAnswer =
-    card.querySelector("[data-scan-suggested-answer]")?.value || "";
+  const parts = [...card.querySelectorAll(".scan-part-editor")].map(
+    (editor, index) => ({
+      partNo: index + 1,
+      label: editor.dataset.label || `小问 ${index + 1}`,
+      prompt:
+        editor.querySelector('[data-scan-part-field="prompt"]')?.value || "",
+      studentAnswer:
+        editor.querySelector('[data-scan-part-field="studentAnswer"]')?.value ||
+        "",
+      suggestedAnswer:
+        editor.querySelector('[data-scan-part-field="suggestedAnswer"]')
+          ?.value || "",
+      answerType:
+        editor.querySelector('[data-scan-part-field="answerType"]')?.value ||
+        "auto",
+      confidence: editor.dataset.confidence
+        ? Number(editor.dataset.confidence)
+        : null,
+      pendingReasons: JSON.parse(editor.dataset.pendingReasons || "[]"),
+      answerSource: editor.dataset.answerSource || "system_suggested"
+    })
+  );
+  const studentAnswer = parts
+    .map((part) => part.studentAnswer)
+    .filter(Boolean)
+    .join("；");
+  const suggestedAnswer = parts
+    .map((part) => part.suggestedAnswer)
+    .filter(Boolean)
+    .join("；");
   const region = {};
   card.querySelectorAll("[data-scan-region]").forEach((input) => {
     region[input.dataset.scanRegion] = Number(input.value) / 100;
@@ -828,7 +1016,8 @@ function scanCandidateInput(candidateId) {
     region,
     questionType,
     studentAnswer,
-    suggestedAnswer
+    suggestedAnswer,
+    parts
   };
 }
 
@@ -5365,7 +5554,86 @@ function bindEvents() {
       applyScanSelection("unselect_candidate", candidateId);
     }
   });
+  $("#scan-task-content").addEventListener("input", (event) => {
+    const answer = event.target.closest(
+      '[data-scan-part-field="suggestedAnswer"]'
+    );
+    if (!answer) return;
+    const editor = answer.closest(".scan-part-editor");
+    if (!editor) return;
+    editor.dataset.answerSource = "user_confirmed";
+    const source = $(".scan-part-source", editor);
+    if (source) source.textContent = scanPartSourceLabel("user_confirmed");
+    const answerLabel = answer.closest("label")?.querySelector("span");
+    if (answerLabel) answerLabel.textContent = "标准答案（用户已修改）";
+    const currentReasons = JSON.parse(editor.dataset.pendingReasons || "[]");
+    const reasons = answer.value.trim()
+      ? currentReasons.filter((reason) => reason !== "ANSWER_PENDING")
+      : [...new Set([...currentReasons, "ANSWER_PENDING"])];
+    editor.dataset.pendingReasons = JSON.stringify(reasons);
+    let warning = editor.querySelector(".scan-candidate-warning");
+    if (!reasons.length) {
+      warning?.remove();
+    } else {
+      if (!warning) {
+        warning = createElement("p", "scan-candidate-warning");
+        editor.append(warning);
+      }
+      warning.textContent = `待确认：${reasons.map(scanPendingLabel).join("；")}`;
+    }
+  });
   $("#scan-task-content").addEventListener("click", (event) => {
+    const addPart = event.target.closest("[data-scan-add-part]");
+    if (addPart) {
+      const card = addPart.closest(".scan-candidate");
+      const list = $(".scan-parts-list", card);
+      if (!list) return;
+      if (list.children.length >= 20) {
+        showToast("每道题最多 20 个小问", true);
+        return;
+      }
+      const index = list.children.length;
+      list.append(
+        createScanPartEditor(
+          {
+            label: `小问 ${index + 1}`,
+            answerSource: "user_confirmed",
+            pendingReasons: []
+          },
+          index,
+          list.children.length + 1,
+          false
+        )
+      );
+      renumberScanPartEditors(card);
+      $('.scan-part-editor:last-child [data-scan-part-field="prompt"]', card)?.focus();
+      return;
+    }
+    const removePart = event.target.closest("[data-scan-remove-part]");
+    if (removePart) {
+      const editor = removePart.closest(".scan-part-editor");
+      const card = editor?.closest(".scan-candidate");
+      if (!editor || !card || $$(".scan-part-editor", card).length === 1) return;
+      editor.remove();
+      renumberScanPartEditors(card);
+      return;
+    }
+    const movePart = event.target.closest("[data-scan-move-part]");
+    if (movePart) {
+      const editor = movePart.closest(".scan-part-editor");
+      const card = editor?.closest(".scan-candidate");
+      if (!editor || !card) return;
+      const direction = Number(movePart.dataset.scanMovePart);
+      const sibling =
+        direction < 0 ? editor.previousElementSibling : editor.nextElementSibling;
+      if (sibling) {
+        if (direction < 0) editor.parentElement.insertBefore(editor, sibling);
+        else editor.parentElement.insertBefore(sibling, editor);
+        renumberScanPartEditors(card);
+        movePart.focus();
+      }
+      return;
+    }
     const quick = event.target.closest("[data-scan-action]");
     if (quick) {
       applyScanSelection(quick.dataset.scanAction);

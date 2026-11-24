@@ -490,6 +490,14 @@ export const MAX_SCAN_CANDIDATES = 20;
 export const MAX_SCAN_IMAGES = 3;
 
 const SCAN_COMPLETENESS = new Set(["complete", "incomplete", "unknown"]);
+const SCAN_ANSWER_TYPES = new Set([
+  "auto",
+  "text",
+  "number",
+  "fraction",
+  "percent",
+  "ratio"
+]);
 
 function normalizeScanRegion(value, { strict = false } = {}) {
   if (value === undefined || value === null || value === "") {
@@ -546,6 +554,91 @@ function normalizeScanBoolean(value) {
   return false;
 }
 
+function normalizeScanCandidateParts(
+  value,
+  {
+    prompt = "",
+    studentAnswer = "",
+    suggestedAnswer = "",
+    confidence = null,
+    pendingReasons = []
+  } = {}
+) {
+  const source =
+    Array.isArray(value) && value.length
+      ? value
+      : [
+          {
+            label: "小问 1",
+            prompt,
+            studentAnswer,
+            suggestedAnswer,
+            answerType: "auto",
+            confidence,
+            pendingReasons,
+            answerSource: "system_suggested"
+          }
+        ];
+  return source.slice(0, 20).map((part, index) => {
+    const acceptedAnswers = Array.isArray(part?.acceptedAnswers)
+      ? part.acceptedAnswers
+      : [];
+    const answer = String(
+      part?.suggestedAnswer ||
+        part?.correctAnswer ||
+        acceptedAnswers.join("；") ||
+        (source.length === 1 ? suggestedAnswer : "")
+    )
+      .trim()
+      .slice(0, 2000);
+    const partConfidence = Number(part?.confidence);
+    const reasons = Array.isArray(part?.pendingReasons)
+      ? part.pendingReasons
+      : part?.pendingReasons
+        ? [part.pendingReasons]
+        : [];
+    return {
+      partNo: index + 1,
+      label: String(part?.label || `小问 ${index + 1}`)
+        .trim()
+        .slice(0, 50),
+      prompt: String(
+        part?.prompt || (source.length === 1 ? prompt : "")
+      )
+        .trim()
+        .slice(0, 2000),
+      studentAnswer: String(
+        part?.studentAnswer || (source.length === 1 ? studentAnswer : "")
+      )
+        .trim()
+        .slice(0, 2000),
+      suggestedAnswer: answer,
+      answerType: SCAN_ANSWER_TYPES.has(String(part?.answerType || "auto"))
+        ? String(part?.answerType || "auto")
+        : "auto",
+      confidence:
+        Number.isFinite(partConfidence) &&
+        partConfidence >= 0 &&
+        partConfidence <= 1
+          ? partConfidence
+          : source.length === 1 && Number.isFinite(Number(confidence))
+            ? Number(confidence)
+            : null,
+      pendingReasons: [
+        ...new Set(
+          reasons
+            .map((reason) => String(reason || "").trim().slice(0, 100))
+            .filter(Boolean)
+        )
+      ].slice(0, 20),
+      answerSource:
+        part?.answerSource === "user_confirmed"
+          ? "user_confirmed"
+          : "system_suggested"
+    };
+  });
+}
+
 function mapQuestionContentUnit(row) {
   return {
     id: row.id,
@@ -577,6 +670,13 @@ function mapQuestionSource(row) {
 
 function mapQuestionScanCandidate(row, scanId) {
   const analysis = parseJsonObject(row.analysis_json);
+  const parts = normalizeScanCandidateParts(analysis.parts, {
+    prompt: row.recognized_text,
+    studentAnswer: analysis.studentAnswer,
+    suggestedAnswer: analysis.suggestedAnswer,
+    confidence: row.confidence,
+    pendingReasons: analysis.pendingReasons
+  });
   return {
     id: row.id,
     candidateNo: row.candidate_no,
@@ -591,6 +691,7 @@ function mapQuestionScanCandidate(row, scanId) {
     options: Array.isArray(analysis.options) ? analysis.options : [],
     studentAnswer: analysis.studentAnswer || "",
     suggestedAnswer: analysis.suggestedAnswer || "",
+    parts,
     pendingReasons: Array.isArray(analysis.pendingReasons)
       ? analysis.pendingReasons
       : [],
@@ -4043,13 +4144,42 @@ export class LearningRepository {
           const candidateStatus = candidate.status === "failed"
             ? "failed"
             : "ready";
+          const parts = normalizeScanCandidateParts(candidate.parts, {
+            prompt: candidate.text,
+            studentAnswer: candidate.studentAnswer,
+            suggestedAnswer: candidate.suggestedAnswer,
+            confidence: candidate.confidence,
+            pendingReasons: candidate.pendingReasons
+          });
+          const studentAnswer = parts
+            .map((part) => part.studentAnswer)
+            .filter(Boolean)
+            .join("；");
+          const suggestedAnswer = parts
+            .map((part) => part.suggestedAnswer)
+            .filter(Boolean)
+            .join("；");
+          const pendingReasons = [
+            ...new Set([
+              ...(Array.isArray(candidate.pendingReasons)
+                ? candidate.pendingReasons
+                : []),
+              ...parts.flatMap((part) => part.pendingReasons)
+            ])
+          ]
+            .map((reason) => String(reason || "").trim().slice(0, 100))
+            .filter(Boolean)
+            .slice(0, 20);
+          const answerPending =
+            normalizeScanBoolean(candidate.answerPending) ||
+            parts.some((part) => part.pendingReasons.length > 0);
           insertCandidate.run(
             taskId,
             candidateNo,
             candidateStatus,
             normalizeScanCompleteness(candidate.completenessStatus),
             normalizeScanBoolean(candidate.suspectedWrong) ? 1 : 0,
-            normalizeScanBoolean(candidate.answerPending) ? 1 : 0,
+            answerPending ? 1 : 0,
             String(candidate.text || "").slice(0, 5000),
             Number.isFinite(Number(candidate.confidence))
               ? Number(candidate.confidence)
@@ -4060,16 +4190,10 @@ export class LearningRepository {
               options: Array.isArray(candidate.options)
                 ? candidate.options.slice(0, 20)
                 : [],
-              studentAnswer: String(candidate.studentAnswer || "").slice(0, 2000),
-              suggestedAnswer: String(
-                candidate.suggestedAnswer || ""
-              ).slice(0, 2000),
-              pendingReasons: Array.isArray(candidate.pendingReasons)
-                ? candidate.pendingReasons
-                    .map((reason) => String(reason || "").trim().slice(0, 100))
-                    .filter(Boolean)
-                    .slice(0, 20)
-                : [],
+              studentAnswer,
+              suggestedAnswer,
+              parts,
+              pendingReasons,
               sourceBlocks: Array.isArray(candidate.sourceBlocks)
                 ? candidate.sourceBlocks.slice(0, 80)
                 : []
@@ -4345,20 +4469,53 @@ export class LearningRepository {
       text = String(input.text || "").trim().slice(0, 5000);
     }
     const currentAnalysis = parseJsonObject(current.analysis_json);
+    const partsProvided = Object.hasOwn(input, "parts");
+    if (
+      partsProvided &&
+      (!Array.isArray(input.parts) || input.parts.length === 0)
+    ) {
+      throw new LearningValidationError(
+        "SCAN_PARTS_REQUIRED",
+        "请至少保留一个小问"
+      );
+    }
     const questionType =
       input.questionType === undefined
         ? currentAnalysis.questionType || "general"
         : String(input.questionType || "general");
+    const parts = normalizeScanCandidateParts(
+      partsProvided ? input.parts : currentAnalysis.parts,
+      {
+        prompt: text,
+        studentAnswer: input.studentAnswer ?? currentAnalysis.studentAnswer,
+        suggestedAnswer:
+          input.suggestedAnswer ?? currentAnalysis.suggestedAnswer,
+        confidence: current.confidence,
+        pendingReasons:
+          input.pendingReasons ?? currentAnalysis.pendingReasons
+      }
+    );
     const studentAnswer =
-      input.studentAnswer === undefined
+      partsProvided
+        ? parts
+            .map((part) => part.studentAnswer)
+            .filter(Boolean)
+            .join("；")
+        : input.studentAnswer === undefined
         ? String(currentAnalysis.studentAnswer || "")
         : String(input.studentAnswer || "").trim().slice(0, 2000);
     const suggestedAnswer =
-      input.suggestedAnswer === undefined
+      partsProvided
+        ? parts
+            .map((part) => part.suggestedAnswer)
+            .filter(Boolean)
+            .join("；")
+        : input.suggestedAnswer === undefined
         ? String(currentAnalysis.suggestedAnswer || "")
         : String(input.suggestedAnswer || "").trim().slice(0, 2000);
-    const pendingReasons =
-      input.pendingReasons === undefined
+    const pendingReasons = [
+      ...new Set([
+        ...(input.pendingReasons === undefined
         ? Array.isArray(currentAnalysis.pendingReasons)
           ? currentAnalysis.pendingReasons
           : []
@@ -4367,9 +4524,19 @@ export class LearningRepository {
               .map((reason) => String(reason || "").trim().slice(0, 100))
               .filter(Boolean)
               .slice(0, 20)
-          : [];
+          : []),
+        ...parts.flatMap((part) => part.pendingReasons)
+      ])
+    ].slice(0, 20);
     const answerPending =
-      input.answerPending === undefined
+      partsProvided
+        ? input.answerPending === true ||
+          pendingReasons.length > 0 ||
+          parts.some(
+            (part) =>
+              part.pendingReasons.length > 0 || !part.suggestedAnswer
+          )
+        : input.answerPending === undefined
         ? current.answer_pending === 1
         : input.answerPending === true;
     let region = normalizeScanRegion(parseJsonObject(current.region_json));
@@ -4408,6 +4575,7 @@ export class LearningRepository {
             : [],
           studentAnswer,
           suggestedAnswer,
+          parts,
           pendingReasons,
           sourceBlocks: Array.isArray(currentAnalysis.sourceBlocks)
             ? currentAnalysis.sourceBlocks

@@ -410,6 +410,14 @@ const QUESTION_TYPES = new Set([
   "drawing",
   "composite"
 ]);
+const SCAN_ANSWER_TYPES = new Set([
+  "auto",
+  "text",
+  "number",
+  "fraction",
+  "percent",
+  "ratio"
+]);
 
 function parseMistakeParts(
   value,
@@ -845,6 +853,57 @@ async function handleApi(request, response, url) {
     }
     if (Object.hasOwn(body, "suggestedAnswer")) {
       input.suggestedAnswer = optionalText(body.suggestedAnswer, 2000);
+    }
+    if (Object.hasOwn(body, "parts")) {
+      if (
+        !Array.isArray(body.parts) ||
+        body.parts.length === 0 ||
+        body.parts.length > 20
+      ) {
+        throw new HttpError(400, "小问数量必须为 1～20 个");
+      }
+      input.parts = body.parts.map((part, index) => {
+        if (!part || typeof part !== "object" || Array.isArray(part)) {
+          throw new HttpError(400, `小问 ${index + 1} 格式无效`);
+        }
+        const answerType = String(part.answerType || "auto");
+        if (!SCAN_ANSWER_TYPES.has(answerType)) {
+          throw new HttpError(400, `小问 ${index + 1} 答案类型无效`);
+        }
+        const confidence =
+          part.confidence === null || part.confidence === undefined
+            ? null
+            : Number(part.confidence);
+        if (
+          confidence !== null &&
+          (!Number.isFinite(confidence) || confidence < 0 || confidence > 1)
+        ) {
+          throw new HttpError(400, `小问 ${index + 1} 置信度无效`);
+        }
+        if (
+          part.pendingReasons !== undefined &&
+          !Array.isArray(part.pendingReasons)
+        ) {
+          throw new HttpError(400, `小问 ${index + 1} 待确认项无效`);
+        }
+        return {
+          partNo: index + 1,
+          label: optionalText(part.label, 50),
+          prompt: optionalText(part.prompt, 2000),
+          studentAnswer: optionalText(part.studentAnswer, 2000),
+          suggestedAnswer: optionalText(part.suggestedAnswer, 2000),
+          answerType,
+          confidence,
+          pendingReasons: (part.pendingReasons || [])
+            .slice(0, 20)
+            .map((reason) => optionalText(reason, 100))
+            .filter(Boolean),
+          answerSource:
+            part.answerSource === "user_confirmed"
+              ? "user_confirmed"
+              : "system_suggested"
+        };
+      });
     }
     if (Object.hasOwn(body, "answerPending")) {
       input.answerPending = body.answerPending === true;

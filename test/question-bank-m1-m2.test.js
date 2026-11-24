@@ -190,6 +190,7 @@ function createScanTask(repository, attachmentId) {
         completenessStatus: "complete",
         suspectedWrong: false,
         answerPending: true,
+        suggestedAnswer: "42",
         region: { x: 0, y: 0, width: 1, height: 0.2 }
       },
       {
@@ -570,6 +571,8 @@ test("候选导入失败会回滚正式题并允许安全重试", async () => {
     assert.equal(failed.successCount, 0);
     assert.equal(failed.failedCount, 1);
     assert.equal(repository.listQuestions().length, 0);
+    assert.equal(tableCount(repository.db, "mistake_parts"), 0);
+    assert.equal(tableCount(repository.db, "accepted_answers"), 0);
     assert.equal(tableCount(repository.db, "question_options"), 0);
     assert.equal(tableCount(repository.db, "attachments"), 1);
     assert.equal(
@@ -595,6 +598,8 @@ test("候选导入失败会回滚正式题并允许安全重试", async () => {
     );
     assert.equal(imported.failedCount, 0);
     assert.equal(repository.listQuestions().length, 1);
+    assert.equal(tableCount(repository.db, "mistake_parts"), 1);
+    assert.equal(tableCount(repository.db, "accepted_answers"), 1);
     assert.ok(imported.scan.candidates[0].importedQuestionId);
     repository.close();
   });
@@ -797,6 +802,30 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
           questionType: "fill_blank",
           studentAnswer: "41",
           suggestedAnswer: "42",
+          parts: [
+            {
+              partNo: 1,
+              label: "（1）",
+              prompt: "圆的半径是多少？",
+              studentAnswer: "3",
+              suggestedAnswer: "3厘米",
+              answerType: "number",
+              confidence: 0.9,
+              sourceBlockIds: ["i1b1"],
+              pendingReasons: []
+            },
+            {
+              partNo: 2,
+              label: "（2）",
+              prompt: "圆的面积是多少？",
+              studentAnswer: "28.26",
+              suggestedAnswer: "28.26平方厘米；9π平方厘米",
+              answerType: "number",
+              confidence: 0.88,
+              sourceBlockIds: ["i1b2"],
+              pendingReasons: []
+            }
+          ],
           completeness: "complete",
           suspectedWrong: true,
           answerPending: false,
@@ -901,8 +930,22 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       assert.equal(task.images.length, 1);
       assert.equal(task.ocr.model, "PP-OCRv6-small");
       assert.equal(task.ocr.blocks.length, 2);
-      assert.equal(task.candidates[0].studentAnswer, "41");
-      assert.equal(task.candidates[0].suggestedAnswer, "42");
+      assert.equal(task.candidates[0].studentAnswer, "3；28.26");
+      assert.equal(
+        task.candidates[0].suggestedAnswer,
+        "3厘米；28.26平方厘米；9π平方厘米"
+      );
+      assert.equal(task.candidates[0].parts.length, 2);
+      assert.equal(task.candidates[0].parts[0].label, "（1）");
+      assert.equal(
+        task.candidates[0].parts[1].suggestedAnswer,
+        "28.26平方厘米；9π平方厘米"
+      );
+      assert.equal(
+        task.candidates[0].parts[0].answerSource,
+        "system_suggested"
+      );
+      assert.equal(task.candidates[1].parts.length, 1, "无小问时生成默认小问");
       assert.equal(task.candidates[0].questionType, "fill_blank");
       assert.equal(task.candidates[0].options.length, 2);
       assert.equal(task.candidates[0].answerPending, true);
@@ -948,6 +991,40 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       assert.equal(selected.candidates[1].selected, false);
       assert.equal(selected.canImport, true);
 
+      const editedPartsResponse = await fetch(
+        `${baseUrl}/api/questions/scans/${task.id}/candidates/${task.candidates[0].id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            parts: [
+              {
+                ...task.candidates[0].parts[1],
+                answerSource: "user_confirmed",
+                pendingReasons: []
+              },
+              {
+                ...task.candidates[0].parts[0],
+                answerSource: "user_confirmed",
+                pendingReasons: []
+              }
+            ]
+          })
+        }
+      );
+      assert.equal(editedPartsResponse.status, 200);
+      const editedTask = await editedPartsResponse.json();
+      assert.equal(editedTask.candidates[0].parts[0].prompt, "圆的面积是多少？");
+      assert.equal(editedTask.candidates[0].parts[0].partNo, 1);
+      assert.equal(
+        editedTask.candidates[0].parts[0].answerSource,
+        "user_confirmed"
+      );
+      assert.equal(
+        editedTask.candidates[0].studentAnswer,
+        "28.26；3"
+      );
+
       const imported = await fetch(
         `${baseUrl}/api/questions/scans/${task.id}/import`,
         {
@@ -971,7 +1048,9 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       );
       assert.equal(final.total, 1);
       assert.equal(final.questions[0].question, "1. 完整题");
-      assert.equal(final.questions[0].studentAnswer, "41");
+      assert.equal(final.questions[0].studentAnswer, "28.26；3");
+      assert.equal(final.questions[0].parts.length, 2);
+      assert.equal(final.questions[0].parts[0].prompt, "圆的面积是多少？");
       assert.equal(final.questions[0].questionType, "fill_blank");
       assert.equal(final.questions[0].answerReviewStatus, "pending");
       assert.equal(final.questions[0].attachments.length, 1);
@@ -989,7 +1068,29 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
         verificationDb
           .prepare("SELECT correct_answer FROM mistakes WHERE id = ?")
           .get(importedQuestionId).correct_answer,
-        "42"
+        "28.26平方厘米；3厘米"
+      );
+      assert.equal(
+        verificationDb
+          .prepare(
+            `SELECT COUNT(*) AS count FROM mistake_parts
+             WHERE mistake_id = ? AND active = 1`
+          )
+          .get(importedQuestionId).count,
+        2
+      );
+      assert.deepEqual(
+        verificationDb
+          .prepare(
+            `SELECT aa.answer
+             FROM accepted_answers aa
+             JOIN mistake_parts mp ON mp.id = aa.part_id
+             WHERE mp.mistake_id = ?
+             ORDER BY mp.part_no, aa.position`
+          )
+          .all(importedQuestionId)
+          .map((row) => row.answer),
+        ["28.26平方厘米", "9π平方厘米", "3厘米"]
       );
       verificationDb.close();
     } finally {
@@ -1061,6 +1162,16 @@ test("OCR 文本模型不可用时降级为待确认候选并保留字块", asyn
   assert.equal(result.candidates[0].answerPending, true);
   assert.ok(result.candidates[0].pendingReasons.includes("LLM_NOT_CONFIGURED"));
   assert.ok(result.candidates[1].pendingReasons.includes("LOW_CONFIDENCE"));
+  assert.equal(result.candidates[0].parts.length, 1);
+  assert.equal(
+    result.candidates[0].parts[0].answerSource,
+    "system_suggested"
+  );
+  assert.ok(
+    result.candidates[0].parts[0].pendingReasons.includes(
+      "LLM_NOT_CONFIGURED"
+    )
+  );
   assert.equal(result.ocr.blocks.length, 2);
   assert.ok(result.candidates[0].sourceBlocks[0].bbox.length === 4);
 });
@@ -1125,6 +1236,91 @@ test("答案引用未声明的低置信字块时仍标记待确认", async () =>
   assert.ok(result.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
 });
 
+test("多小问保留系统答案建议并对公式不足标记待确认", async () => {
+  const scanner = new OcrTextQuestionScanner({
+    ocrClient: new InternalOcrClient({
+      baseUrl: "https://example.invalid",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            engine: "rapidocr",
+            modelVersion: "PP-OCRv6-small",
+            width: 1000,
+            height: 800,
+            blocks: [
+              {
+                order: 1,
+                text: "求圆的面积和周长",
+                bbox: [20, 20, 700, 100],
+                confidence: 0.98
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    }),
+    llmGateway: {
+      model: "fixture-model",
+      isConfigured: () => true,
+      chat: async () => ({
+        provider: "fixture",
+        model: "fixture-model",
+        message: {
+          content: JSON.stringify({
+            candidates: [
+              {
+                text: "求圆的面积和周长",
+                questionType: "composite",
+                parts: [
+                  {
+                    partNo: 1,
+                    label: "（1）",
+                    prompt: "求面积",
+                    studentAnswer: "28.26",
+                    suggestedAnswer: "28.26平方厘米；9π平方厘米",
+                    answerType: "number",
+                    confidence: 0.92,
+                    sourceBlockIds: ["i1b1"],
+                    pendingReasons: []
+                  },
+                  {
+                    partNo: 2,
+                    label: "（2）",
+                    prompt: "根据图中公式求周长",
+                    studentAnswer: "",
+                    suggestedAnswer: "",
+                    answerType: "number",
+                    confidence: 0.9,
+                    sourceBlockIds: ["i1b1"],
+                    pendingReasons: ["FORMULA_UNCERTAIN"]
+                  }
+                ],
+                completeness: "complete",
+                answerPending: false,
+                sourceBlockIds: ["i1b1"],
+                region: { x: 0, y: 0, width: 1, height: 1 }
+              }
+            ]
+          })
+        }
+      })
+    }
+  });
+  const result = await scanner.scan({
+    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+  });
+  const candidate = result.candidates[0];
+  assert.equal(candidate.parts.length, 2);
+  assert.equal(candidate.parts[0].answerSource, "system_suggested");
+  assert.equal(
+    candidate.parts[0].suggestedAnswer,
+    "28.26平方厘米；9π平方厘米"
+  );
+  assert.ok(candidate.parts[1].pendingReasons.includes("FORMULA_UNCERTAIN"));
+  assert.ok(candidate.parts[1].pendingReasons.includes("ANSWER_PENDING"));
+  assert.equal(candidate.answerPending, true);
+});
+
 test("相邻数字旁的额外汇总符号标记待确认", () => {
   const warnings = detectOcrBlockWarnings(
     [
@@ -1155,8 +1351,13 @@ test("扫描 UI 展示题型与答案候选并只在选中后允许导入", () =
     "utf8"
   );
   assert.match(app, /data-scan-question-type/);
-  assert.match(app, /data-scan-student-answer/);
-  assert.match(app, /data-scan-suggested-answer/);
+  assert.match(app, /scan-parts-editor/);
+  assert.match(app, /data-scan-part-field/);
+  assert.match(app, /scanPartSourceLabel/);
+  assert.match(app, /data-scan-add-part/);
+  assert.match(app, /data-scan-remove-part/);
+  assert.match(app, /data-scan-move-part/);
+  assert.match(app, /标准答案（用户已修改）/);
   assert.match(app, /candidate\.options/);
   assert.match(app, /scanCandidateInput/);
   assert.match(app, /importSelectedScanCandidates/);

@@ -1536,6 +1536,67 @@ const questionSchema = {
   description: "题库兼容视图。题目文字、附件、作答历史等旧字段保持原语义。"
 };
 
+const questionScanPartSchema = {
+  type: "object",
+  required: [
+    "partNo",
+    "label",
+    "prompt",
+    "studentAnswer",
+    "suggestedAnswer",
+    "answerType",
+    "confidence",
+    "pendingReasons",
+    "answerSource"
+  ],
+  properties: {
+    partNo: { type: "integer", minimum: 1, maximum: 20 },
+    label: { type: "string", maxLength: 50 },
+    prompt: { type: "string", maxLength: 2000 },
+    studentAnswer: { type: "string", maxLength: 2000 },
+    suggestedAnswer: {
+      type: "string",
+      maxLength: 2000,
+      description: "标准答案建议；等价答案用中文分号分隔"
+    },
+    answerType: {
+      type: "string",
+      enum: ["auto", "text", "number", "fraction", "percent", "ratio"]
+    },
+    confidence: anyOfNullable({ type: "number", minimum: 0, maximum: 1 }),
+    pendingReasons: { type: "array", items: { type: "string" } },
+    answerSource: {
+      type: "string",
+      enum: ["system_suggested", "user_confirmed"],
+      description: "OCR 模型生成时标记为 system_suggested；用户修改后标记为 user_confirmed"
+    }
+  },
+  additionalProperties: false
+};
+
+const questionScanPartInputSchema = {
+  type: "object",
+  required: ["prompt", "studentAnswer", "suggestedAnswer", "answerType"],
+  properties: {
+    partNo: { type: "integer", minimum: 1, maximum: 20 },
+    label: { type: "string", maxLength: 50 },
+    prompt: { type: "string", maxLength: 2000 },
+    studentAnswer: { type: "string", maxLength: 2000 },
+    suggestedAnswer: { type: "string", maxLength: 2000 },
+    answerType: {
+      type: "string",
+      enum: ["auto", "text", "number", "fraction", "percent", "ratio"]
+    },
+    confidence: anyOfNullable({ type: "number", minimum: 0, maximum: 1 }),
+    pendingReasons: { type: "array", maxItems: 20, items: { type: "string" } },
+    answerSource: {
+      type: "string",
+      enum: ["system_suggested", "user_confirmed"]
+    }
+  },
+  additionalProperties: false
+};
+
 const questionScanCandidateSchema = {
   type: "object",
   required: [
@@ -1552,6 +1613,7 @@ const questionScanCandidateSchema = {
     "options",
     "studentAnswer",
     "suggestedAnswer",
+    "parts",
     "pendingReasons",
     "sourceBlocks",
     "confidence",
@@ -1613,8 +1675,20 @@ const questionScanCandidateSchema = {
         additionalProperties: false
       }
     },
-    studentAnswer: { type: "string" },
-    suggestedAnswer: { type: "string" },
+    studentAnswer: {
+      type: "string",
+      description: "各小问学生答案的兼容汇总"
+    },
+    suggestedAnswer: {
+      type: "string",
+      description: "各小问标准答案建议的兼容汇总"
+    },
+    parts: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: ref("QuestionScanPart")
+    },
     pendingReasons: { type: "array", items: { type: "string" } },
     sourceBlocks: {
       type: "array",
@@ -1792,6 +1866,12 @@ const updateQuestionScanCandidateInputSchema = {
     },
     studentAnswer: { type: "string", maxLength: 2000 },
     suggestedAnswer: { type: "string", maxLength: 2000 },
+    parts: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: ref("QuestionScanPartInput")
+    },
     answerPending: { type: "boolean" },
     pendingReasons: {
       type: "array",
@@ -1839,6 +1919,8 @@ const components = {
     AttachmentCrop: attachmentCropSchema,
     Question: questionSchema,
     QuestionScanRegion: questionScanRegionSchema,
+    QuestionScanPart: questionScanPartSchema,
+    QuestionScanPartInput: questionScanPartInputSchema,
     QuestionScanCandidate: questionScanCandidateSchema,
     QuestionScan: questionScanSchema,
     QuestionList: questionListSchema,
@@ -3415,7 +3497,7 @@ const INFO_DESCRIPTION = [
 
 export function buildOpenApiDocument({
   baseUrl = "/",
-  version = "0.20.0"
+  version = "0.21.0"
 } = {}) {
   return {
     openapi: "3.1.0",

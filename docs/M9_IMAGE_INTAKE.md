@@ -221,6 +221,39 @@ Content-Type: application/json
 
 前端必须把 `text` 放入可编辑候选框，学生点击“使用这段文字”后才回填题目输入框。
 
+### 批量扫描候选的小问
+
+批量扫描候选在 `parts[]` 中保存小问识别结果。纯文本 LLM 只接收 OCR 文字、坐标和
+置信度；没有明确小问时返回 1 个默认小问，不得把整页其他题目当作该候选的小问。
+
+```json
+{
+  "parts": [
+    {
+      "partNo": 1,
+      "label": "（1）",
+      "prompt": "求圆的面积",
+      "studentAnswer": "28.26",
+      "suggestedAnswer": "28.26平方厘米；9π平方厘米",
+      "answerType": "number",
+      "confidence": 0.92,
+      "pendingReasons": [],
+      "answerSource": "system_suggested"
+    }
+  ]
+}
+```
+
+- `suggestedAnswer` 是系统标准答案建议，等价答案继续用中文分号分隔。
+- 低置信度、公式信息不足或几何关系不足时，对应小问必须带 `pendingReasons`；
+  标准答案无法可靠确定时留空，不得编造。
+- 用户可以修改小问文字、学生答案、标准答案和答案类型，并增加、删除或调整顺序。
+- 修改标准答案后 `answerSource` 变为 `user_confirmed`；未修改的系统答案保持
+  `system_suggested`。
+- 只有用户选择并确认候选后才导入。导入与正式题目创建处于同一 SQLite 事务，
+  小问写入现有 `mistake_parts`，标准答案变体写入现有 `accepted_answers`；
+  不新增正式小问事实表。
+
 ### 创建和修改错题
 
 `POST /api/mistakes`、`POST /api/mistakes/:id/update` 和兼容保留的
