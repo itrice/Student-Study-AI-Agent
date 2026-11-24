@@ -5222,6 +5222,19 @@ body.review-focus-mode #view-review .review-attachments img {
   font-size: var(--text-meta);
 }
 
+.scan-image-item-actions {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.scan-image-item-actions .text-button {
+  min-height: 36px;
+  padding: 0;
+  font-size: var(--text-label);
+}
+
 .scan-image-copy,
 .scan-status,
 .scan-selection-summary,
@@ -5538,6 +5551,10 @@ body.review-focus-mode #view-review .review-attachments img {
   .scan-image-list,
   .scan-candidate-list {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scan-image-item-actions .text-button {
+    min-height: 44px;
   }
 
   .scan-region-grid {

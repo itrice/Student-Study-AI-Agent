@@ -11,6 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 import sharp from "sharp";
 import { LearningRepository } from "../src/database.js";
 import { AttachmentStore } from "../src/attachments.js";
+import { saveAttachmentCrop } from "../src/attachment-crop.js";
 import { migrateDatabase, SCHEMA_MIGRATIONS } from "../src/migrations.js";
 import {
   createQuestionScan,
@@ -599,6 +600,107 @@ test("候选导入失败会回滚正式题并允许安全重试", async () => {
   });
 });
 
+test("拍照选题使用原图的裁剪区域进行 OCR", async () => {
+  await withTemporaryDirectory(async (directory) => {
+    const { repository, store } = createFixture(directory);
+    const original = await sharp({
+      create: {
+        width: 20,
+        height: 20,
+        channels: 3,
+        background: { r: 245, g: 245, b: 245 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const attachment = saveAttachment(
+      repository,
+      store,
+      "scan-original.png",
+      original
+    );
+    const crop = await sharp({
+      create: {
+        width: 8,
+        height: 6,
+        channels: 3,
+        background: { r: 230, g: 240, b: 235 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const cropped = saveAttachmentCrop({
+      repository,
+      attachmentStore: store,
+      attachmentId: attachment.id,
+      buffer: crop,
+      declaredMime: "image/png",
+      crop: {
+        x: 2,
+        y: 3,
+        width: 8,
+        height: 6,
+        rotation: 0,
+        sourceWidth: 20,
+        sourceHeight: 20
+      }
+    });
+    assert.equal(cropped.hasCrop, true);
+
+    let seen = null;
+    const task = await createQuestionScan({
+      repository,
+      attachmentStore: store,
+      scanner: {
+        isConfigured: () => true,
+        provider: "fixture",
+        model: "fixture-model",
+        promptVersion: "m2-scan-crop",
+        scan: async ({ images }) => {
+          seen = images[0];
+          return {
+            provider: "fixture",
+            model: "fixture-model",
+            promptVersion: "m2-scan-crop",
+            candidates: [
+              {
+                text: "1. 裁剪区域中的题目",
+                completenessStatus: "complete",
+                suspectedWrong: false,
+                region: { x: 0, y: 0, width: 1, height: 1 }
+              }
+            ]
+          };
+        }
+      },
+      attachmentIds: [attachment.id],
+      consent: true
+    });
+
+    assert.deepEqual(seen.buffer, crop);
+    assert.equal(seen.mimeType, "image/png");
+    assert.equal(task.images[0].width, 8);
+    assert.equal(task.images[0].height, 6);
+    assert.match(task.images[0].url, /variant=crop/);
+    const context = repository.getQuestionScanImageContext(
+      task.id,
+      task.candidates[0].id
+    );
+    assert.deepEqual(store.read(context.storageKey), crop);
+    assert.equal(context.width, 8);
+    assert.equal(context.height, 6);
+    assert.deepEqual(
+      store.read(
+        repository.getAttachment(attachment.id, {
+          includeStorageKey: true
+        }).storageKey
+      ),
+      original
+    );
+    repository.close();
+  });
+});
+
 test("扫描失败、未配置模型和图片读取失败都保留图片且不写正式题库", async () => {
   await withTemporaryDirectory(async (directory) => {
     const { repository, store } = createFixture(directory);
@@ -1065,6 +1167,11 @@ test("扫描 UI 展示题型与答案候选并只在选中后允许导入", () =
   assert.match(app, /importSelectedScanCandidates/);
   assert.match(app, /candidate\.importedQuestionId/);
   assert.match(app, /pendingReasons\.map\(scanPendingLabel\)/);
+  assert.match(app, /crop\.dataset\.cropContext = "scan"/);
+  assert.match(
+    app,
+    /openCropEditor\(\s*Number\(crop\.dataset\.cropAttachment\),\s*crop\.dataset\.cropContext/
+  );
   assert.match(html, /导入所选题目/);
   assert.doesNotMatch(html, /M3 开放/);
 });

@@ -385,12 +385,28 @@ function renderScanIntake() {
     const copy = createElement("span", "scan-image-copy");
     copy.append(
       createElement("strong", "", index === 0 ? "主图" : `补充图 ${index}`),
-      createElement("small", "", `${attachment.width} × ${attachment.height}`)
+      createElement(
+        "small",
+        "",
+        `${attachment.width} × ${attachment.height}${
+          attachment.hasCrop ? " · 已裁剪" : ""
+        }`
+      )
     );
+    const actions = createElement("div", "scan-image-item-actions");
+    const crop = createElement(
+      "button",
+      "text-button",
+      attachment.hasCrop ? "重新裁剪" : "裁剪原图"
+    );
+    crop.type = "button";
+    crop.dataset.cropAttachment = String(attachment.id);
+    crop.dataset.cropContext = "scan";
     const remove = createElement("button", "text-button", "移除");
     remove.type = "button";
     remove.dataset.removeScanImage = String(attachment.id);
-    item.append(image, copy, remove);
+    actions.append(crop, remove);
+    item.append(image, copy, actions);
     list.append(item);
   });
   const intake = $("#scan-intake");
@@ -443,6 +459,12 @@ async function uploadScanFiles(fileList) {
 }
 
 async function removeScanAttachment(id) {
+  if (
+    state.cropEditor?.attachmentId === id &&
+    state.cropEditor.scope === "scan"
+  ) {
+    closeCropEditor();
+  }
   state.scanAttachments = state.scanAttachments.filter(
     (attachment) => attachment.id !== id
   );
@@ -455,6 +477,7 @@ async function removeScanAttachment(id) {
 }
 
 async function clearScanAttachments() {
+  if (state.cropEditor?.scope === "scan") closeCropEditor();
   const ids = state.scanAttachments.map((attachment) => attachment.id);
   state.scanAttachments = [];
   renderScanIntake();
@@ -1009,6 +1032,12 @@ function findDialogAttachment(id) {
   return state.dialogAttachments.find((attachment) => attachment.id === id) || null;
 }
 
+function findCropAttachment(id, scope) {
+  const attachments =
+    scope === "scan" ? state.scanAttachments : state.dialogAttachments;
+  return attachments.find((attachment) => attachment.id === id) || null;
+}
+
 function openAttachmentPreview(attachmentId) {
   const attachment = findDialogAttachment(attachmentId);
   if (!attachment) return;
@@ -1018,11 +1047,21 @@ function openAttachmentPreview(attachmentId) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-function replaceDialogAttachment(updated) {
-  const index = state.dialogAttachments.findIndex(
+function replaceCropAttachment(updated, scope) {
+  const attachments =
+    scope === "scan" ? state.scanAttachments : state.dialogAttachments;
+  const index = attachments.findIndex(
     (attachment) => attachment.id === updated.id
   );
-  if (index >= 0) state.dialogAttachments[index] = updated;
+  if (index >= 0) attachments[index] = updated;
+}
+
+function renderCropAttachmentList(scope) {
+  if (scope === "scan") {
+    renderScanIntake();
+  } else {
+    renderDialogAttachments();
+  }
 }
 
 function clampNumber(value, min, max) {
@@ -1234,14 +1273,15 @@ function resetCropEditor() {
   renderCropEditor();
 }
 
-function openCropEditor(attachmentId) {
-  const attachment = findDialogAttachment(attachmentId);
+function openCropEditor(attachmentId, scope = "dialog") {
+  const attachment = findCropAttachment(attachmentId, scope);
   if (!attachment) return;
   closeCropEditor();
   const rotation = Number(attachment.crop?.rotation || 0);
   const editor = {
     attachmentId,
     attachment,
+    scope,
     image: null,
     rotation,
     selection: selectionForAttachment(attachment, rotation),
@@ -1395,11 +1435,15 @@ async function applyCropEditor() {
     if (!response.ok) {
       throw new Error(updated.error || "裁剪图片保存失败");
     }
-    replaceDialogAttachment(updated);
+    replaceCropAttachment(updated, editor.scope);
     state.originalPreviewIds.delete(updated.id);
     closeCropEditor();
-    renderDialogAttachments();
-    showToast("裁剪已应用，识别文字将只使用裁剪区域");
+    renderCropAttachmentList(editor.scope);
+    showToast(
+      editor.scope === "scan"
+        ? "裁剪已应用，OCR 将只使用裁剪区域，原图已保留"
+        : "裁剪已应用，识别文字将只使用裁剪区域"
+    );
   } catch (error) {
     setCropStatus(error.message || "裁剪图片保存失败，原图未改变。", true);
   } finally {
@@ -1409,7 +1453,9 @@ async function applyCropEditor() {
 
 async function restoreOriginalImage() {
   const editor = state.cropEditor;
-  const attachment = editor ? findDialogAttachment(editor.attachmentId) : null;
+  const attachment = editor
+    ? findCropAttachment(editor.attachmentId, editor.scope)
+    : null;
   if (!attachment?.hasCrop) return;
   const button = $("#restore-original-button");
   setBusy(button, true, "正在恢复…");
@@ -1417,11 +1463,13 @@ async function restoreOriginalImage() {
     const updated = await api(`/api/attachments/${attachment.id}/crop`, {
       method: "DELETE"
     });
-    replaceDialogAttachment(updated);
+    replaceCropAttachment(updated, editor.scope);
     state.originalPreviewIds.delete(updated.id);
     closeCropEditor();
-    renderDialogAttachments();
-    showToast("已恢复原图");
+    renderCropAttachmentList(editor.scope);
+    showToast(
+      editor.scope === "scan" ? "已恢复原图，OCR 将使用完整原图" : "已恢复原图"
+    );
   } catch (error) {
     setCropStatus(error.message || "恢复原图失败，请稍后重试。", true);
   } finally {
@@ -5286,6 +5334,14 @@ function bindEvents() {
     event.target.value = "";
   });
   $("#scan-image-list").addEventListener("click", (event) => {
+    const crop = event.target.closest("[data-crop-attachment]");
+    if (crop) {
+      openCropEditor(
+        Number(crop.dataset.cropAttachment),
+        crop.dataset.cropContext || "scan"
+      );
+      return;
+    }
     const remove = event.target.closest("[data-remove-scan-image]");
     if (remove) removeScanAttachment(Number(remove.dataset.removeScanImage));
   });

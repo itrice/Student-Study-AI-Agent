@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { LearningValidationError } from "../domain/errors.js";
+import { readAttachmentContent } from "../attachment-crop.js";
 
 function failedScan(repository, attachmentIds, message, scanner = {}) {
   return repository.createQuestionScanTask({
@@ -44,9 +45,10 @@ export async function createQuestionScan({
           "扫描图片不存在或已被清理"
         );
       }
+      const content = readAttachmentContent(attachment, attachmentStore);
       images.push({
-        mimeType: attachment.mimeType,
-        buffer: attachmentStore.read(attachment.storageKey)
+        mimeType: content.mimeType,
+        buffer: content.buffer
       });
     }
   } catch {

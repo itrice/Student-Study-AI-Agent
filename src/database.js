@@ -4098,9 +4098,16 @@ export class LearningRepository {
       row.status === "ready" && expired ? "expired" : row.status;
     const images = this.db
       .prepare(
-        `SELECT si.*, a.mime_type, a.byte_size, a.width, a.height, a.created_at AS attachment_created_at
+        `SELECT si.*,
+                a.mime_type, a.byte_size, a.width, a.height,
+                c.storage_key AS crop_storage_key,
+                c.mime_type AS crop_mime_type,
+                c.byte_size AS crop_byte_size,
+                c.width AS crop_width_px,
+                c.height AS crop_height_px
          FROM question_scan_images si
          JOIN attachments a ON a.id = si.attachment_id
+         LEFT JOIN attachment_crops c ON c.attachment_id = a.id
          WHERE si.scan_task_id = ?
          ORDER BY si.position, si.id`
       )
@@ -4110,11 +4117,17 @@ export class LearningRepository {
         attachmentId: image.attachment_id,
         role: image.role,
         position: image.position,
-        mimeType: image.mime_type,
-        byteSize: image.byte_size,
-        width: image.width,
-        height: image.height,
-        url: `/api/attachments/${image.attachment_id}?variant=original`
+        mimeType: image.crop_storage_key
+          ? image.crop_mime_type
+          : image.mime_type,
+        byteSize: image.crop_storage_key
+          ? image.crop_byte_size
+          : image.byte_size,
+        width: image.crop_storage_key ? image.crop_width_px : image.width,
+        height: image.crop_storage_key ? image.crop_height_px : image.height,
+        url: `/api/attachments/${image.attachment_id}?variant=${
+          image.crop_storage_key ? "crop" : "original"
+        }`
       }));
     const candidates = this.db
       .prepare(
@@ -4418,9 +4431,15 @@ export class LearningRepository {
     if (!task) return null;
     const primary = this.db
       .prepare(
-        `SELECT si.attachment_id, a.storage_key, a.mime_type, a.width, a.height
+        `SELECT si.attachment_id,
+                a.storage_key, a.mime_type, a.width, a.height,
+                c.storage_key AS crop_storage_key,
+                c.mime_type AS crop_mime_type,
+                c.width AS crop_width_px,
+                c.height AS crop_height_px
          FROM question_scan_images si
          JOIN attachments a ON a.id = si.attachment_id
+         LEFT JOIN attachment_crops c ON c.attachment_id = a.id
          WHERE si.scan_task_id = ? AND si.role = 'primary'
          ORDER BY si.position LIMIT 1`
       )
@@ -4439,10 +4458,16 @@ export class LearningRepository {
     }
     return {
       attachmentId: primary.attachment_id,
-      storageKey: primary.storage_key,
-      mimeType: primary.mime_type,
-      width: primary.width,
-      height: primary.height,
+      storageKey: primary.crop_storage_key || primary.storage_key,
+      mimeType: primary.crop_storage_key
+        ? primary.crop_mime_type
+        : primary.mime_type,
+      width: primary.crop_storage_key
+        ? primary.crop_width_px
+        : primary.width,
+      height: primary.crop_storage_key
+        ? primary.crop_height_px
+        : primary.height,
       region
     };
   }
