@@ -114,6 +114,11 @@ const $$ = (selector, root = document) => [
   ...root.querySelectorAll(selector)
 ];
 
+const cropEditorElement = $("#crop-editor");
+if (cropEditorElement?.closest("dialog")) {
+  document.body.append(cropEditorElement);
+}
+
 function createElement(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;

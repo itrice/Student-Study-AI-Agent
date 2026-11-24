@@ -452,6 +452,8 @@ test("图片录入 UI 提供拍照、相册、粘贴和内部 OCR 入口", () =>
   assert.doesNotMatch(html, /ocr-consent|scan-consent|外部视觉模型/);
   assert.doesNotMatch(app, /ocr-consent|scan-consent|consent:\s*true/);
   assert.match(app, /body:\s*JSON\.stringify\(\{\}\)/);
+  assert.match(app, /cropEditorElement\?\.closest\("dialog"\)/);
+  assert.match(app, /document\.body\.append\(cropEditorElement\)/);
   assert.match(app, /addEventListener\("paste"/);
   assert.match(app, /clipboardData\?\.files/);
   assert.doesNotMatch(app, /crypto\.randomUUID\s*\(/);
