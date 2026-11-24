@@ -962,7 +962,11 @@ async function applyScanSelection(action, candidateId = null) {
   try {
     const task = await api(`/api/questions/scans/${state.scanTask.id}/selection`, {
       method: "POST",
-      body: JSON.stringify({ action, candidateId })
+      body: JSON.stringify(
+        candidateId === null || candidateId === undefined
+          ? { action }
+          : { action, candidateId }
+      )
     });
     renderQuestionScan(task);
   } catch (error) {

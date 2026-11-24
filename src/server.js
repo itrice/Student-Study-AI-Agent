@@ -801,7 +801,8 @@ async function handleApi(request, response, url) {
       200,
       repository.updateQuestionScanSelection(parseId(scanSelectionMatch[1]), {
         action: optionalText(body.action, 40),
-        candidateId: body.candidateId === undefined
+        candidateId:
+          body.candidateId === undefined || body.candidateId === null
           ? null
           : parseId(body.candidateId)
       })

@@ -1009,6 +1009,21 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       assert.equal(unselectedImport.status, 400);
       assert.match((await unselectedImport.json()).error, /已选择/);
 
+      const selectWrong = await fetch(
+        `${baseUrl}/api/questions/scans/${task.id}/selection`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "select_wrong",
+            candidateId: null
+          })
+        }
+      );
+      assert.equal(selectWrong.status, 200);
+      const selectWrongTask = await selectWrong.json();
+      assert.equal(selectWrongTask.candidates[0].selected, true);
+
       const crop = await fetch(`${baseUrl}${task.candidates[0].imageUrl}`);
       assert.equal(crop.status, 200);
       assert.match(crop.headers.get("content-type") || "", /image\/png/);
