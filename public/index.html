@@ -1285,6 +1285,72 @@
     </dialog>
 
     <dialog
+      id="entry-choice-dialog"
+      class="entry-choice-dialog"
+      aria-labelledby="entry-choice-title"
+    >
+      <div class="entry-choice-header">
+        <div>
+          <span class="eyebrow">新增题目</span>
+          <h2 id="entry-choice-title">选择录入方式</h2>
+          <p>拍照录入可以一次识别多道题；手工录入适合直接填写或整理已有文字。</p>
+        </div>
+        <button
+          class="icon-button"
+          id="entry-choice-close-button"
+          type="button"
+          aria-label="关闭录入方式选择"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m6 6 12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+      <div class="entry-choice-list">
+        <button
+          class="entry-choice-option is-primary"
+          id="entry-photo-button"
+          type="button"
+        >
+          <span class="entry-choice-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M4 7h4l2-2h4l2 2h4v12H4z" />
+              <circle cx="12" cy="13" r="3.5" />
+            </svg>
+          </span>
+          <span class="entry-choice-copy">
+            <span class="entry-choice-heading">
+              <strong>拍照录入</strong>
+              <small>推荐</small>
+            </span>
+            <span>拍摄或选择作业页，先定位题目再逐题分析。</span>
+          </span>
+          <span class="entry-choice-arrow" aria-hidden="true">›</span>
+        </button>
+        <button
+          class="entry-choice-option"
+          id="entry-manual-button"
+          type="button"
+        >
+          <span class="entry-choice-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M6 4h9l3 3v13H6z" />
+              <path d="M9 10h6M9 14h4" />
+            </svg>
+          </span>
+          <span class="entry-choice-copy">
+            <span class="entry-choice-heading">
+              <strong>手工录入</strong>
+            </span>
+            <span>直接填写题目、学生答案和标准答案。</span>
+          </span>
+          <span class="entry-choice-arrow" aria-hidden="true">›</span>
+        </button>
+      </div>
+      <p class="entry-choice-footnote">原图只保存在本机，内部 OCR 不会把图片发送给外部多模态模型。</p>
+    </dialog>
+
+    <dialog
       id="day-detail-dialog"
       class="day-detail-dialog"
       aria-labelledby="day-detail-title"

@@ -78,6 +78,7 @@ const state = {
   hintRequestKey: null,
   followUpRequestKey: null,
   attemptRequestKey: null,
+  entryChoiceTrigger: null,
   dialogMode: "create",
   editingMistakeId: null,
   editSubmissionKey: null,
@@ -5205,6 +5206,43 @@ function renderReviewResult(result) {
   target.focus({ preventScroll: true });
 }
 
+function openEntryChoice(trigger = document.activeElement) {
+  const dialog = $("#entry-choice-dialog");
+  state.entryChoiceTrigger =
+    trigger instanceof HTMLElement && trigger.isConnected ? trigger : null;
+  if (!dialog.open) dialog.showModal();
+  $("#entry-photo-button").focus({ preventScroll: true });
+}
+
+function closeEntryChoice({ restoreFocus = true } = {}) {
+  const dialog = $("#entry-choice-dialog");
+  const trigger = state.entryChoiceTrigger;
+  state.entryChoiceTrigger = null;
+  if (dialog.open) dialog.close();
+  if (restoreFocus && trigger?.isConnected) {
+    trigger.focus({ preventScroll: true });
+  }
+}
+
+function openPhotoEntry() {
+  closeEntryChoice({ restoreFocus: false });
+  navigateTo("scan");
+  window.setTimeout(() => {
+    const target = [...document.querySelectorAll("#view-scan button")].find(
+      (button) =>
+        !button.hidden &&
+        !button.disabled &&
+        button.getClientRects().length > 0
+    );
+    target?.focus({ preventScroll: true });
+  }, 80);
+}
+
+function openManualEntry() {
+  closeEntryChoice({ restoreFocus: false });
+  openAddDialog();
+}
+
 function openAddDialog() {
   const dialog = $("#add-dialog");
   closeCropEditor();
@@ -5543,7 +5581,7 @@ function bindEvents() {
     }
     const openAdd = event.target.closest("[data-open-add]");
     if (openAdd) {
-      openAddDialog();
+      openEntryChoice(openAdd);
       return;
     }
     const viewAllSearch = event.target.closest("[data-view-all-search]");
@@ -5583,8 +5621,21 @@ function bindEvents() {
     }
   });
 
-  $("#top-add-button").addEventListener("click", openAddDialog);
-  $("#quick-add-button").addEventListener("click", openAddDialog);
+  $("#top-add-button").addEventListener("click", (event) =>
+    openEntryChoice(event.currentTarget)
+  );
+  $("#quick-add-button").addEventListener("click", (event) =>
+    openEntryChoice(event.currentTarget)
+  );
+  $("#entry-choice-close-button").addEventListener("click", () =>
+    closeEntryChoice()
+  );
+  $("#entry-photo-button").addEventListener("click", openPhotoEntry);
+  $("#entry-manual-button").addEventListener("click", openManualEntry);
+  $("#entry-choice-dialog").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeEntryChoice();
+  });
   $("#curriculum-close-button").addEventListener("click", closeCurriculumDialog);
   $("#curriculum-cancel-button").addEventListener("click", closeCurriculumDialog);
   $("#curriculum-preview-button").addEventListener("click", previewCurriculumSwitch);
