@@ -58,7 +58,7 @@
               <path d="M6 3.5h9l3 3V20H6z" />
               <path d="M14.5 3.5V7h3M9 11h6M9 14.5h4" />
             </svg>
-            <span>我的错题</span>
+            <span>题库</span>
           </button>
           <button class="nav-item" data-view="feedback">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -195,7 +195,7 @@
                 </svg>
               </span>
               <span>
-                <small>错题库</small>
+                <small>题库</small>
                 <strong id="stat-total">0</strong>
                 <em>道</em>
               </span>
@@ -261,10 +261,10 @@
             <div class="panel-heading">
               <div>
                 <span class="section-kicker">最近录入</span>
-                <h2>我的错题动态</h2>
+                <h2>最近录入</h2>
               </div>
               <button class="link-button" data-go-view="mistakes">
-                打开错题库
+                打开题库
               </button>
             </div>
             <div id="recent-list" class="recent-list"></div>
@@ -579,9 +579,9 @@
         <section class="view" id="view-mistakes" data-view-panel="mistakes">
           <div class="page-heading">
             <div>
-              <span class="eyebrow">错题不是收藏品</span>
-              <h1>我的错题</h1>
-              <p>每道题都要走完“定位错因 → 补足思路 → 再次做对”。</p>
+              <span class="eyebrow">统一题库 · 一份正式题目数据</span>
+              <h1>题库</h1>
+              <p>默认查看全部题目；需要复习和订正时，可快捷切换到错题。</p>
             </div>
           </div>
 
@@ -592,7 +592,7 @@
                 <path d="m16 16 4 4" />
               </svg>
             </span>
-            <label class="sr-only" for="mistake-search-input">搜索错题</label>
+            <label class="sr-only" for="mistake-search-input">搜索题目</label>
             <input
               id="mistake-search-input"
               type="search"
@@ -619,10 +619,30 @@
             hidden
           ></p>
 
+          <div class="toolbar question-category-toolbar">
+            <div class="filter-group" role="group" aria-label="题库分类">
+              <button
+                class="filter-chip is-active"
+                type="button"
+                data-question-category="all"
+              >
+                全部题目
+              </button>
+              <button
+                class="filter-chip"
+                type="button"
+                data-question-category="mistake"
+              >
+                错题
+              </button>
+            </div>
+            <span class="data-hint" id="question-category-summary">当前查看全部题目</span>
+          </div>
+
           <div class="toolbar">
-            <div class="filter-group" role="group" aria-label="筛选错题">
+            <div class="filter-group" role="group" aria-label="筛选题目状态">
               <button class="filter-chip is-active" data-filter="all">
-                全部 <span id="filter-count-all">0</span>
+                全部状态 <span id="filter-count-all">0</span>
               </button>
               <button class="filter-chip" data-filter="new">
                 待复习 <span id="filter-count-new">0</span>
@@ -644,7 +664,7 @@
           <nav
             id="mistake-pagination"
             class="mistake-pagination"
-            aria-label="错题分页"
+            aria-label="题库分页"
             hidden
           >
             <button
