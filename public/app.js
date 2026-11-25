@@ -58,8 +58,8 @@ const state = {
   scanAttachments: [],
   scanTask: null,
   scanId: null,
-  scanMode: "single",
   scanBusy: false,
+  questionCategory: "all",
   filter: "all",
   mistakeQuery: "",
   mistakeSearchTimer: null,
@@ -79,6 +79,10 @@ const state = {
   hintRequestKey: null,
   followUpRequestKey: null,
   attemptRequestKey: null,
+  entryChoiceTrigger: null,
+  entryPhotoPickerActive: false,
+  entryPhotoCancelGuard: false,
+  addDialogReturnToEntryChoice: false,
   dialogMode: "create",
   editingMistakeId: null,
   editSubmissionKey: null,
@@ -97,7 +101,7 @@ const viewLabels = {
   home: "今日学习",
   review: "开始复习",
   scan: "拍照选题",
-  mistakes: "我的错题",
+  mistakes: "题库",
   feedback: "学习反馈",
   knowledge: "知识点地图",
   settings: "系统配置"
@@ -298,7 +302,7 @@ async function uploadAttachment(file) {
   return data;
 }
 
-async function uploadImageFiles(fileList) {
+async function uploadImageFiles(fileList, { autoCrop = true } = {}) {
   const files = [...(fileList || [])];
   const images = files.filter(
     (file) => !file.type || String(file.type).startsWith("image/")
@@ -307,6 +311,7 @@ async function uploadImageFiles(fileList) {
     showToast("没有找到可用的图片", true);
     return;
   }
+  let lastUploaded = null;
   for (const file of images) {
     if (state.dialogAttachments.length >= MAX_DIALOG_IMAGES) {
       showToast(`每道题最多添加 ${MAX_DIALOG_IMAGES} 张图片`, true);
@@ -326,6 +331,7 @@ async function uploadImageFiles(fileList) {
       const attachment = await uploadAttachment(file);
       state.dialogAttachments.push(attachment);
       state.newAttachmentIds.add(attachment.id);
+      lastUploaded = attachment;
       renderDialogAttachments();
       setImageUploadStatus(
         `已添加 ${state.dialogAttachments.length} 张图片，保存错题后完成关联。`
@@ -341,6 +347,9 @@ async function uploadImageFiles(fileList) {
     setImageUploadStatus(
       `已添加 ${state.dialogAttachments.length} 张图片，保存错题后完成关联。`
     );
+  }
+  if (autoCrop && lastUploaded) {
+    openCropEditor(lastUploaded.id, "dialog");
   }
 }
 
@@ -432,17 +441,11 @@ function renderScanIntake() {
     start.disabled =
       state.scanBusy ||
       !state.scanAttachments.length;
-    start.textContent = state.scanBusy
-      ? state.scanMode === "multi"
-        ? "正在定位题目…"
-        : "正在识别…"
-      : state.scanMode === "multi"
-        ? "识别题目范围"
-        : "开始识别候选";
+    start.textContent = state.scanBusy ? "正在定位题目…" : "识别题目范围";
   }
 }
 
-async function uploadScanFiles(fileList) {
+async function uploadScanFiles(fileList, { returnToEntryChoice = false } = {}) {
   const files = [...(fileList || [])].filter(
     (file) => !file.type || file.type.startsWith("image/")
   );
@@ -450,6 +453,7 @@ async function uploadScanFiles(fileList) {
     showToast("没有找到可用的图片", true);
     return;
   }
+  let lastUploaded = null;
   for (const file of files) {
     if (state.scanAttachments.length >= MAX_SCAN_IMAGES) {
       showToast(`一次扫描最多 ${MAX_SCAN_IMAGES} 张图片`, true);
@@ -466,6 +470,7 @@ async function uploadScanFiles(fileList) {
     try {
       const attachment = await uploadAttachment(file);
       state.scanAttachments.push(attachment);
+      lastUploaded = attachment;
       $("#scan-status").textContent = `已添加 ${state.scanAttachments.length} 张图片；识别结果只进入候选页。`;
     } catch (error) {
       $("#scan-status").textContent = error.message;
@@ -473,6 +478,13 @@ async function uploadScanFiles(fileList) {
     }
   }
   renderScanIntake();
+  if (lastUploaded && returnToEntryChoice) {
+    openCropEditor(lastUploaded.id, "scan", {
+      returnToEntryChoice: true
+    });
+  } else if (lastUploaded) {
+    openCropEditor(lastUploaded.id, "scan");
+  }
 }
 
 async function removeScanAttachment(id) {
@@ -503,10 +515,15 @@ async function clearScanAttachments() {
   );
 }
 
-async function startQuestionScan() {
+async function startQuestionScan({ revealWhenReady = false } = {}) {
   if (!state.scanAttachments.length) {
     showToast("请先选择扫描图片", true);
     return;
+  }
+  const revealResult =
+    revealWhenReady || isEntryChoiceOpen();
+  if (revealResult && !isEntryChoiceOpen()) {
+    openEntryChoice(null, { preserveTrigger: true });
   }
   state.scanBusy = true;
   $("#scan-loading").hidden = false;
@@ -516,15 +533,29 @@ async function startQuestionScan() {
       method: "POST",
       body: JSON.stringify({
         attachmentIds: state.scanAttachments.map((attachment) => attachment.id),
-        scanMode: state.scanMode
+        scanMode: "multi"
       })
     });
     state.scanTask = task;
     state.scanId = task.id;
     state.scanAttachments = [];
+    if (isEntryChoiceOpen()) {
+      closeEntryChoice({ restoreFocus: false });
+    }
     history.pushState(null, "", `#scan/${task.id}`);
+    if (revealResult) {
+      showView("scan", { updateHash: false });
+    }
     renderQuestionScan(task);
+    if (revealResult) {
+      window.setTimeout(() => {
+        $("#scan-task").focus({ preventScroll: true });
+      }, 40);
+    }
   } catch (error) {
+    if (revealResult && !isEntryChoiceOpen()) {
+      openEntryChoice(null, { preserveTrigger: true });
+    }
     showToast(error.message, true);
     $("#scan-status").textContent = error.message;
   } finally {
@@ -955,7 +986,6 @@ function renderScanCandidate(candidate, task) {
 function renderQuestionScan(task) {
   state.scanTask = task;
   state.scanId = task.id;
-  state.scanMode = task.scanMode === "multi" ? "multi" : "single";
   $("#scan-intake").hidden = true;
   $("#scan-task").hidden = false;
   $("#scan-task-id").textContent = String(task.id);
@@ -971,8 +1001,8 @@ function renderQuestionScan(task) {
         : "识别失败";
   $("#scan-task-message").textContent =
     task.errorMessage ||
-    (task.scanMode === "multi" && task.analysisStage === "discovered"
-      ? `多题模式已定位 ${task.candidateCount} 道题；先勾选需要的题，再逐题分析。`
+    (task.analysisStage === "discovered"
+      ? `已定位 ${task.candidateCount} 道题；先勾选需要的题，再逐题分析。`
       : `共 ${task.candidateCount} 道候选；默认不选，当前选择 ${task.selectedCount} 道。`);
 
   const list = $("#scan-candidate-list");
@@ -1585,7 +1615,11 @@ function resetCropEditor() {
   renderCropEditor();
 }
 
-function openCropEditor(attachmentId, scope = "dialog") {
+function openCropEditor(
+  attachmentId,
+  scope = "dialog",
+  { returnToEntryChoice = false } = {}
+) {
   const attachment = findCropAttachment(attachmentId, scope);
   if (!attachment) return;
   closeCropEditor();
@@ -1594,6 +1628,7 @@ function openCropEditor(attachmentId, scope = "dialog") {
     attachmentId,
     attachment,
     scope,
+    returnToEntryChoice,
     image: null,
     rotation,
     selection: selectionForAttachment(attachment, rotation),
@@ -1607,7 +1642,8 @@ function openCropEditor(attachmentId, scope = "dialog") {
     scale: 1
   };
   state.cropEditor = editor;
-  $("#crop-editor").hidden = false;
+  const cropDialog = $("#crop-editor");
+  if (!cropDialog.open) cropDialog.showModal();
   $("#restore-original-button").hidden = !attachment.hasCrop;
   setCropStatus("正在加载原图…");
   const image = new Image();
@@ -1629,9 +1665,19 @@ function closeCropEditor() {
   const editor = state.cropEditor;
   state.cropEditor = null;
   if (editor?.image) editor.image.src = "";
-  $("#crop-editor").hidden = true;
+  const cropDialog = $("#crop-editor");
+  if (cropDialog.open) cropDialog.close();
   $("#crop-status").textContent = "";
   $("#crop-status").classList.remove("is-error");
+}
+
+function cancelCropEditor() {
+  const returnToEntryChoice =
+    state.cropEditor?.returnToEntryChoice === true;
+  closeCropEditor();
+  if (returnToEntryChoice) {
+    openEntryChoice(null, { preserveTrigger: true });
+  }
 }
 
 function toggleOriginalPreview(attachmentId) {
@@ -1756,6 +1802,11 @@ async function applyCropEditor() {
         ? "裁剪已应用，OCR 将只使用裁剪区域，原图已保留"
         : "裁剪已应用，识别文字将只使用裁剪区域"
     );
+    if (editor.scope === "scan") {
+      await startQuestionScan({
+        revealWhenReady: editor.returnToEntryChoice === true
+      });
+    }
   } catch (error) {
     setCropStatus(error.message || "裁剪图片保存失败，原图未改变。", true);
   } finally {
@@ -1770,6 +1821,7 @@ async function restoreOriginalImage() {
     : null;
   if (!attachment?.hasCrop) return;
   const button = $("#restore-original-button");
+  const returnToEntryChoice = editor.returnToEntryChoice === true;
   setBusy(button, true, "正在恢复…");
   try {
     const updated = await api(`/api/attachments/${attachment.id}/crop`, {
@@ -1782,6 +1834,9 @@ async function restoreOriginalImage() {
     showToast(
       editor.scope === "scan" ? "已恢复原图，OCR 将使用完整原图" : "已恢复原图"
     );
+    if (returnToEntryChoice) {
+      openEntryChoice(null, { preserveTrigger: true });
+    }
   } catch (error) {
     setCropStatus(error.message || "恢复原图失败，请稍后重试。", true);
   } finally {
@@ -2200,7 +2255,7 @@ function renderRecent(recent) {
   target.replaceChildren();
   if (!recent.length) {
     const empty = createElement("div", "recent-empty");
-    empty.append(createElement("span", "", "错题库还是空的，录入第一道题开始积累学习证据。"));
+    empty.append(createElement("span", "", "题库还是空的，录入第一道题开始积累学习证据。"));
     const button = createElement("button", "text-button", "载入示例题看看");
     button.type = "button";
     button.dataset.loadDemo = "true";
@@ -2236,8 +2291,38 @@ function renderRecent(recent) {
   }
 }
 
-async function loadMistakes() {
-  state.mistakes = await api("/api/mistakes");
+function questionScopeLabel() {
+  return state.questionCategory === "mistake" ? "错题" : "题目";
+}
+
+function renderQuestionCategoryFilter() {
+  $$("[data-question-category]").forEach((button) => {
+    button.classList.toggle(
+      "is-active",
+      button.dataset.questionCategory === state.questionCategory
+    );
+  });
+  const summary = $("#question-category-summary");
+  if (summary) {
+    summary.textContent =
+      state.questionCategory === "mistake"
+        ? "当前查看错题分类"
+        : "当前查看全部题目";
+  }
+}
+
+async function loadQuestions({ category = state.questionCategory } = {}) {
+  state.questionCategory = category === "mistake" ? "mistake" : "all";
+  state.filter = "all";
+  state.mistakePage = 1;
+  const query =
+    state.questionCategory === "mistake" ? "?category=mistake" : "";
+  const result = await api(`/api/questions${query}`);
+  state.mistakes = result.questions || [];
+  $$("[data-filter]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.filter === "all");
+  });
+  renderQuestionCategoryFilter();
   refreshMistakeList();
 }
 
@@ -2282,21 +2367,23 @@ function updateMistakeSearchStatus() {
     return;
   }
   const count = getFilteredMistakes().length;
+  const scope = questionScopeLabel();
   status.hidden = false;
   if (count) {
     status.textContent =
       state.filter === "all"
-        ? `找到 ${count} 道错题`
-        : `在当前分类中找到 ${count} 道错题`;
+        ? `找到 ${count} 道${scope}`
+        : `在当前状态中找到 ${count} 道${scope}`;
   } else {
     status.textContent =
       state.filter === "all"
-        ? "没有找到匹配的错题"
-        : "当前分类中没有找到匹配的错题";
+        ? `没有找到匹配的${scope}`
+        : `当前状态中没有找到匹配的${scope}`;
   }
 }
 
 function refreshMistakeList() {
+  renderQuestionCategoryFilter();
   renderMistakeCounts();
   renderMistakes();
   updateMistakeSearchStatus();
@@ -2375,25 +2462,28 @@ function renderMistakes() {
     const empty = createElement("div", "list-empty");
     const hasQuery = normalizeSearchTerms(state.mistakeQuery).length > 0;
     const allMatchCount = hasQuery ? searchMatchedMistakes().length : 0;
+    const scope = questionScopeLabel();
     let title;
     let copy;
     if (hasQuery) {
       title =
         state.filter === "all"
-          ? "没有找到匹配的错题"
-          : "这个分类里没有匹配的错题";
+          ? `没有找到匹配的${scope}`
+          : `这个状态里没有匹配的${scope}`;
       copy =
         state.filter === "all"
-          ? "换个关键词，或清除搜索查看全部错题。"
+          ? `换个关键词，或清除搜索查看全部${scope}。`
           : allMatchCount
-            ? `其他分类里还有 ${allMatchCount} 道匹配的错题。`
-            : "清除搜索，或切换其他分类看看。";
+            ? `其他状态里还有 ${allMatchCount} 道匹配的${scope}。`
+            : "清除搜索，或切换其他状态看看。";
     } else {
       title = state.mistakes.length
-        ? "这个分类里还没有错题"
-        : "错题库还是空的";
+        ? `这个状态里还没有${scope}`
+        : state.questionCategory === "mistake"
+          ? "错题分类里还是空的"
+          : "题库还是空的";
       copy = state.mistakes.length
-        ? "切换其他状态看看，或继续录入新错题。"
+        ? `切换其他状态看看，或继续录入新${scope}。`
         : "从一道当前不会的题开始，先诊断知识点，再通过重做确认掌握。";
     }
     empty.append(
@@ -2418,7 +2508,7 @@ function renderMistakes() {
       actions.append(button);
       empty.append(actions);
     } else if (!state.mistakes.length) {
-      const button = createElement("button", "primary-button", "录入第一道错题");
+      const button = createElement("button", "primary-button", "录入第一道题");
       button.type = "button";
       button.dataset.openAdd = "true";
       empty.append(button);
@@ -2435,7 +2525,7 @@ function renderMistakes() {
   pageItems.forEach((mistake, index) => {
     const card = createElement("article", "mistake-card");
     card.tabIndex = -1;
-    card.setAttribute("aria-label", `第 ${start + index + 1} 道错题`);
+    card.setAttribute("aria-label", `第 ${start + index + 1} 道题目`);
     const number = createElement(
       "div",
       "mistake-index",
@@ -3122,7 +3212,7 @@ function renderCurriculumUnmapped() {
         showToast("已归类到当前教材知识点");
         await Promise.allSettled([
           loadKnowledge(),
-          loadMistakes(),
+          loadQuestions(),
           loadDashboard()
         ]);
       } catch (error) {
@@ -4305,7 +4395,7 @@ async function loadFeedback() {
 async function refreshAll() {
   const targets = [
     { name: "学习概览", load: loadDashboard },
-    { name: "错题列表", load: loadMistakes },
+    { name: "题库", load: loadQuestions },
     { name: "学习反馈", load: loadFeedback },
     { name: "知识点地图", load: loadKnowledge }
   ];
@@ -4457,7 +4547,7 @@ function completeReviewQueue() {
   }
   showReviewEmpty(
     "本轮复习已完成",
-    "今天到期的复习已经全部完成。可以回到错题库继续整理。"
+    "今天到期的复习已经全部完成。可以回到题库继续整理。"
   );
 }
 
@@ -5200,9 +5290,62 @@ function renderReviewResult(result) {
   target.focus({ preventScroll: true });
 }
 
+function isEntryChoiceOpen() {
+  return $("#entry-choice-dialog").open;
+}
+
+function openEntryChoice(
+  trigger = document.activeElement,
+  { preserveTrigger = false } = {}
+) {
+  const dialog = $("#entry-choice-dialog");
+  state.entryPhotoPickerActive = false;
+  state.entryPhotoCancelGuard = false;
+  if (trigger instanceof HTMLElement && trigger.isConnected) {
+    state.entryChoiceTrigger = trigger;
+  } else if (!preserveTrigger) {
+    state.entryChoiceTrigger = null;
+  }
+  if (!dialog.open) dialog.showModal();
+  $("#entry-photo-button").focus({ preventScroll: true });
+}
+
+function closeEntryChoice({
+  restoreFocus = true,
+  preserveTrigger = false
+} = {}) {
+  const dialog = $("#entry-choice-dialog");
+  const trigger = state.entryChoiceTrigger;
+  state.entryPhotoPickerActive = false;
+  state.entryPhotoCancelGuard = false;
+  if (!preserveTrigger) state.entryChoiceTrigger = null;
+  if (dialog.open) dialog.close();
+  if (restoreFocus && trigger?.isConnected) {
+    trigger.focus({ preventScroll: true });
+  }
+}
+
+function openPhotoEntry() {
+  state.entryPhotoPickerActive = true;
+  $("#entry-photo-file-input").click();
+}
+
+function openManualEntry() {
+  closeEntryChoice({ restoreFocus: false, preserveTrigger: true });
+  state.addDialogReturnToEntryChoice = true;
+  openAddDialog();
+}
+
+function returnToEntryChoiceFromManual() {
+  closeAddDialog();
+  openEntryChoice(null, { preserveTrigger: true });
+}
+
 function openAddDialog() {
   const dialog = $("#add-dialog");
   closeCropEditor();
+  $("#manual-entry-back-button").hidden =
+    !state.addDialogReturnToEntryChoice;
   $("#add-form").reset();
   renderPartsEditor();
   state.dialogAttachments = [];
@@ -5263,6 +5406,8 @@ async function openEditDialog(
     $("#ocr-candidate").hidden = true;
     renderDialogAttachments();
     state.dialogMode = "edit";
+    state.addDialogReturnToEntryChoice = false;
+    $("#manual-entry-back-button").hidden = true;
     state.editingMistakeId = id;
     state.editSubmissionKey = null;
     state.lastDiagnosis = null;
@@ -5293,6 +5438,8 @@ function closeAddDialog({ discardAttachments = true } = {}) {
   $("#ocr-panel").hidden = true;
   $("#ocr-candidate").hidden = true;
   state.dialogMode = "create";
+  state.addDialogReturnToEntryChoice = false;
+  $("#manual-entry-back-button").hidden = true;
   state.editingMistakeId = null;
   state.editSubmissionKey = null;
   state.lastDiagnosis = null;
@@ -5464,8 +5611,8 @@ async function saveMistake(event) {
       showView("mistakes");
       showToast(
         result.learningReset
-          ? "错题已修改，掌握进度已重置，历史作答仍保留"
-          : "错题信息已更新"
+          ? "题目已修改，掌握进度已重置，历史作答仍保留"
+          : "题目信息已更新"
       );
     } else {
       state.reviewAttemptsThisSession = 0;
@@ -5491,17 +5638,17 @@ async function deleteMistake(id) {
   if (!item) return;
   const label = displayQuestion(item) || "图片题";
   const confirmed = window.confirm(
-    `确定删除这道错题吗？\n\n${label.slice(0, 80)}${
+    `确定删除这道题目吗？\n\n${label.slice(0, 80)}${
       label.length > 80 ? "…" : ""
     }\n\n删除后无法恢复。`
   );
   if (!confirmed) return;
   try {
     await api(`/api/mistakes/${id}`, { method: "DELETE" });
-    showToast("错题已删除");
+    showToast("题目已删除");
     const refresh = await refreshAll();
     if (!refresh.ok) {
-      showToast("错题已删除，但页面刷新失败，请刷新页面。", true);
+      showToast("题目已删除，但页面刷新失败，请刷新页面。", true);
     }
   } catch (error) {
     showToast(error.message, true);
@@ -5518,7 +5665,7 @@ async function loadDemo() {
         showToast("示例数据已载入，但页面刷新失败，请刷新页面。", true);
       }
     } else {
-      showToast("错题库中已有内容，示例数据未载入");
+      showToast("题库中已有内容，示例数据未载入");
     }
   } catch (error) {
     showToast(error.message, true);
@@ -5538,14 +5685,14 @@ function bindEvents() {
     }
     const openAdd = event.target.closest("[data-open-add]");
     if (openAdd) {
-      openAddDialog();
+      openEntryChoice(openAdd);
       return;
     }
     const viewAllSearch = event.target.closest("[data-view-all-search]");
     if (viewAllSearch) {
       state.filter = "all";
       state.mistakePage = 1;
-      $$(".filter-chip").forEach((chip) => {
+      $$("[data-filter]").forEach((chip) => {
         chip.classList.toggle("is-active", chip.dataset.filter === "all");
       });
       refreshMistakeList();
@@ -5578,8 +5725,50 @@ function bindEvents() {
     }
   });
 
-  $("#top-add-button").addEventListener("click", openAddDialog);
-  $("#quick-add-button").addEventListener("click", openAddDialog);
+  $("#top-add-button").addEventListener("click", (event) =>
+    openEntryChoice(event.currentTarget)
+  );
+  $("#quick-add-button").addEventListener("click", (event) =>
+    openEntryChoice(event.currentTarget)
+  );
+  $("#entry-choice-close-button").addEventListener("click", () =>
+    closeEntryChoice()
+  );
+  $("#entry-photo-button").addEventListener("click", openPhotoEntry);
+  $("#entry-manual-button").addEventListener("click", openManualEntry);
+  $("#entry-photo-file-input").addEventListener("change", (event) => {
+    const files = [...(event.target.files || [])];
+    event.target.value = "";
+    state.entryPhotoPickerActive = false;
+    state.entryPhotoCancelGuard = false;
+    if (!files.length) return;
+    closeEntryChoice({ restoreFocus: false, preserveTrigger: true });
+    uploadScanFiles(files, { returnToEntryChoice: true });
+  });
+  $("#entry-photo-file-input").addEventListener("cancel", () => {
+    state.entryPhotoPickerActive = false;
+    state.entryPhotoCancelGuard = true;
+    window.setTimeout(() => {
+      state.entryPhotoCancelGuard = false;
+    }, 300);
+  });
+  $("#entry-choice-dialog").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    if (
+      state.entryPhotoPickerActive ||
+      state.entryPhotoCancelGuard
+    ) {
+      state.entryPhotoPickerActive = false;
+      state.entryPhotoCancelGuard = false;
+      $("#entry-photo-button").focus({ preventScroll: true });
+      return;
+    }
+    closeEntryChoice();
+  });
+  $("#manual-entry-back-button").addEventListener(
+    "click",
+    returnToEntryChoiceFromManual
+  );
   $("#curriculum-close-button").addEventListener("click", closeCurriculumDialog);
   $("#curriculum-cancel-button").addEventListener("click", closeCurriculumDialog);
   $("#curriculum-preview-button").addEventListener("click", previewCurriculumSwitch);
@@ -5639,13 +5828,6 @@ function bindEvents() {
   $("#scan-file-input").addEventListener("change", (event) => {
     uploadScanFiles(event.target.files);
     event.target.value = "";
-  });
-  $$('input[name="scan-mode"]').forEach((input) => {
-    input.addEventListener("change", () => {
-      if (!input.checked) return;
-      state.scanMode = input.value === "multi" ? "multi" : "single";
-      renderScanIntake();
-    });
   });
   $("#scan-image-list").addEventListener("click", (event) => {
     const crop = event.target.closest("[data-crop-attachment]");
@@ -5795,7 +5977,7 @@ function bindEvents() {
     const files = [...(event.clipboardData?.files || [])];
     if (!files.length) return;
     event.preventDefault();
-    uploadImageFiles(files);
+    uploadImageFiles(files, { autoCrop: false });
   });
   $("#attachment-list").addEventListener("click", (event) => {
     const preview = event.target.closest("[data-preview-attachment]");
@@ -5826,8 +6008,12 @@ function bindEvents() {
   $("#rotate-crop-button").addEventListener("click", rotateCropEditor);
   $("#reset-crop-button").addEventListener("click", resetCropEditor);
   $("#restore-original-button").addEventListener("click", restoreOriginalImage);
-  $("#close-crop-editor-button").addEventListener("click", closeCropEditor);
-  $("#cancel-crop-button").addEventListener("click", closeCropEditor);
+  $("#crop-editor").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    cancelCropEditor();
+  });
+  $("#close-crop-editor-button").addEventListener("click", cancelCropEditor);
+  $("#cancel-crop-button").addEventListener("click", cancelCropEditor);
   $("#apply-crop-button").addEventListener("click", applyCropEditor);
   $("#crop-selection").addEventListener("pointerdown", startCropDrag);
   document.addEventListener("pointermove", moveCropDrag);
@@ -5935,13 +6121,25 @@ function bindEvents() {
     }
   });
 
-  $$(".filter-chip").forEach((button) => {
+  $$("[data-question-category]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await loadQuestions({
+          category: button.dataset.questionCategory
+        });
+      } catch (error) {
+        showToast(error.message, true);
+      }
+    });
+  });
+
+  $$("[data-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       window.clearTimeout(state.mistakeSearchTimer);
       state.mistakeSearchTimer = null;
       state.filter = button.dataset.filter;
       state.mistakePage = 1;
-      $$(".filter-chip").forEach((chip) => {
+      $$("[data-filter]").forEach((chip) => {
         chip.classList.toggle("is-active", chip === button);
       });
       refreshMistakeList();
@@ -6120,7 +6318,7 @@ function bindEvents() {
     }
     if (event.key === "Escape" && state.cropEditor) {
       event.preventDefault();
-      closeCropEditor();
+      cancelCropEditor();
       return;
     }
     if (event.key === "Escape") closeSidebar({ restoreFocus: true });

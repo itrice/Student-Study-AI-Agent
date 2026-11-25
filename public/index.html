@@ -58,7 +58,7 @@
               <path d="M6 3.5h9l3 3V20H6z" />
               <path d="M14.5 3.5V7h3M9 11h6M9 14.5h4" />
             </svg>
-            <span>我的错题</span>
+            <span>题库</span>
           </button>
           <button class="nav-item" data-view="feedback">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -195,7 +195,7 @@
                 </svg>
               </span>
               <span>
-                <small>错题库</small>
+                <small>题库</small>
                 <strong id="stat-total">0</strong>
                 <em>道</em>
               </span>
@@ -261,10 +261,10 @@
             <div class="panel-heading">
               <div>
                 <span class="section-kicker">最近录入</span>
-                <h2>我的错题动态</h2>
+                <h2>最近录入</h2>
               </div>
               <button class="link-button" data-go-view="mistakes">
-                打开错题库
+                打开题库
               </button>
             </div>
             <div id="recent-list" class="recent-list"></div>
@@ -478,7 +478,7 @@
               <span class="eyebrow">题库兼容底座 · 扫描候选</span>
               <h1>拍照选题</h1>
               <p>
-                默认按单题识别；多题模式先定位题目，勾选后再逐题分析。
+                上传后先定位题目，勾选需要的题后再逐题分析。
                 候选默认不选中，不点击导入不会写入正式题库。
               </p>
             </div>
@@ -494,28 +494,6 @@
                 纯文本模型只接收 OCR 文字、坐标和置信度。
               </p>
             </div>
-            <fieldset class="scan-mode-switch">
-              <legend>识别方式</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="scan-mode"
-                  value="single"
-                  checked
-                />
-                <span>
-                  <strong>单题</strong>
-                  <small>直接识别当前图片中的一道题，分析小问和答案。</small>
-                </span>
-              </label>
-              <label>
-                <input type="radio" name="scan-mode" value="multi" />
-                <span>
-                  <strong>多题</strong>
-                  <small>先标出各题，勾选需要的题后再逐题分析。</small>
-                </span>
-              </label>
-            </fieldset>
             <input
               id="scan-file-input"
               class="sr-only"
@@ -537,7 +515,7 @@
               请选择图片后开始识别；内部 OCR 不可用时仍可改用手动录入。
             </p>
             <button class="primary-button" id="scan-start-button" type="button" disabled>
-              开始识别候选
+              识别题目范围
             </button>
           </div>
 
@@ -545,7 +523,7 @@
             正在识别题目边界，请稍候…
           </div>
 
-          <div id="scan-task" hidden>
+          <div id="scan-task" tabindex="-1" hidden>
             <div class="panel scan-task-head">
               <div>
                 <span class="section-kicker">扫描任务 #<span id="scan-task-id"></span></span>
@@ -601,9 +579,9 @@
         <section class="view" id="view-mistakes" data-view-panel="mistakes">
           <div class="page-heading">
             <div>
-              <span class="eyebrow">错题不是收藏品</span>
-              <h1>我的错题</h1>
-              <p>每道题都要走完“定位错因 → 补足思路 → 再次做对”。</p>
+              <span class="eyebrow">统一题库 · 一份正式题目数据</span>
+              <h1>题库</h1>
+              <p>默认查看全部题目；需要复习和订正时，可快捷切换到错题。</p>
             </div>
           </div>
 
@@ -614,7 +592,7 @@
                 <path d="m16 16 4 4" />
               </svg>
             </span>
-            <label class="sr-only" for="mistake-search-input">搜索错题</label>
+            <label class="sr-only" for="mistake-search-input">搜索题目</label>
             <input
               id="mistake-search-input"
               type="search"
@@ -641,10 +619,30 @@
             hidden
           ></p>
 
+          <div class="toolbar question-category-toolbar">
+            <div class="filter-group" role="group" aria-label="题库分类">
+              <button
+                class="filter-chip is-active"
+                type="button"
+                data-question-category="all"
+              >
+                全部题目
+              </button>
+              <button
+                class="filter-chip"
+                type="button"
+                data-question-category="mistake"
+              >
+                错题
+              </button>
+            </div>
+            <span class="data-hint" id="question-category-summary">当前查看全部题目</span>
+          </div>
+
           <div class="toolbar">
-            <div class="filter-group" role="group" aria-label="筛选错题">
+            <div class="filter-group" role="group" aria-label="筛选题目状态">
               <button class="filter-chip is-active" data-filter="all">
-                全部 <span id="filter-count-all">0</span>
+                全部状态 <span id="filter-count-all">0</span>
               </button>
               <button class="filter-chip" data-filter="new">
                 待复习 <span id="filter-count-new">0</span>
@@ -666,7 +664,7 @@
           <nav
             id="mistake-pagination"
             class="mistake-pagination"
-            aria-label="错题分页"
+            aria-label="题库分页"
             hidden
           >
             <button
@@ -1069,6 +1067,14 @@
       <form id="add-form" method="dialog">
         <div class="dialog-header">
           <div>
+            <button
+              class="manual-entry-back-button"
+              id="manual-entry-back-button"
+              type="button"
+              hidden
+            >
+              ‹ 返回录入方式
+            </button>
             <span class="eyebrow" id="dialog-eyebrow">建立学习证据</span>
             <h2 id="dialog-title">录入一道错题</h2>
           </div>
@@ -1157,13 +1163,10 @@
               </div>
             </div>
 
-            <div
+            <dialog
               id="crop-editor"
               class="crop-editor"
-              role="dialog"
-              aria-modal="true"
               aria-labelledby="crop-editor-title"
-              hidden
             >
               <div class="crop-editor-panel">
                 <div class="crop-editor-heading">
@@ -1224,7 +1227,7 @@
                   </div>
                 </div>
               </div>
-            </div>
+            </dialog>
           </section>
 
           <section class="parts-editor">
@@ -1307,6 +1310,87 @@
           </div>
         </div>
       </form>
+    </dialog>
+
+    <dialog
+      id="entry-choice-dialog"
+      class="entry-choice-dialog"
+      aria-labelledby="entry-choice-title"
+    >
+      <div class="entry-choice-header">
+        <div>
+          <span class="eyebrow" id="entry-choice-eyebrow">新增题目</span>
+          <h2 id="entry-choice-title">选择录入方式</h2>
+          <p id="entry-choice-description">
+            拍照录入可以一次识别多道题；手工录入适合直接填写或整理已有文字。
+          </p>
+        </div>
+        <button
+          class="icon-button"
+          id="entry-choice-close-button"
+          type="button"
+          aria-label="关闭录入方式选择"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m6 6 12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+      <div class="entry-choice-list" id="entry-choice-list">
+        <button
+          class="entry-choice-option is-primary"
+          id="entry-photo-button"
+          type="button"
+        >
+          <span class="entry-choice-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M4 7h4l2-2h4l2 2h4v12H4z" />
+              <circle cx="12" cy="13" r="3.5" />
+            </svg>
+          </span>
+          <span class="entry-choice-copy">
+            <span class="entry-choice-heading">
+              <strong>拍照录入</strong>
+              <small>推荐</small>
+            </span>
+            <span>拍摄或选择作业页，先定位题目再逐题分析。</span>
+          </span>
+          <span class="entry-choice-arrow" aria-hidden="true">›</span>
+        </button>
+        <button
+          class="entry-choice-option"
+          id="entry-manual-button"
+          type="button"
+        >
+          <span class="entry-choice-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M6 4h9l3 3v13H6z" />
+              <path d="M9 10h6M9 14h4" />
+            </svg>
+          </span>
+          <span class="entry-choice-copy">
+            <span class="entry-choice-heading">
+              <strong>手工录入</strong>
+            </span>
+            <span>直接填写题目、学生答案和标准答案。</span>
+          </span>
+          <span class="entry-choice-arrow" aria-hidden="true">›</span>
+        </button>
+      </div>
+      <input
+        id="entry-photo-file-input"
+        class="sr-only"
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        capture="environment"
+        multiple
+      />
+      <p
+        class="entry-choice-footnote"
+        id="entry-choice-footnote"
+      >
+        原图只保存在本机，内部 OCR 不会把图片发送给外部多模态模型。
+      </p>
     </dialog>
 
     <dialog

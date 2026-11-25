@@ -2523,7 +2523,7 @@ Object.assign(paths, {
       tags: ["错题"],
       summary: "列出错题",
       description:
-        "按学习状态返回错题列表，包含附件安全元数据和小问摘要，不返回正确答案、解析或提示。非法 status 会按 all 处理。",
+        "兼容接口，等价于 GET /api/questions?category=mistake 后按 status 转换响应外壳。只读取统一题库，不维护第二份题目数据。包含附件安全元数据和小问摘要，不返回正确答案、解析或提示；非法 status 会按 all 处理。",
       operationId: "listMistakes",
       parameters: [
         {
@@ -3339,10 +3339,23 @@ Object.assign(paths, {
   "/api/questions": {
     get: {
       tags: ["题库"],
-      summary: "列出题库兼容视图",
+      summary: "列出统一题库题目",
       description:
-        "返回当前题库中的题目摘要和分类。字段保持旧错题接口语义；包含题型、完整度、来源、答案复核和墨水屏适配状态。",
+        "默认返回全部题目；可用 category 按分类筛选。category=mistake 返回错题，包括没有分类记录的遗留题目。字段保持旧错题接口语义，只读取同一份正式题目数据。",
       operationId: "listQuestions",
+      parameters: [
+        {
+          name: "category",
+          in: "query",
+          required: false,
+          description: "题目分类，例如 mistake 或 normal；省略时返回全部题目。",
+          schema: {
+            type: "string",
+            maxLength: 40,
+            default: "all"
+          }
+        }
+      ],
       responses: {
         200: jsonResponse("题库列表", ref("QuestionList"))
       }

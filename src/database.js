@@ -668,6 +668,17 @@ function mapQuestionSource(row) {
   };
 }
 
+const QUESTION_IS_MISTAKE_SQL = `(
+  EXISTS (
+    SELECT 1 FROM question_categories qc
+    WHERE qc.question_id = m.id AND qc.category = 'mistake'
+  )
+  OR NOT EXISTS (
+    SELECT 1 FROM question_categories qc
+    WHERE qc.question_id = m.id
+  )
+)`;
+
 function mapQuestionScanCandidate(row, scanId) {
   const analysis = parseJsonObject(row.analysis_json);
   const analysisStage =
@@ -4018,11 +4029,70 @@ export class LearningRepository {
     };
   }
 
-  listQuestions() {
-    return this.listMistakes().map((question) => ({
-      ...question,
-      categories: this.listQuestionCategories(question.id)
-    }));
+  listQuestions({ status = "all", category = null } = {}) {
+    const validStatus = ["new", "practicing", "mastered", "relearning"].includes(status)
+      ? status
+      : "all";
+    const normalizedCategory = String(category || "").trim() || null;
+    const clauses = [];
+    const parameters = [];
+    if (validStatus !== "all") {
+      clauses.push("m.status = ?");
+      parameters.push(validStatus);
+    }
+    if (normalizedCategory === "mistake") {
+      clauses.push(QUESTION_IS_MISTAKE_SQL);
+    } else if (normalizedCategory) {
+      clauses.push(
+        `EXISTS (
+          SELECT 1 FROM question_categories qc
+          WHERE qc.question_id = m.id AND qc.category = ?
+        )`
+      );
+      parameters.push(normalizedCategory);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(
+        `SELECT m.*, COALESCE(k.name, m.knowledge_point) AS knowledge_point
+         FROM mistakes m
+         LEFT JOIN knowledge_points k ON k.name = m.knowledge_point
+         ${where}
+         ORDER BY
+           CASE m.status
+             WHEN 'new' THEN 0
+             WHEN 'relearning' THEN 1
+             WHEN 'practicing' THEN 2
+             ELSE 3
+           END,
+           COALESCE(m.due_at, m.created_at) ASC,
+           m.id DESC`
+      )
+      .all(...parameters);
+    const partsByMistake = new Map();
+    if (rows.length) {
+      const placeholders = rows.map(() => "?").join(",");
+      const partRows = this.db
+        .prepare(
+          `SELECT mistake_id, label, prompt FROM mistake_parts
+           WHERE active = 1 AND mistake_id IN (${placeholders})
+           ORDER BY mistake_id, part_no, id`
+        )
+        .all(...rows.map((row) => row.id));
+      for (const part of partRows) {
+        const list = partsByMistake.get(part.mistake_id) || [];
+        list.push({ label: part.label, prompt: part.prompt });
+        partsByMistake.set(part.mistake_id, list);
+      }
+    }
+    return rows.map((row) => {
+      const question = mapMistake(row);
+      question.parts = partsByMistake.get(row.id) || [];
+      question.attachments = this.listMistakeAttachments(question.id);
+      const categories = this.listQuestionCategories(question.id);
+      question.categories = categories.length ? categories : ["mistake"];
+      return question;
+    });
   }
 
   createQuestionScanTask({
@@ -5419,49 +5489,9 @@ export class LearningRepository {
   }
 
   listMistakes({ status = "all" } = {}) {
-    const validStatus = ["new", "practicing", "mastered", "relearning"].includes(status)
-      ? status
-      : "all";
-    const where = validStatus === "all" ? "" : "WHERE m.status = ?";
-    const statement = this.db.prepare(
-      `SELECT m.*, COALESCE(k.name, m.knowledge_point) AS knowledge_point
-       FROM mistakes m
-       LEFT JOIN knowledge_points k ON k.name = m.knowledge_point
-       ${where}
-       ORDER BY
-         CASE m.status
-           WHEN 'new' THEN 0
-           WHEN 'relearning' THEN 1
-           WHEN 'practicing' THEN 2
-           ELSE 3
-         END,
-         COALESCE(m.due_at, m.created_at) ASC,
-         m.id DESC`
+    return this.listQuestions({ status, category: "mistake" }).map(
+      ({ categories, ...mistake }) => mistake
     );
-    const rows =
-      validStatus === "all" ? statement.all() : statement.all(validStatus);
-    const partsByMistake = new Map();
-    if (rows.length) {
-      const placeholders = rows.map(() => "?").join(",");
-      const partRows = this.db
-        .prepare(
-          `SELECT mistake_id, label, prompt FROM mistake_parts
-           WHERE active = 1 AND mistake_id IN (${placeholders})
-           ORDER BY mistake_id, part_no, id`
-        )
-        .all(...rows.map((row) => row.id));
-      for (const part of partRows) {
-        const list = partsByMistake.get(part.mistake_id) || [];
-        list.push({ label: part.label, prompt: part.prompt });
-        partsByMistake.set(part.mistake_id, list);
-      }
-    }
-    return rows.map((row) => {
-      const mistake = mapMistake(row);
-      mistake.parts = partsByMistake.get(row.id) || [];
-      mistake.attachments = this.listMistakeAttachments(mistake.id);
-      return mistake;
-    });
   }
 
   deleteMistake(id) {
@@ -5502,6 +5532,7 @@ export class LearningRepository {
          LEFT JOIN review_schedule rs
            ON rs.mistake_id = m.id AND rs.active = 1
          WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
+           AND ${QUESTION_IS_MISTAKE_SQL}
          ORDER BY
            CASE m.status
              WHEN 'new' THEN 0
@@ -5538,6 +5569,7 @@ export class LearningRepository {
          LEFT JOIN review_schedule rs
            ON rs.mistake_id = m.id AND rs.active = 1
          WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
+           AND ${QUESTION_IS_MISTAKE_SQL}
          ORDER BY
            CASE m.status
              WHEN 'new' THEN 0
@@ -5566,7 +5598,8 @@ export class LearningRepository {
            FROM mistakes m
            LEFT JOIN review_schedule rs
              ON rs.mistake_id = m.id AND rs.active = 1
-           WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?`
+           WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
+             AND ${QUESTION_IS_MISTAKE_SQL}`
         )
         .get(at).count
     );
@@ -5586,6 +5619,7 @@ export class LearningRepository {
          LEFT JOIN review_schedule rs
            ON rs.mistake_id = m.id AND rs.active = 1
          WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
+           AND ${QUESTION_IS_MISTAKE_SQL}
          ORDER BY
            CASE m.status
              WHEN 'new' THEN 0
@@ -5624,6 +5658,7 @@ export class LearningRepository {
            LEFT JOIN review_schedule rs
              ON rs.mistake_id = m.id AND rs.active = 1
            WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
+             AND ${QUESTION_IS_MISTAKE_SQL}
          ),
          numbered AS (
            SELECT id,
@@ -6310,7 +6345,8 @@ export class LearningRepository {
           SUM(CASE WHEN m.status = 'practicing' THEN 1 ELSE 0 END) AS practicing_count,
           SUM(CASE WHEN m.status = 'mastered' THEN 1 ELSE 0 END) AS mastered_count,
           SUM(CASE WHEN m.status = 'relearning' THEN 1 ELSE 0 END) AS relearning_count,
-          SUM(CASE WHEN COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
+          SUM(CASE WHEN ${QUESTION_IS_MISTAKE_SQL}
+                        AND COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
                    THEN 1 ELSE 0 END) AS due_count
          FROM mistakes m
          LEFT JOIN review_schedule rs
@@ -6854,7 +6890,8 @@ export class LearningRepository {
            FROM mistakes m
            LEFT JOIN review_schedule rs
              ON rs.mistake_id = m.id AND rs.active = 1
-           WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?${clause}`
+           WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
+             AND ${QUESTION_IS_MISTAKE_SQL}${clause}`
         )
         .get(...parameters).count || 0
     );
