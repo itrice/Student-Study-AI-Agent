@@ -298,7 +298,7 @@ async function uploadAttachment(file) {
   return data;
 }
 
-async function uploadImageFiles(fileList) {
+async function uploadImageFiles(fileList, { autoCrop = true } = {}) {
   const files = [...(fileList || [])];
   const images = files.filter(
     (file) => !file.type || String(file.type).startsWith("image/")
@@ -307,6 +307,7 @@ async function uploadImageFiles(fileList) {
     showToast("没有找到可用的图片", true);
     return;
   }
+  let lastUploaded = null;
   for (const file of images) {
     if (state.dialogAttachments.length >= MAX_DIALOG_IMAGES) {
       showToast(`每道题最多添加 ${MAX_DIALOG_IMAGES} 张图片`, true);
@@ -326,6 +327,7 @@ async function uploadImageFiles(fileList) {
       const attachment = await uploadAttachment(file);
       state.dialogAttachments.push(attachment);
       state.newAttachmentIds.add(attachment.id);
+      lastUploaded = attachment;
       renderDialogAttachments();
       setImageUploadStatus(
         `已添加 ${state.dialogAttachments.length} 张图片，保存错题后完成关联。`
@@ -341,6 +343,9 @@ async function uploadImageFiles(fileList) {
     setImageUploadStatus(
       `已添加 ${state.dialogAttachments.length} 张图片，保存错题后完成关联。`
     );
+  }
+  if (autoCrop && lastUploaded) {
+    openCropEditor(lastUploaded.id, "dialog");
   }
 }
 
@@ -450,6 +455,7 @@ async function uploadScanFiles(fileList) {
     showToast("没有找到可用的图片", true);
     return;
   }
+  let lastUploaded = null;
   for (const file of files) {
     if (state.scanAttachments.length >= MAX_SCAN_IMAGES) {
       showToast(`一次扫描最多 ${MAX_SCAN_IMAGES} 张图片`, true);
@@ -466,6 +472,7 @@ async function uploadScanFiles(fileList) {
     try {
       const attachment = await uploadAttachment(file);
       state.scanAttachments.push(attachment);
+      lastUploaded = attachment;
       $("#scan-status").textContent = `已添加 ${state.scanAttachments.length} 张图片；识别结果只进入候选页。`;
     } catch (error) {
       $("#scan-status").textContent = error.message;
@@ -473,6 +480,7 @@ async function uploadScanFiles(fileList) {
     }
   }
   renderScanIntake();
+  if (lastUploaded) openCropEditor(lastUploaded.id, "scan");
 }
 
 async function removeScanAttachment(id) {
@@ -1607,7 +1615,8 @@ function openCropEditor(attachmentId, scope = "dialog") {
     scale: 1
   };
   state.cropEditor = editor;
-  $("#crop-editor").hidden = false;
+  const cropDialog = $("#crop-editor");
+  if (!cropDialog.open) cropDialog.showModal();
   $("#restore-original-button").hidden = !attachment.hasCrop;
   setCropStatus("正在加载原图…");
   const image = new Image();
@@ -1629,7 +1638,8 @@ function closeCropEditor() {
   const editor = state.cropEditor;
   state.cropEditor = null;
   if (editor?.image) editor.image.src = "";
-  $("#crop-editor").hidden = true;
+  const cropDialog = $("#crop-editor");
+  if (cropDialog.open) cropDialog.close();
   $("#crop-status").textContent = "";
   $("#crop-status").classList.remove("is-error");
 }
@@ -5795,7 +5805,7 @@ function bindEvents() {
     const files = [...(event.clipboardData?.files || [])];
     if (!files.length) return;
     event.preventDefault();
-    uploadImageFiles(files);
+    uploadImageFiles(files, { autoCrop: false });
   });
   $("#attachment-list").addEventListener("click", (event) => {
     const preview = event.target.closest("[data-preview-attachment]");
@@ -5826,6 +5836,10 @@ function bindEvents() {
   $("#rotate-crop-button").addEventListener("click", rotateCropEditor);
   $("#reset-crop-button").addEventListener("click", resetCropEditor);
   $("#restore-original-button").addEventListener("click", restoreOriginalImage);
+  $("#crop-editor").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeCropEditor();
+  });
   $("#close-crop-editor-button").addEventListener("click", closeCropEditor);
   $("#cancel-crop-button").addEventListener("click", closeCropEditor);
   $("#apply-crop-button").addEventListener("click", applyCropEditor);
