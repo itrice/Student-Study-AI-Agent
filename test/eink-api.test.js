@@ -158,6 +158,11 @@ function assertFrameMatchesPixels(frame, width, height, pixels) {
   }
 }
 
+function framePixelIsBlack(frame, width, x, y) {
+  return (frame[y * Math.ceil(width / 8) + Math.floor(x / 8)] &
+    (0x80 >> (x % 8))) === 0;
+}
+
 test("1bpp 打包使用每行 MSB 在左且 0 表示黑色", async () => {
   const pixels = Buffer.alloc(8 * 4, 255);
   pixels[0] = 0;
@@ -189,6 +194,32 @@ test("1bpp 打包使用每行 MSB 在左且 0 表示黑色", async () => {
     height: 420
   });
   assert.equal(PHOTO_AREA.y + PHOTO_AREA.height, 476);
+});
+
+test("照片页不画分隔线，并对暗色页边使用局部自适应阈值", async () => {
+  const source = await sharp(Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">
+      <rect width="400" height="200" fill="#8c8c8c"/>
+      <rect x="28" y="42" width="220" height="44" fill="black"/>
+    </svg>
+  `)).png().toBuffer();
+  const photo = await prepareEinkPhoto(source, { skipPaperCrop: true });
+  const rendered = await renderEinkPage({
+    mistake: {
+      question: "",
+      knowledgePoint: "圆"
+    },
+    mode: "question",
+    index: 1,
+    total: 1,
+    photo
+  });
+  assert.equal(framePixelIsBlack(rendered.frame, EINK_WIDTH, 2, 64), false);
+  assert.equal(framePixelIsBlack(rendered.frame, EINK_WIDTH, 8, 60), false);
+  assert.equal(framePixelIsBlack(rendered.frame, EINK_WIDTH, 30, 100), false);
+  assert.equal(framePixelIsBlack(rendered.frame, EINK_WIDTH, 400, 250), false);
+  assert.equal(framePixelIsBlack(rendered.frame, EINK_WIDTH, 100, 158), true);
+  assert.equal(framePixelIsBlack(rendered.frame, EINK_WIDTH, 792, 472), false);
 });
 
 test("手机 JPEG 的 EXIF Orientation 只应用一次", async () => {

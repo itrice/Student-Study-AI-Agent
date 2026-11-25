@@ -2,6 +2,10 @@ export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-parts-4";
 export const QUESTION_DISCOVERY_PROMPT_VERSION = "m2-ocr-boundaries-1";
 export const INTERNAL_OCR_TEXT_VERSION = "internal-ocr-1";
 export const MAX_SCAN_CANDIDATES = 20;
+export const MAX_OCR_IMAGE_BYTES = 900 * 1024;
+
+const OCR_JPEG_QUALITIES = [88, 80, 72, 64, 56];
+const OCR_MAX_DIMENSIONS = [2400, 2000, 1600, 1280];
 
 const QUESTION_TYPES = new Set([
   "general",
@@ -80,6 +84,46 @@ export class InternalOcrError extends QuestionScanError {
 
 function compact(value, length = 400) {
   return String(value || "").replace(/\s+/g, " ").slice(0, length);
+}
+
+async function prepareImageForOcr({ buffer }) {
+  const metadata = await sharp(buffer).metadata();
+  const swapsAxes = Number(metadata.orientation) >= 5;
+  const sourceWidth = swapsAxes ? metadata.height : metadata.width;
+  const sourceHeight = swapsAxes ? metadata.width : metadata.height;
+  if (!(sourceWidth > 0) || !(sourceHeight > 0)) {
+    throw new QuestionScanError(
+      "OCR_IMAGE_INVALID",
+      "扫描图片尺寸无效，请重新拍照或改用手动录入"
+    );
+  }
+  for (const maxDimension of OCR_MAX_DIMENSIONS) {
+    for (const quality of OCR_JPEG_QUALITIES) {
+      const prepared = await sharp(buffer)
+        .rotate()
+        .resize({
+          width: maxDimension,
+          height: maxDimension,
+          fit: "inside",
+          withoutEnlargement: true
+        })
+        .flatten({ background: "#ffffff" })
+        .jpeg({ quality })
+        .toBuffer();
+      if (prepared.length <= MAX_OCR_IMAGE_BYTES) {
+        return {
+          buffer: prepared,
+          mimeType: "image/jpeg",
+          sourceWidth,
+          sourceHeight
+        };
+      }
+    }
+  }
+  throw new QuestionScanError(
+    "OCR_IMAGE_TOO_LARGE",
+    "扫描图片压缩后仍过大，请缩小裁剪区域后重试"
+  );
 }
 
 function responseContent(message) {
@@ -966,7 +1010,13 @@ export class InternalOcrClient {
     return Boolean(this.baseUrl && this.fetchImpl);
   }
 
-  async recognize({ buffer, mimeType, imageIndex = 0 }) {
+  async recognize({
+    buffer,
+    mimeType,
+    imageIndex = 0,
+    sourceWidth,
+    sourceHeight
+  }) {
     if (!this.isConfigured()) {
       throw new InternalOcrError("OCR_NOT_CONFIGURED", "内部 OCR 未配置");
     }
@@ -1016,6 +1066,8 @@ export class InternalOcrClient {
               : null;
             const width = Number(data.width);
             const height = Number(data.height);
+            const coordinateWidth = Number(sourceWidth) || width;
+            const coordinateHeight = Number(sourceHeight) || height;
             if (
               !bbox ||
               bbox.length !== 4 ||
@@ -1025,20 +1077,26 @@ export class InternalOcrClient {
             ) {
               return null;
             }
+            const mappedBbox = [
+              (bbox[0] / width) * coordinateWidth,
+              (bbox[1] / height) * coordinateHeight,
+              (bbox[2] / width) * coordinateWidth,
+              (bbox[3] / height) * coordinateHeight
+            ];
             return {
               id: `i${imageIndex + 1}b${index + 1}`,
               imageIndex,
               order: Number(block.order) || index + 1,
               text: String(block.text || "").trim(),
-              bbox,
+              bbox: mappedBbox,
               confidence: Number.isFinite(Number(block.confidence))
                 ? Number(block.confidence)
                 : null,
               region: normalizeRegion({
-                x: bbox[0] / width,
-                y: bbox[1] / height,
-                width: (bbox[2] - bbox[0]) / width,
-                height: (bbox[3] - bbox[1]) / height
+                x: mappedBbox[0] / coordinateWidth,
+                y: mappedBbox[1] / coordinateHeight,
+                width: (mappedBbox[2] - mappedBbox[0]) / coordinateWidth,
+                height: (mappedBbox[3] - mappedBbox[1]) / coordinateHeight
               })
             };
           })
@@ -1096,11 +1154,14 @@ export class OcrTextQuestionScanner {
     const ocrResults = [];
     try {
       for (const [index, image] of images.entries()) {
+        const prepared = await prepareImageForOcr(image);
         ocrResults.push(
           await this.ocrClient.recognize({
-            buffer: image.buffer,
-            mimeType: image.mimeType,
-            imageIndex: index
+            buffer: prepared.buffer,
+            mimeType: prepared.mimeType,
+            imageIndex: index,
+            sourceWidth: prepared.sourceWidth,
+            sourceHeight: prepared.sourceHeight
           })
         );
       }

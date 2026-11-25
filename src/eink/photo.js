@@ -11,6 +11,7 @@ const THUMB_WIDTH = 120;
 const THUMB_HEIGHT = 90;
 const PAPER_BRIGHTNESS = 195;
 const PAPER_MIN_FRACTION = 0.55;
+const CROP_INSET = 1;
 const INK_BRIGHTNESS = 160;
 const EDGE_PADDING = 8;
 const BLUR_WINDOW = 11;
@@ -73,18 +74,16 @@ export function findPaperCropBounds(image) {
     return { x: 0, y: 0, width, height };
   }
 
-  const scaleX = width === THUMB_WIDTH ? 1 : Infinity;
-  const scaleY = height === THUMB_HEIGHT ? 1 : Infinity;
-  const x = Math.max(0, Math.floor(bounds.minX * scaleX));
-  const y = Math.max(0, Math.floor(bounds.minY * scaleY));
-  const right = Math.min(
-    width,
-    Math.ceil((bounds.maxX + 1) * scaleX)
-  );
-  const bottom = Math.min(
-    height,
-    Math.ceil((bounds.maxY + 1) * scaleY)
-  );
+  const insetX = bounds.maxX - bounds.minX + 1 > CROP_INSET * 2
+    ? CROP_INSET
+    : 0;
+  const insetY = bounds.maxY - bounds.minY + 1 > CROP_INSET * 2
+    ? CROP_INSET
+    : 0;
+  const x = Math.max(0, bounds.minX + insetX);
+  const y = Math.max(0, bounds.minY + insetY);
+  const right = Math.min(width, bounds.maxX + 1 - insetX);
+  const bottom = Math.min(height, bounds.maxY + 1 - insetY);
   return {
     x,
     y,

@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { EINK_FONT_FAMILY, ensureEinkFonts } from "./fonts.js";
+import { adaptiveThreshold } from "./photo.js";
 
 export const EINK_WIDTH = 800;
 export const EINK_HEIGHT = 480;
@@ -256,8 +257,7 @@ function textPageSvg(index, total, knowledgePoint, text) {
 function photoPageSvg(index, total, knowledgePoint) {
   return svgDocument([
     `<rect width="${EINK_WIDTH}" height="${EINK_HEIGHT}" fill="white"/>`,
-    ...headerElements(index, total, knowledgePoint),
-    `<rect x="0" y="${DIVIDER_Y}" width="${EINK_WIDTH}" height="2" fill="black"/>`
+    ...headerElements(index, total, knowledgePoint)
   ]);
 }
 
@@ -343,14 +343,53 @@ async function renderPhotoPage(
       fit: "contain",
       background: "white"
     })
-    .png()
+    .ensureAlpha()
+    .raw()
     .toBuffer({ resolveWithObject: true });
+  const bordered = await sharp(resized.data, {
+    raw: {
+      width: resized.info.width,
+      height: resized.info.height,
+      channels: resized.info.channels
+    }
+  })
+    .extend({
+      top: 8,
+      bottom: 8,
+      left: 8,
+      right: 8,
+      background: "white"
+    })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  adaptiveThreshold(
+    bordered.data,
+    bordered.info.width,
+    bordered.info.height
+  );
+  const thresholded = await sharp(bordered.data, {
+    raw: {
+      width: bordered.info.width,
+      height: bordered.info.height,
+      channels: bordered.info.channels
+    }
+  })
+    .extract({
+      left: 8,
+      top: 8,
+      width: resized.info.width,
+      height: resized.info.height
+    })
+    .png()
+    .toBuffer();
   const left = PHOTO_AREA.x +
     Math.floor((PHOTO_AREA.width - resized.info.width) / 2);
   const top = PHOTO_AREA.y +
     Math.floor((PHOTO_AREA.height - resized.info.height) / 2);
   const composited = await sharp(background)
-    .composite([{ input: resized.data, left, top }])
+    .composite([{ input: thresholded, left, top }])
+    .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
   return binarizeAndPack({

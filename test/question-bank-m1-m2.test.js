@@ -32,6 +32,21 @@ const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2fXkAAAAASUVORK5CYII=",
   "base64"
 );
+async function makeScanPng(width = 1000, height = 800) {
+  return sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background: { r: 250, g: 250, b: 250 }
+    }
+  })
+    .png()
+    .toBuffer();
+}
+
+const SCAN_PNG = await makeScanPng();
+const SCAN_SHORT_PNG = await makeScanPng(1000, 200);
 const NOW = "2026-01-10T08:00:00.000Z";
 
 function withTemporaryDirectory(callback) {
@@ -866,7 +881,7 @@ test("多题扫描首轮只返回题号和边界，不提前生成小问或答�
   });
 
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }],
+    images: [{ mimeType: "image/png", buffer: SCAN_PNG }],
     mode: "multi"
   });
 
@@ -1198,16 +1213,7 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       );
       assert.equal(initial.total, 0);
 
-      const image = await sharp({
-        create: {
-          width: 8,
-          height: 8,
-          channels: 3,
-          background: { r: 240, g: 240, b: 240 }
-        }
-      })
-        .png()
-        .toBuffer();
+      const image = SCAN_PNG;
       const upload = await fetch(`${baseUrl}/api/attachments?kind=question`, {
         method: "POST",
         headers: {
@@ -1507,16 +1513,7 @@ test("HTTP 多题扫描先定位，勾选后逐题分析", async () => {
     try {
       await waitForServer(child);
       const baseUrl = `http://127.0.0.1:${port}`;
-      const image = await sharp({
-        create: {
-          width: 8,
-          height: 8,
-          channels: 3,
-          background: { r: 245, g: 245, b: 245 }
-        }
-      })
-        .png()
-        .toBuffer();
+      const image = SCAN_PNG;
       const upload = await fetch(`${baseUrl}/api/attachments?kind=question`, {
         method: "POST",
         headers: {
@@ -1627,7 +1624,7 @@ test("OCR 非 2xx 时保留上游状态与错误体", async () => {
   await assert.rejects(
     () =>
       scanner.scan({
-        images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+        images: [{ mimeType: "image/png", buffer: SCAN_PNG }]
       }),
     (error) =>
       error.code === "OCR_PROCESSING_FAILED" &&
@@ -1661,13 +1658,14 @@ test("OCR 文本模型不可用时降级为待确认候选并保留字块", asyn
                 confidence: 0.72
               }
             ]
+            
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
     })
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+    images: [{ mimeType: "image/png", buffer: SCAN_PNG }]
   });
   assert.equal(result.candidates.length, 2);
   assert.equal(result.candidates[0].answerPending, true);
@@ -1741,7 +1739,7 @@ test("答案引用未声明的低置信字块时仍标记待确认", async () =>
     }
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+    images: [{ mimeType: "image/png", buffer: SCAN_PNG }]
   });
   assert.equal(result.candidates[0].answerPending, true);
   assert.ok(result.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
@@ -1812,7 +1810,7 @@ test("模型漏报 sourceBlockIds 时按 OCR 文本补齐两行候选区域", as
     }
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+    images: [{ mimeType: "image/png", buffer: SCAN_SHORT_PNG }]
   });
   const candidate = result.candidates[0];
   assert.deepEqual(
@@ -1878,7 +1876,7 @@ test("结构修复失败时按问句拆分两个小问", async () => {
     }
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+    images: [{ mimeType: "image/png", buffer: SCAN_SHORT_PNG }]
   });
   const parts = result.candidates[0].parts;
   assert.equal(parts.length, 2);
@@ -1959,7 +1957,7 @@ test("多小问保留系统答案建议并对公式不足标记待确认", async
     }
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+    images: [{ mimeType: "image/png", buffer: SCAN_PNG }]
   });
   const candidate = result.candidates[0];
   assert.equal(candidate.parts.length, 2);
