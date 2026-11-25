@@ -725,7 +725,9 @@ async function handleApi(request, response, url) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/questions") {
-    const questions = repository.listQuestions();
+    const questions = repository.listQuestions({
+      category: optionalText(url.searchParams.get("category"), 40) || null
+    });
     return sendJson(response, 200, {
       total: questions.length,
       questions

@@ -1818,6 +1818,16 @@ svg {
   background: rgba(255, 255, 255, 0.72);
 }
 
+.question-category-toolbar {
+  margin-bottom: 10px;
+  border-color: #d6e5db;
+  background: #f8fcf9;
+}
+
+.question-category-toolbar .filter-chip {
+  min-height: 42px;
+}
+
 .filter-group {
   display: flex;
   flex-wrap: wrap;
