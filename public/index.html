@@ -506,10 +506,23 @@
               <button class="secondary-button" id="scan-choose-button" type="button">
                 选择或拍摄图片
               </button>
+              <button
+                class="secondary-button"
+                id="scan-ocr-boxes-button"
+                type="button"
+              >
+                选择或拍摄图片2
+              </button>
               <button class="text-button" id="scan-clear-images" type="button" hidden>
                 清空待识别图片
               </button>
             </div>
+            <input
+              id="scan-ocr-boxes-file"
+              class="sr-only"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+            />
             <div id="scan-image-list" class="scan-image-list" aria-live="polite"></div>
             <p class="scan-status" id="scan-status" aria-live="polite">
               请选择图片后开始识别；内部 OCR 不可用时仍可改用手动录入。
@@ -517,6 +530,56 @@
             <button class="primary-button" id="scan-start-button" type="button" disabled>
               识别题目范围
             </button>
+            <section
+              class="scan-ocr-boxes-panel"
+              id="scan-ocr-boxes-panel"
+              aria-label="OCR 字块框验证"
+              hidden
+            >
+              <fieldset class="scan-ocr-boxes-mode">
+                <legend>识别模式</legend>
+                <label>
+                  <input
+                    type="radio"
+                    name="scan-ocr-boxes-mode"
+                    value="single"
+                    checked
+                  />
+                  单题（默认）
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="scan-ocr-boxes-mode"
+                    value="multi"
+                  />
+                  多题
+                </label>
+              </fieldset>
+              <div class="scan-ocr-boxes-heading">
+                <div class="scan-ocr-boxes-heading-copy">
+                  <strong>OCR 字块框验证</strong>
+                  <span id="scan-ocr-boxes-status" aria-live="polite"></span>
+                </div>
+                <button
+                  class="primary-button scan-ocr-boxes-confirm"
+                  id="scan-ocr-boxes-confirm"
+                  type="button"
+                  disabled
+                >
+                  确认分析
+                </button>
+              </div>
+              <div class="scan-ocr-boxes-stage">
+                <div class="scan-ocr-boxes-image">
+                  <img id="scan-ocr-boxes-image" alt="OCR 验证原图" />
+                  <div
+                    class="scan-ocr-boxes-overlay"
+                    id="scan-ocr-boxes-overlay"
+                  ></div>
+                </div>
+              </div>
+            </section>
           </div>
 
           <div id="scan-loading" class="review-card loading-card" hidden>

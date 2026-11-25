@@ -43,6 +43,7 @@ import {
 } from "./question-bank/scanner.js";
 import {
   analyzeQuestionScan,
+  confirmQuestionScanBoxes,
   createQuestionScan,
   importQuestionScan
 } from "./question-bank/scan-service.js";
@@ -1098,6 +1099,65 @@ async function handleApi(request, response, url) {
       attachmentStore.delete(saved.storageKey);
       throw error;
     }
+  }
+
+  const attachmentOcrBoxesMatch = url.pathname.match(
+    /^\/api\/attachments\/(\d+)\/ocr-boxes$/
+  );
+  if (attachmentOcrBoxesMatch && request.method === "POST") {
+    const attachment = repository.getAttachment(
+      parseId(attachmentOcrBoxesMatch[1]),
+      { includeStorageKey: true }
+    );
+    if (!attachment) {
+      throw new HttpError(404, "没有找到这张验证图片");
+    }
+    if (!questionScanner.ocrClient?.isConfigured()) {
+      throw new HttpError(503, "内部 OCR 未配置");
+    }
+    const content = readAttachmentContent(attachment, attachmentStore, {
+      variant: "original"
+    });
+    const result = await questionScanner.ocrClient.recognize({
+      buffer: content.buffer,
+      mimeType: content.mimeType
+    });
+    return sendJson(response, 200, {
+      provider: result.provider,
+      engine: result.engine,
+      model: result.model,
+      version: result.version,
+      width: result.width,
+      height: result.height,
+      processingTimeMs: result.processingTimeMs,
+      blocks: result.blocks.map((block) => ({
+        id: block.id,
+        text: block.text,
+        bbox: block.bbox,
+        confidence: block.confidence,
+        region: block.region
+      }))
+    });
+  }
+
+  const attachmentOcrBoxesConfirmMatch = url.pathname.match(
+    /^\/api\/attachments\/(\d+)\/ocr-boxes\/confirm$/
+  );
+  if (attachmentOcrBoxesConfirmMatch && request.method === "POST") {
+    const body = await readJson(request);
+    return sendJson(
+      response,
+      200,
+      await confirmQuestionScanBoxes({
+        repository,
+        attachmentStore,
+        scanner: questionScanner,
+        attachmentId: parseId(attachmentOcrBoxesConfirmMatch[1]),
+        scanMode: body.scanMode,
+        selections: body.selections,
+        ocr: body.ocr
+      })
+    );
   }
 
   const attachmentExtractMatch = url.pathname.match(
