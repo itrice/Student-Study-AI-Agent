@@ -2039,16 +2039,15 @@ test("扫描 UI 展示题型与答案候选并只在选中后允许导入", () =
   assert.match(app, /importSelectedScanCandidates/);
   assert.match(app, /candidate\.importedQuestionId/);
   assert.match(app, /pendingReasons\.map\(scanPendingLabel\)/);
-  assert.match(app, /crop\.dataset\.cropContext = "scan"/);
-  assert.match(
-    app,
-    /openCropEditor\(\s*Number\(crop\.dataset\.cropAttachment\),\s*crop\.dataset\.cropContext/
-  );
   assert.match(html, /导入所选题目/);
   assert.doesNotMatch(html, /name="scan-mode"/);
   assert.doesNotMatch(html, /<strong>单题<\/strong>/);
   assert.doesNotMatch(html, /<strong>多题<\/strong>/);
-  assert.match(app, /scanMode: "multi"/);
+  assert.doesNotMatch(html, /id="scan-choose-button"/);
+  assert.doesNotMatch(html, /id="scan-start-button"/);
+  assert.doesNotMatch(html, /id="scan-image-list"/);
+  assert.doesNotMatch(app, /uploadScanFiles/);
+  assert.doesNotMatch(app, /startQuestionScan/);
   assert.match(app, /confirmScanOcrBoxes/);
   assert.match(app, /state\.scanOcrBoxesSelection\.has/);
   assert.match(app, /ocr-boxes\/confirm/);
@@ -2056,6 +2055,12 @@ test("扫描 UI 展示题型与答案候选并只在选中后允许导入", () =
   assert.match(html, /分析所选题目/);
   assert.match(html, /id="scan-ocr-boxes-confirm"/);
   assert.match(html, /题目框确认/);
+  assert.match(
+    app,
+    /Number\(result\.successCount\) > 0 && Number\(result\.failedCount\) === 0/
+  );
+  assert.match(app, /resetQuestionScan\(\)/);
+  assert.match(app, /image\.removeAttribute\("src"\)/);
   assert.doesNotMatch(html, /M3 开放/);
 });
 

@@ -55,10 +55,8 @@ const state = {
   dayDetailTrigger: null,
   knowledgeSearch: null,
   knowledgeSearchRequest: 0,
-  scanAttachments: [],
   scanTask: null,
   scanId: null,
-  scanBusy: false,
   scanOcrBoxesBlocks: [],
   scanOcrBoxesSelection: new Set(),
   scanOcrBoxesMode: "single",
@@ -356,11 +354,10 @@ async function uploadImageFiles(fileList, { autoCrop = true } = {}) {
     );
   }
   if (autoCrop && lastUploaded) {
-    openCropEditor(lastUploaded.id, "dialog");
+    openCropEditor(lastUploaded.id);
   }
 }
 
-const MAX_SCAN_IMAGES = 3;
 const SCAN_QUESTION_TYPES = [
   ["general", "通用题"],
   ["single_choice", "单选题"],
@@ -403,95 +400,10 @@ function scanCompletenessLabel(candidate) {
 }
 
 function renderScanIntake() {
-  const list = $("#scan-image-list");
-  if (!list) return;
-  list.replaceChildren();
-  state.scanAttachments.forEach((attachment, index) => {
-    const item = createElement("div", "scan-image-item");
-    const image = createAttachmentImage(attachment, "scan-image-thumb");
-    image.alt = `待识别图片 ${index + 1}`;
-    const copy = createElement("span", "scan-image-copy");
-    copy.append(
-      createElement("strong", "", index === 0 ? "主图" : `补充图 ${index}`),
-      createElement(
-        "small",
-        "",
-        `${attachment.width} × ${attachment.height}${
-          attachment.hasCrop ? " · 已裁剪" : ""
-        }`
-      )
-    );
-    const actions = createElement("div", "scan-image-item-actions");
-    const crop = createElement(
-      "button",
-      "text-button",
-      attachment.hasCrop ? "重新裁剪" : "裁剪原图"
-    );
-    crop.type = "button";
-    crop.dataset.cropAttachment = String(attachment.id);
-    crop.dataset.cropContext = "scan";
-    const remove = createElement("button", "text-button", "移除");
-    remove.type = "button";
-    remove.dataset.removeScanImage = String(attachment.id);
-    actions.append(crop, remove);
-    item.append(image, copy, actions);
-    list.append(item);
-  });
   const intake = $("#scan-intake");
   const task = $("#scan-task");
   if (intake) intake.hidden = Boolean(state.scanTask);
   if (task) task.hidden = !state.scanTask;
-  const clear = $("#scan-clear-images");
-  if (clear) clear.hidden = !state.scanAttachments.length;
-  const start = $("#scan-start-button");
-  if (start) {
-    start.disabled =
-      state.scanBusy ||
-      !state.scanAttachments.length;
-    start.textContent = state.scanBusy ? "正在定位题目…" : "识别题目范围";
-  }
-}
-
-async function uploadScanFiles(fileList, { returnToEntryChoice = false } = {}) {
-  const files = [...(fileList || [])].filter(
-    (file) => !file.type || file.type.startsWith("image/")
-  );
-  if (!files.length) {
-    showToast("没有找到可用的图片", true);
-    return;
-  }
-  let lastUploaded = null;
-  for (const file of files) {
-    if (state.scanAttachments.length >= MAX_SCAN_IMAGES) {
-      showToast(`一次扫描最多 ${MAX_SCAN_IMAGES} 张图片`, true);
-      break;
-    }
-    if (file.size > MAX_IMAGE_BYTES) {
-      showToast("单张图片不能超过 8 MB", true);
-      continue;
-    }
-    if (file.type && !ALLOWED_IMAGE_TYPES.has(file.type)) {
-      showToast("仅支持 JPG、PNG 或 WebP 图片", true);
-      continue;
-    }
-    try {
-      const attachment = await uploadAttachment(file);
-      state.scanAttachments.push(attachment);
-      lastUploaded = attachment;
-      $("#scan-status").textContent = `已添加 ${state.scanAttachments.length} 张图片；识别结果只进入候选页。`;
-    } catch (error) {
-      $("#scan-status").textContent = error.message;
-      showToast(error.message, true);
-    }
-  }
-  renderScanIntake();
-  if (lastUploaded && returnToEntryChoice) {
-    openCropEditor(lastUploaded.id, "scan", {
-      returnToEntryChoice: true
-    });
-  } else if (lastUploaded) {
-    openCropEditor(lastUploaded.id, "scan");
-  }
 }
 
 function setScanOcrBoxesStatus(message, isError = false) {
@@ -525,6 +437,11 @@ function resetScanOcrBoxesState() {
   state.scanOcrBoxesAttachmentId = null;
   state.scanOcrBoxesOcr = null;
   state.scanOcrBoxesBusy = false;
+  state.scanOcrBoxesMode = "single";
+  const singleMode = $(
+    'input[name="scan-ocr-boxes-mode"][value="single"]'
+  );
+  if (singleMode) singleMode.checked = true;
   $("#scan-ocr-boxes-overlay").replaceChildren();
   updateScanOcrBoxesConfirmButton();
 }
@@ -912,7 +829,6 @@ async function confirmScanOcrBoxes() {
     );
     state.scanTask = result.scan;
     state.scanId = result.scan.id;
-    state.scanAttachments = [];
     state.scanOcrBoxesAttachmentId = null;
     history.pushState(null, "", `#scan/${result.scan.id}`);
     showView("scan", { updateHash: false });
@@ -936,84 +852,6 @@ async function confirmScanOcrBoxes() {
   } finally {
     state.scanOcrBoxesBusy = false;
     updateScanOcrBoxesConfirmButton();
-  }
-}
-
-async function removeScanAttachment(id) {
-  if (
-    state.cropEditor?.attachmentId === id &&
-    state.cropEditor.scope === "scan"
-  ) {
-    closeCropEditor();
-  }
-  state.scanAttachments = state.scanAttachments.filter(
-    (attachment) => attachment.id !== id
-  );
-  try {
-    await api(`/api/attachments/${id}`, { method: "DELETE" });
-  } catch {
-    // Startup cleanup removes a failed unbound attachment.
-  }
-  renderScanIntake();
-}
-
-async function clearScanAttachments() {
-  if (state.cropEditor?.scope === "scan") closeCropEditor();
-  const ids = state.scanAttachments.map((attachment) => attachment.id);
-  state.scanAttachments = [];
-  renderScanIntake();
-  await Promise.all(
-    ids.map((id) => api(`/api/attachments/${id}`, { method: "DELETE" }).catch(() => {}))
-  );
-}
-
-async function startQuestionScan({ revealWhenReady = false } = {}) {
-  if (!state.scanAttachments.length) {
-    showToast("请先选择扫描图片", true);
-    return;
-  }
-  const revealResult =
-    revealWhenReady || isEntryChoiceOpen();
-  if (revealResult && !isEntryChoiceOpen()) {
-    openEntryChoice(null, { preserveTrigger: true });
-  }
-  state.scanBusy = true;
-  $("#scan-loading").hidden = false;
-  renderScanIntake();
-  try {
-    const task = await api("/api/questions/scans", {
-      method: "POST",
-      body: JSON.stringify({
-        attachmentIds: state.scanAttachments.map((attachment) => attachment.id),
-        scanMode: "multi"
-      })
-    });
-    state.scanTask = task;
-    state.scanId = task.id;
-    state.scanAttachments = [];
-    if (isEntryChoiceOpen()) {
-      closeEntryChoice({ restoreFocus: false });
-    }
-    history.pushState(null, "", `#scan/${task.id}`);
-    if (revealResult) {
-      showView("scan", { updateHash: false });
-    }
-    renderQuestionScan(task);
-    if (revealResult) {
-      window.setTimeout(() => {
-        $("#scan-task").focus({ preventScroll: true });
-      }, 40);
-    }
-  } catch (error) {
-    if (revealResult && !isEntryChoiceOpen()) {
-      openEntryChoice(null, { preserveTrigger: true });
-    }
-    showToast(error.message, true);
-    $("#scan-status").textContent = error.message;
-  } finally {
-    state.scanBusy = false;
-    $("#scan-loading").hidden = true;
-    renderScanIntake();
   }
 }
 
@@ -1689,7 +1527,13 @@ async function importSelectedScanCandidates() {
         })
       }
     );
-    renderQuestionScan(result.scan);
+    const importedAll =
+      Number(result.successCount) > 0 && Number(result.failedCount) === 0;
+    if (importedAll) {
+      resetQuestionScan();
+    } else {
+      renderQuestionScan(result.scan);
+    }
     showToast(
       result.failedCount
         ? `导入完成：成功 ${result.successCount} 道，失败 ${result.failedCount} 道`
@@ -1727,13 +1571,27 @@ async function toggleScanCandidateExcluded(candidateId) {
 }
 
 function resetQuestionScan() {
+  resetScanOcrBoxesState();
   state.scanTask = null;
   state.scanId = null;
   history.replaceState(null, "", "#scan");
+  const image = $("#scan-ocr-boxes-image");
+  if (image) image.removeAttribute("src");
+  const panel = $("#scan-ocr-boxes-panel");
+  if (panel) panel.hidden = true;
+  setScanOcrBoxesStatus("");
+  const status = $("#scan-status");
+  if (status) {
+    status.textContent =
+      "请选择或拍摄一张作业图片；内部 OCR 不可用时仍可改用手动录入。";
+  }
   $("#scan-task").hidden = true;
   $("#scan-intake").hidden = false;
   $("#scan-task-empty").hidden = true;
   renderScanIntake();
+  window.requestAnimationFrame(() => {
+    $("#scan-intake").scrollIntoView({ block: "start" });
+  });
 }
 
 async function removeDialogAttachment(id) {
@@ -1826,10 +1684,10 @@ function findDialogAttachment(id) {
   return state.dialogAttachments.find((attachment) => attachment.id === id) || null;
 }
 
-function findCropAttachment(id, scope) {
-  const attachments =
-    scope === "scan" ? state.scanAttachments : state.dialogAttachments;
-  return attachments.find((attachment) => attachment.id === id) || null;
+function findCropAttachment(id) {
+  return (
+    state.dialogAttachments.find((attachment) => attachment.id === id) || null
+  );
 }
 
 function openAttachmentPreview(attachmentId) {
@@ -1841,21 +1699,15 @@ function openAttachmentPreview(attachmentId) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-function replaceCropAttachment(updated, scope) {
-  const attachments =
-    scope === "scan" ? state.scanAttachments : state.dialogAttachments;
-  const index = attachments.findIndex(
+function replaceCropAttachment(updated) {
+  const index = state.dialogAttachments.findIndex(
     (attachment) => attachment.id === updated.id
   );
-  if (index >= 0) attachments[index] = updated;
+  if (index >= 0) state.dialogAttachments[index] = updated;
 }
 
-function renderCropAttachmentList(scope) {
-  if (scope === "scan") {
-    renderScanIntake();
-  } else {
-    renderDialogAttachments();
-  }
+function renderCropAttachmentList() {
+  renderDialogAttachments();
 }
 
 function clampNumber(value, min, max) {
@@ -2067,20 +1919,14 @@ function resetCropEditor() {
   renderCropEditor();
 }
 
-function openCropEditor(
-  attachmentId,
-  scope = "dialog",
-  { returnToEntryChoice = false } = {}
-) {
-  const attachment = findCropAttachment(attachmentId, scope);
+function openCropEditor(attachmentId) {
+  const attachment = findCropAttachment(attachmentId);
   if (!attachment) return;
   closeCropEditor();
   const rotation = Number(attachment.crop?.rotation || 0);
   const editor = {
     attachmentId,
     attachment,
-    scope,
-    returnToEntryChoice,
     image: null,
     rotation,
     selection: selectionForAttachment(attachment, rotation),
@@ -2124,12 +1970,7 @@ function closeCropEditor() {
 }
 
 function cancelCropEditor() {
-  const returnToEntryChoice =
-    state.cropEditor?.returnToEntryChoice === true;
   closeCropEditor();
-  if (returnToEntryChoice) {
-    openEntryChoice(null, { preserveTrigger: true });
-  }
 }
 
 function toggleOriginalPreview(attachmentId) {
@@ -2245,20 +2086,11 @@ async function applyCropEditor() {
     if (!response.ok) {
       throw new Error(updated.error || "裁剪图片保存失败");
     }
-    replaceCropAttachment(updated, editor.scope);
+    replaceCropAttachment(updated);
     state.originalPreviewIds.delete(updated.id);
     closeCropEditor();
-    renderCropAttachmentList(editor.scope);
-    showToast(
-      editor.scope === "scan"
-        ? "裁剪已应用，OCR 将只使用裁剪区域，原图已保留"
-        : "裁剪已应用，识别文字将只使用裁剪区域"
-    );
-    if (editor.scope === "scan") {
-      await startQuestionScan({
-        revealWhenReady: editor.returnToEntryChoice === true
-      });
-    }
+    renderCropAttachmentList();
+    showToast("裁剪已应用，识别文字将只使用裁剪区域");
   } catch (error) {
     setCropStatus(error.message || "裁剪图片保存失败，原图未改变。", true);
   } finally {
@@ -2269,26 +2101,20 @@ async function applyCropEditor() {
 async function restoreOriginalImage() {
   const editor = state.cropEditor;
   const attachment = editor
-    ? findCropAttachment(editor.attachmentId, editor.scope)
+    ? findCropAttachment(editor.attachmentId)
     : null;
   if (!attachment?.hasCrop) return;
   const button = $("#restore-original-button");
-  const returnToEntryChoice = editor.returnToEntryChoice === true;
   setBusy(button, true, "正在恢复…");
   try {
     const updated = await api(`/api/attachments/${attachment.id}/crop`, {
       method: "DELETE"
     });
-    replaceCropAttachment(updated, editor.scope);
+    replaceCropAttachment(updated);
     state.originalPreviewIds.delete(updated.id);
     closeCropEditor();
-    renderCropAttachmentList(editor.scope);
-    showToast(
-      editor.scope === "scan" ? "已恢复原图，OCR 将使用完整原图" : "已恢复原图"
-    );
-    if (returnToEntryChoice) {
-      openEntryChoice(null, { preserveTrigger: true });
-    }
+    renderCropAttachmentList();
+    showToast("已恢复原图");
   } catch (error) {
     setCropStatus(error.message || "恢复原图失败，请稍后重试。", true);
   } finally {
@@ -6160,7 +5986,9 @@ function bindEvents() {
     state.entryPhotoCancelGuard = false;
     if (!files.length) return;
     closeEntryChoice({ restoreFocus: false, preserveTrigger: true });
-    uploadScanFiles(files, { returnToEntryChoice: true });
+    resetQuestionScan();
+    showView("scan", { updateHash: false });
+    runScanOcrBoxesValidation(files[0]);
   });
   $("#entry-photo-file-input").addEventListener("cancel", () => {
     state.entryPhotoPickerActive = false;
@@ -6239,13 +6067,6 @@ function bindEvents() {
       event.target.value = "";
     });
   }
-  $("#scan-choose-button").addEventListener("click", () => {
-    $("#scan-file-input").click();
-  });
-  $("#scan-file-input").addEventListener("change", (event) => {
-    uploadScanFiles(event.target.files);
-    event.target.value = "";
-  });
   $("#scan-ocr-boxes-button").addEventListener("click", () => {
     $("#scan-ocr-boxes-file").click();
   });
@@ -6352,20 +6173,6 @@ function bindEvents() {
       setScanOcrBoxFocus(null);
     }
   });
-  $("#scan-image-list").addEventListener("click", (event) => {
-    const crop = event.target.closest("[data-crop-attachment]");
-    if (crop) {
-      openCropEditor(
-        Number(crop.dataset.cropAttachment),
-        crop.dataset.cropContext || "scan"
-      );
-      return;
-    }
-    const remove = event.target.closest("[data-remove-scan-image]");
-    if (remove) removeScanAttachment(Number(remove.dataset.removeScanImage));
-  });
-  $("#scan-clear-images").addEventListener("click", clearScanAttachments);
-  $("#scan-start-button").addEventListener("click", startQuestionScan);
   $("#scan-analyze-button").addEventListener(
     "click",
     analyzeSelectedScanCandidates
