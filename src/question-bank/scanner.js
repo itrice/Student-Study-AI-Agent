@@ -1,4 +1,5 @@
 export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-parts-4";
+export const QUESTION_DISCOVERY_PROMPT_VERSION = "m2-ocr-boundaries-1";
 export const INTERNAL_OCR_TEXT_VERSION = "internal-ocr-1";
 export const MAX_SCAN_CANDIDATES = 20;
 
@@ -46,6 +47,18 @@ const SCAN_PART_REPAIR_PROMPT = [
   "题干中每个独立问句都必须是单独小问；家长式或复合题保留原顺序。",
   "学生答案只能来自 OCR 文字；不确定就留空并标记待确认。",
   "信息完整且可计算时必须给出标准答案建议，等价答案用中文分号分隔；公式或几何关系不足时留空并标记 FORMULA_UNCERTAIN 或 GEOMETRY_UNCERTAIN。"
+].join("\n");
+
+const MULTI_QUESTION_DISCOVERY_PROMPT = [
+  "你是作业页题目边界整理助手。",
+  "只根据输入的 OCR 文字块、坐标和置信度确定每道题的边界与可见题号。",
+  "这一步只做题目分组，不分析小问，不识别学生答案，不建议标准答案，不判断题型。",
+  "每道题必须包含该题从题号开始的全部 OCR 字块，按页面阅读顺序返回。",
+  "不得把同一题拆成多道，也不得把不同题合并；无法确认边界时仍返回最保守的单题范围。",
+  "返回严格 JSON：",
+  "{\"questions\":[{\"questionNo\":7,\"sourceBlockIds\":[\"i1b2\",\"i1b3\"]}]}",
+  "questionNo 使用页面上可见的题号；看不清题号时按阅读顺序使用 1、2、3。",
+  "sourceBlockIds 只能引用输入中实际存在的字块，单次最多 20 道题。"
 ].join("\n");
 
 export class QuestionScanError extends Error {
@@ -785,6 +798,156 @@ function fallbackCandidates(blocks, warningsByBlock, fallbackReason) {
   });
 }
 
+function discoveredCandidateNo(value, sourceBlocks, fallback) {
+  const explicit = Number(value?.questionNo ?? value?.number ?? value?.no);
+  if (Number.isInteger(explicit) && explicit > 0) return explicit;
+  const match = /^\s*(\d{1,3})\s*[.、．)）]/u.exec(
+    String(sourceBlocks[0]?.text || "")
+  );
+  const visible = Number(match?.[1]);
+  return Number.isInteger(visible) && visible > 0 ? visible : fallback;
+}
+
+function discoveredCandidate(
+  value,
+  index,
+  total,
+  allBlocks,
+  warningsByBlock,
+  fallbackReason = ""
+) {
+  const byId = new Map(allBlocks.map((block) => [block.id, block]));
+  const explicitIds = uniqueStrings(
+    value?.sourceBlockIds,
+    MAX_SCAN_CANDIDATES * 8
+  );
+  let sourceBlocks = explicitIds
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .sort((left, right) => left.order - right.order);
+  if (!sourceBlocks.length) {
+    const questionNo = discoveredCandidateNo(value, [], index + 1);
+    const primaryBlocks = allBlocks.filter((block) => block.imageIndex === 0);
+    const startIndex = primaryBlocks.findIndex((block) =>
+      new RegExp(`^\\s*${questionNo}\\s*[.、．)）]`, "u").test(block.text)
+    );
+    if (startIndex >= 0) {
+      const nextIndex = primaryBlocks.findIndex(
+        (block, blockIndex) =>
+          blockIndex > startIndex &&
+          /^\s*\d{1,3}\s*[.、．)）]/u.test(block.text)
+      );
+      sourceBlocks = primaryBlocks.slice(
+        startIndex,
+        nextIndex < 0 ? undefined : nextIndex
+      );
+    } else {
+      sourceBlocks = primaryBlocks.slice(0, 1);
+    }
+  }
+  sourceBlocks = sourceBlocks.map((block) => ({
+    ...block,
+    warnings: warningsByBlock.get(block.id) || block.warnings || []
+  }));
+  const confidenceValues = sourceBlocks
+    .map((block) => Number(block.confidence))
+    .filter(Number.isFinite);
+  return {
+    text: sourceBlocks.map((block) => block.text.trim()).join("\n"),
+    options: [],
+    questionType: "general",
+    studentAnswer: "",
+    suggestedAnswer: "",
+    parts: [],
+    analysisStage: "discovered",
+    questionNo: discoveredCandidateNo(value, sourceBlocks, index + 1),
+    completenessStatus: "unknown",
+    suspectedWrong: false,
+    answerPending: true,
+    confidence: confidenceValues.length
+      ? Math.min(...confidenceValues)
+      : null,
+    region: unionBlockRegion(
+      sourceBlocks,
+      normalizeRegion(null, index, total)
+    ),
+    pendingReasons: uniqueStrings([
+      ...sourceBlocks.flatMap((block) => block.warnings),
+      ...(fallbackReason ? [fallbackReason] : [])
+    ]),
+    sourceBlocks: sourceBlocks.map(publicSourceBlock)
+  };
+}
+
+function normalizeDiscoveredCandidates(
+  rawOutput,
+  allBlocks,
+  warningsByBlock
+) {
+  const parsed = parseJson(rawOutput);
+  const rawCandidates = Array.isArray(parsed?.questions)
+    ? parsed.questions
+    : Array.isArray(parsed?.candidates)
+      ? parsed.candidates
+      : null;
+  if (!rawCandidates?.length) {
+    throw new QuestionScanError(
+      "SCAN_DISCOVERY_INVALID_OUTPUT",
+      "文本模型没有返回有效的题目边界"
+    );
+  }
+  if (rawCandidates.length > MAX_SCAN_CANDIDATES) {
+    throw new QuestionScanError(
+      "SCAN_TOO_MANY_CANDIDATES",
+      `识别到 ${rawCandidates.length} 道题，超过单次 ${MAX_SCAN_CANDIDATES} 道，请分批扫描`
+    );
+  }
+  return rawCandidates.map((candidate, index) =>
+    discoveredCandidate(
+      candidate,
+      index,
+      rawCandidates.length,
+      allBlocks,
+      warningsByBlock
+    )
+  );
+}
+
+function fallbackDiscoveredCandidates(
+  blocks,
+  warningsByBlock,
+  fallbackReason
+) {
+  const groups = [];
+  let current = null;
+  for (const block of blocks.filter((item) => item.imageIndex === 0)) {
+    if (/^\s*\d{1,3}\s*[.、．)）]/u.test(block.text)) {
+      if (current) groups.push(current);
+      current = [block];
+    } else if (current) {
+      current.push(block);
+    }
+  }
+  if (current) groups.push(current);
+  const sourceGroups = groups.length ? groups : [blocks];
+  if (sourceGroups.length > MAX_SCAN_CANDIDATES) {
+    throw new QuestionScanError(
+      "SCAN_TOO_MANY_CANDIDATES",
+      `识别到 ${sourceGroups.length} 道题，超过单次 ${MAX_SCAN_CANDIDATES} 道，请分批扫描`
+    );
+  }
+  return sourceGroups.map((sourceBlocks, index) =>
+    discoveredCandidate(
+      { sourceBlockIds: sourceBlocks.map((block) => block.id) },
+      index,
+      sourceGroups.length,
+      blocks,
+      warningsByBlock,
+      fallbackReason
+    )
+  );
+}
+
 export class InternalOcrClient {
   constructor({
     baseUrl = "",
@@ -916,7 +1079,7 @@ export class OcrTextQuestionScanner {
     return this.ocrClient?.isConfigured() === true;
   }
 
-  async scan({ images }) {
+  async scan({ images, mode = "single" }) {
     if (!this.isConfigured()) {
       throw new QuestionScanError(
         "SCAN_NOT_CONFIGURED",
@@ -977,6 +1140,67 @@ export class OcrTextQuestionScanner {
           `text=${block.text}`
       )
       .join("\n");
+    if (mode === "multi") {
+      let rawOutput = "";
+      let fallbackReason = null;
+      let candidates;
+      let provider = "internal-ocr+rules";
+      let model = "rules";
+      if (this.llmGateway?.isConfigured?.()) {
+        try {
+          const result = await this.llmGateway.chat({
+            messages: [
+              { role: "system", content: MULTI_QUESTION_DISCOVERY_PROMPT },
+              {
+                role: "user",
+                content:
+                  "请仅整理以下 OCR 字块所属的题目边界，只返回严格 JSON：\n" +
+                  ocrText
+              }
+            ],
+            responseFormat: { type: "json_object" }
+          });
+          rawOutput = responseContent(result.message);
+          candidates = normalizeDiscoveredCandidates(
+            rawOutput,
+            withWarnings,
+            warningsByBlock
+          );
+          provider = `${this.ocrClient.provider || "ocr"}+${
+            result.provider || "llm"
+          }`;
+          model = result.model || this.llmGateway.model;
+        } catch {
+          fallbackReason = "BOUNDARY_FROM_RULES";
+        }
+      } else {
+        fallbackReason = "LLM_NOT_CONFIGURED";
+      }
+      if (!candidates) {
+        candidates = fallbackDiscoveredCandidates(
+          withWarnings,
+          warningsByBlock,
+          fallbackReason
+        );
+      }
+      console.log(
+        `[question-scan] 多题边界完成 blocks=${blocks.length} ` +
+          `questions=${candidates.length} images=${images.length} provider=${provider}`
+      );
+      return {
+        candidates,
+        rawOutput,
+        provider,
+        model,
+        promptVersion: QUESTION_DISCOVERY_PROMPT_VERSION,
+        ocr: {
+          provider: ocrResults[0]?.provider || "internal-ocr",
+          model: ocrResults[0]?.model || "ocr",
+          version: ocrResults[0]?.version || "",
+          blocks: withWarnings
+        }
+      };
+    }
     let rawOutput = "";
     let fallbackReason = null;
     let candidates;

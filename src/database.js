@@ -670,13 +670,18 @@ function mapQuestionSource(row) {
 
 function mapQuestionScanCandidate(row, scanId) {
   const analysis = parseJsonObject(row.analysis_json);
-  const parts = normalizeScanCandidateParts(analysis.parts, {
-    prompt: row.recognized_text,
-    studentAnswer: analysis.studentAnswer,
-    suggestedAnswer: analysis.suggestedAnswer,
-    confidence: row.confidence,
-    pendingReasons: analysis.pendingReasons
-  });
+  const analysisStage =
+    analysis.analysisStage === "discovered" ? "discovered" : "analyzed";
+  const parts =
+    analysisStage === "discovered"
+      ? []
+      : normalizeScanCandidateParts(analysis.parts, {
+          prompt: row.recognized_text,
+          studentAnswer: analysis.studentAnswer,
+          suggestedAnswer: analysis.suggestedAnswer,
+          confidence: row.confidence,
+          pendingReasons: analysis.pendingReasons
+        });
   return {
     id: row.id,
     candidateNo: row.candidate_no,
@@ -687,6 +692,8 @@ function mapQuestionScanCandidate(row, scanId) {
     selected: row.selected === 1,
     manuallySelected: row.manually_selected === 1,
     text: row.recognized_text,
+    questionNo: analysis.questionNo || row.candidate_no,
+    analysisStage,
     questionType: analysis.questionType || "general",
     options: Array.isArray(analysis.options) ? analysis.options : [],
     studentAnswer: analysis.studentAnswer || "",
@@ -4021,6 +4028,7 @@ export class LearningRepository {
   createQuestionScanTask({
     attachmentIds,
     candidates = [],
+    scanMode = "single",
     status = "ready",
     errorMessage = "",
     scanner = {},
@@ -4075,6 +4083,7 @@ export class LearningRepository {
     const normalizedStatus = ["ready", "failed"].includes(status)
       ? status
       : "ready";
+    const normalizedScanMode = scanMode === "multi" ? "multi" : "single";
     if (normalizedStatus === "ready" && !candidates.length) {
       throw new LearningValidationError(
         "SCAN_EMPTY_RESULT",
@@ -4093,15 +4102,16 @@ export class LearningRepository {
       const task = this.db
         .prepare(
           `INSERT INTO question_scan_tasks (
-            student_id, status, error_message, candidate_count,
+            student_id, status, scan_mode, error_message, candidate_count,
             scanner_provider, scanner_model, prompt_version,
             ocr_provider, ocr_model, ocr_blocks_json,
             created_at, updated_at, expires_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           student.id,
           normalizedStatus,
+          normalizedScanMode,
           String(errorMessage || "").slice(0, 1000),
           normalizedStatus === "ready" ? candidates.length : 0,
           String(scanner.provider || "").slice(0, 100),
@@ -4141,16 +4151,23 @@ export class LearningRepository {
         );
         candidates.forEach((candidate, index) => {
           const candidateNo = index + 1;
+          const analysisStage =
+            candidate.analysisStage === "discovered"
+              ? "discovered"
+              : "analyzed";
           const candidateStatus = candidate.status === "failed"
             ? "failed"
             : "ready";
-          const parts = normalizeScanCandidateParts(candidate.parts, {
-            prompt: candidate.text,
-            studentAnswer: candidate.studentAnswer,
-            suggestedAnswer: candidate.suggestedAnswer,
-            confidence: candidate.confidence,
-            pendingReasons: candidate.pendingReasons
-          });
+          const parts =
+            analysisStage === "discovered"
+              ? []
+              : normalizeScanCandidateParts(candidate.parts, {
+                  prompt: candidate.text,
+                  studentAnswer: candidate.studentAnswer,
+                  suggestedAnswer: candidate.suggestedAnswer,
+                  confidence: candidate.confidence,
+                  pendingReasons: candidate.pendingReasons
+                });
           const studentAnswer = parts
             .map((part) => part.studentAnswer)
             .filter(Boolean)
@@ -4186,6 +4203,8 @@ export class LearningRepository {
               : null,
             JSON.stringify(normalizeScanRegion(candidate.region)),
             JSON.stringify({
+              analysisStage,
+              questionNo: Number(candidate.questionNo) || candidateNo,
               questionType: candidate.questionType || "general",
               options: Array.isArray(candidate.options)
                 ? candidate.options.slice(0, 20)
@@ -4262,14 +4281,39 @@ export class LearningRepository {
       .all(scanId)
       .map((candidate) => mapQuestionScanCandidate(candidate, scanId));
     const selectedCandidates = candidates.filter((item) => item.selected);
+    const analyzedCandidates = candidates.filter(
+      (item) => item.analysisStage === "analyzed"
+    );
+    const discoveredCandidates = candidates.filter(
+      (item) => item.analysisStage === "discovered"
+    );
+    const selectedDiscoveredCandidates = selectedCandidates.filter(
+      (item) => item.analysisStage === "discovered"
+    );
+    const selectedAnalyzedCandidates = selectedCandidates.filter(
+      (item) =>
+        item.analysisStage === "analyzed" && !item.importedQuestionId
+    );
+    const analysisStage =
+      !candidates.length
+        ? "empty"
+        : !discoveredCandidates.length
+          ? "analyzed"
+          : !analyzedCandidates.length
+            ? "discovered"
+            : "partially_analyzed";
     return {
       id: row.id,
       status: effectiveStatus,
       storedStatus: row.status,
       expired,
+      scanMode: row.scan_mode === "multi" ? "multi" : "single",
+      analysisStage,
       errorMessage: row.error_message,
       candidateCount: row.candidate_count,
       selectedCount: selectedCandidates.length,
+      analyzedCount: analyzedCandidates.length,
+      selectedDiscoveredCount: selectedDiscoveredCandidates.length,
       incompleteSelectedCount: selectedCandidates.filter(
         (item) => item.completenessStatus !== "complete"
       ).length,
@@ -4287,7 +4331,11 @@ export class LearningRepository {
       candidates,
       canImport:
         effectiveStatus === "ready" &&
-        selectedCandidates.some((item) => !item.importedQuestionId),
+        !selectedDiscoveredCandidates.length &&
+        selectedAnalyzedCandidates.length > 0,
+      canAnalyze:
+        effectiveStatus === "ready" &&
+        selectedDiscoveredCandidates.length > 0,
       importStage: "ready",
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -4334,12 +4382,19 @@ export class LearningRepository {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       if (action === "select_all") {
+        const includeDiscovered =
+          scan.scanMode === "multi" && scan.analysisStage !== "analyzed";
         this.db
           .prepare(
             `UPDATE question_scan_candidates
              SET selected = CASE
                WHEN status = 'ready'
-                 AND completeness_status = 'complete'
+                 AND (
+                   completeness_status = 'complete'
+                   ${includeDiscovered
+                     ? "OR json_extract(analysis_json, '$.analysisStage') = 'discovered'"
+                     : ""}
+                 )
                  AND imported_question_id IS NULL THEN 1
                WHEN manually_selected = 1 THEN 1
                ELSE 0
@@ -4483,18 +4538,48 @@ export class LearningRepository {
       input.questionType === undefined
         ? currentAnalysis.questionType || "general"
         : String(input.questionType || "general");
-    const parts = normalizeScanCandidateParts(
-      partsProvided ? input.parts : currentAnalysis.parts,
-      {
-        prompt: text,
-        studentAnswer: input.studentAnswer ?? currentAnalysis.studentAnswer,
-        suggestedAnswer:
-          input.suggestedAnswer ?? currentAnalysis.suggestedAnswer,
-        confidence: current.confidence,
-        pendingReasons:
-          input.pendingReasons ?? currentAnalysis.pendingReasons
-      }
-    );
+    const completenessStatus =
+      input.completenessStatus === undefined
+        ? current.completeness_status
+        : normalizeScanCompleteness(input.completenessStatus);
+    const confidence =
+      input.confidence === undefined
+        ? current.confidence
+        : Number.isFinite(Number(input.confidence))
+          ? Number(input.confidence)
+          : null;
+    const analysisStage =
+      input.analysisStage === "discovered"
+        ? "discovered"
+        : input.analysisStage === "analyzed"
+          ? "analyzed"
+          : currentAnalysis.analysisStage === "discovered"
+            ? "discovered"
+            : "analyzed";
+    const questionNo =
+      Number.isInteger(Number(input.questionNo)) && Number(input.questionNo) > 0
+        ? Number(input.questionNo)
+        : currentAnalysis.questionNo || current.candidate_no;
+    const recognitionError =
+      Object.hasOwn(input, "recognitionError")
+        ? String(input.recognitionError || "").trim().slice(0, 1000)
+        : current.recognition_error;
+    const parts =
+      analysisStage === "discovered" && !partsProvided
+        ? []
+        : normalizeScanCandidateParts(
+            partsProvided ? input.parts : currentAnalysis.parts,
+            {
+              prompt: text,
+              studentAnswer:
+                input.studentAnswer ?? currentAnalysis.studentAnswer,
+              suggestedAnswer:
+                input.suggestedAnswer ?? currentAnalysis.suggestedAnswer,
+              confidence: current.confidence,
+              pendingReasons:
+                input.pendingReasons ?? currentAnalysis.pendingReasons
+            }
+          );
     const studentAnswer =
       partsProvided
         ? parts
@@ -4557,29 +4642,39 @@ export class LearningRepository {
     this.db
       .prepare(
         `UPDATE question_scan_candidates
-         SET status = ?, recognized_text = ?, region_json = ?,
-             answer_pending = ?, analysis_json = ?,
+         SET status = ?, completeness_status = ?, recognized_text = ?,
+             confidence = ?, region_json = ?, answer_pending = ?,
+             recognition_error = ?, analysis_json = ?,
              selected = ?, manually_selected = ?, updated_at = ?
          WHERE id = ?`
       )
       .run(
         status,
+        completenessStatus,
         text,
+        confidence,
         JSON.stringify(region),
         answerPending ? 1 : 0,
+        recognitionError,
         JSON.stringify({
           ...currentAnalysis,
+          analysisStage,
+          questionNo,
           questionType,
-          options: Array.isArray(currentAnalysis.options)
-            ? currentAnalysis.options
-            : [],
+          options: Array.isArray(input.options)
+            ? input.options.slice(0, 20)
+            : Array.isArray(currentAnalysis.options)
+              ? currentAnalysis.options
+              : [],
           studentAnswer,
           suggestedAnswer,
           parts,
           pendingReasons,
-          sourceBlocks: Array.isArray(currentAnalysis.sourceBlocks)
-            ? currentAnalysis.sourceBlocks
-            : []
+          sourceBlocks: Array.isArray(input.sourceBlocks)
+            ? input.sourceBlocks.slice(0, 80)
+            : Array.isArray(currentAnalysis.sourceBlocks)
+              ? currentAnalysis.sourceBlocks
+              : []
         }),
         selected,
         manuallySelected,

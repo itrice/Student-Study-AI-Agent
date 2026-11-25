@@ -42,6 +42,7 @@ import {
   QuestionScanError
 } from "./question-bank/scanner.js";
 import {
+  analyzeQuestionScan,
   createQuestionScan,
   importQuestionScan
 } from "./question-bank/scan-service.js";
@@ -732,6 +733,10 @@ async function handleApi(request, response, url) {
 
   if (request.method === "POST" && url.pathname === "/api/questions/scans") {
     const body = await readJson(request);
+    const scanMode = String(body.scanMode || "single");
+    if (!["single", "multi"].includes(scanMode)) {
+      throw new HttpError(400, "扫描模式无效");
+    }
     return sendJson(
       response,
       201,
@@ -739,7 +744,8 @@ async function handleApi(request, response, url) {
         repository,
         attachmentStore,
         scanner: questionScanner,
-        attachmentIds: parseAttachmentIds(body.attachmentIds)
+        attachmentIds: parseAttachmentIds(body.attachmentIds),
+        scanMode
       })
     );
   }
@@ -829,6 +835,30 @@ async function handleApi(request, response, url) {
         scanId: parseId(scanImportMatch[1]),
         candidateIds: body.candidateIds.map(parseId),
         confirmIncomplete: body.confirmIncomplete === true
+      })
+    );
+  }
+
+  const scanAnalyzeMatch = url.pathname.match(
+    /^\/api\/questions\/scans\/(\d+)\/analyze$/
+  );
+  if (scanAnalyzeMatch && request.method === "POST") {
+    const body = await readJson(request);
+    if (!Array.isArray(body.candidateIds) || !body.candidateIds.length) {
+      throw new HttpError(400, "请先勾选要分析的题目");
+    }
+    if (body.candidateIds.length > 20) {
+      throw new HttpError(400, "单次最多分析 20 道题");
+    }
+    return sendJson(
+      response,
+      200,
+      await analyzeQuestionScan({
+        repository,
+        attachmentStore,
+        scanner: questionScanner,
+        scanId: parseId(scanAnalyzeMatch[1]),
+        candidateIds: body.candidateIds.map(parseId)
       })
     );
   }

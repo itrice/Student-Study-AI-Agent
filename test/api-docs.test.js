@@ -64,6 +64,7 @@ const DOCUMENTED_PATHS = [
   "/api/questions/scans",
   "/api/questions/scans/{id}",
   "/api/questions/scans/{id}/selection",
+  "/api/questions/scans/{id}/analyze",
   "/api/questions/scans/{id}/import",
   "/api/questions/scans/{id}/candidates/{candidateId}",
   "/api/questions/scans/{id}/candidates/{candidateId}/image"
@@ -213,7 +214,7 @@ test(
       assert.equal(Object.keys(document.paths).length, DOCUMENTED_PATHS.length);
 
       const operations = collectOperations(document);
-      assert.equal(operations.length, 59);
+      assert.equal(operations.length, 60);
       const operationIds = operations.map(
         ({ operation }) => operation.operationId
       );
@@ -454,7 +455,7 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   );
   assert.equal(
     collectOperations(document).length,
-    59
+    60
   );
 });
 
