@@ -1,3 +1,5 @@
+import sharp from "sharp";
+
 export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-parts-4";
 export const QUESTION_DISCOVERY_PROMPT_VERSION = "m2-ocr-boundaries-1";
 export const INTERNAL_OCR_TEXT_VERSION = "internal-ocr-1";

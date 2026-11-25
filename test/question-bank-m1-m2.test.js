@@ -825,11 +825,13 @@ test("扫描未配置和图片读取失败都保留图片且不写正式题库",
 
 test("多题扫描首轮只返回题号和边界，不提前生成小问或答案", async () => {
   const prompts = [];
+  let ocrCalls = 0;
   const scanner = new OcrTextQuestionScanner({
     ocrClient: new InternalOcrClient({
       baseUrl: "https://example.invalid",
-      fetchImpl: async () =>
-        new Response(
+      fetchImpl: async () => {
+        ocrCalls += 1;
+        return new Response(
           JSON.stringify({
             engine: "rapidocr",
             modelVersion: "PP-OCRv6-small",
@@ -857,7 +859,8 @@ test("多题扫描首轮只返回题号和边界，不提前生成小问或答�
             ]
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+        );
+      }
     }),
     llmGateway: {
       model: "fixture-model",
@@ -886,6 +889,7 @@ test("多题扫描首轮只返回题号和边界，不提前生成小问或答�
   });
 
   assert.equal(prompts.length, 1);
+  assert.equal(ocrCalls, 1, "图片预处理后必须调用 OCR mock");
   assert.match(
     prompts[0].messages[0].content,
     /不分析小问|不建议标准答案/
@@ -1280,9 +1284,13 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       assert.equal(task.candidates[0].answerPending, true);
       assert.ok(task.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
       assert.equal(fake.requests.length, 4);
-      assert.equal(fake.requests[1].contentType, "image/png");
+      assert.equal(fake.requests[1].contentType, "image/jpeg");
       assert.equal(fake.requests[1].url, "/v1/ocr/raw");
-      assert.deepEqual(fake.requests[1].body, image);
+      assert.notDeepEqual(fake.requests[1].body, image);
+      const preparedOcrImage = await sharp(fake.requests[1].body).metadata();
+      assert.equal(preparedOcrImage.format, "jpeg");
+      assert.equal(preparedOcrImage.width, 1000);
+      assert.equal(preparedOcrImage.height, 800);
       assert.equal(fake.requests[2].url, "/chat/completions");
       assert.equal(fake.requests[3].url, "/chat/completions");
       assert.doesNotMatch(
