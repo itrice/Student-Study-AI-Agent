@@ -1771,6 +1771,20 @@ const OCR_SCAN_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: OCR_SCAN_MIGRATION_SCHEMA_SQL
 });
 
+const MULTI_QUESTION_SCAN_MIGRATION_SCHEMA_SQL = `
+  ALTER TABLE question_scan_tasks
+    ADD COLUMN scan_mode TEXT NOT NULL DEFAULT 'single'
+      CHECK (scan_mode IN ('single', 'multi'));
+`;
+
+const MULTI_QUESTION_SCAN_MIGRATION_REQUIRED_COLUMNS = {
+  question_scan_tasks: ["scan_mode"]
+};
+
+const MULTI_QUESTION_SCAN_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: MULTI_QUESTION_SCAN_MIGRATION_SCHEMA_SQL
+});
+
 export const SCHEMA_MIGRATIONS = [
   {
     version: 1,
@@ -1964,6 +1978,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(OCR_SCAN_MIGRATION_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         OCR_SCAN_MIGRATION_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 16,
+    name: "multi_question_scan",
+    checksumSource: MULTI_QUESTION_SCAN_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(MULTI_QUESTION_SCAN_MIGRATION_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        MULTI_QUESTION_SCAN_MIGRATION_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

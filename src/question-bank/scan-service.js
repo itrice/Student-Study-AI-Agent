@@ -1,9 +1,17 @@
 import sharp from "sharp";
 import { LearningValidationError } from "../domain/errors.js";
+import { readAttachmentContent } from "../attachment-crop.js";
 
-function failedScan(repository, attachmentIds, message, scanner = {}) {
+function failedScan(
+  repository,
+  attachmentIds,
+  message,
+  scanner = {},
+  scanMode = "single"
+) {
   return repository.createQuestionScanTask({
     attachmentIds,
+    scanMode,
     status: "failed",
     errorMessage: message,
     scanner
@@ -15,20 +23,17 @@ export async function createQuestionScan({
   attachmentStore,
   scanner,
   attachmentIds,
-  consent
+  scanMode = "single"
 }) {
-  if (consent !== true) {
-    throw new LearningValidationError(
-      "VISION_CONSENT_REQUIRED",
-      "发送图片到内部 OCR 服务前需要明确同意；拒绝后可改用手动录入"
-    );
-  }
+  const normalizedScanMode = scanMode === "multi" ? "multi" : "single";
   const ids = Array.isArray(attachmentIds) ? attachmentIds : [];
   if (!scanner?.isConfigured()) {
     return failedScan(
       repository,
       ids,
-      "当前没有配置内部 OCR，图片已暂存；请改用手动录入或在配置后重试。"
+      "当前没有配置内部 OCR，图片已暂存；请改用手动录入或在配置后重试。",
+      {},
+      normalizedScanMode
     );
   }
 
@@ -44,23 +49,30 @@ export async function createQuestionScan({
           "扫描图片不存在或已被清理"
         );
       }
+      const content = readAttachmentContent(attachment, attachmentStore);
       images.push({
-        mimeType: attachment.mimeType,
-        buffer: attachmentStore.read(attachment.storageKey)
+        mimeType: content.mimeType,
+        buffer: content.buffer
       });
     }
   } catch {
     return failedScan(
       repository,
       ids,
-      "图片读取失败，图片已暂存；请改用手动录入或重新上传。"
+      "图片读取失败，图片已暂存；请改用手动录入或重新上传。",
+      {},
+      normalizedScanMode
     );
   }
 
   try {
-    const result = await scanner.scan({ images });
+    const result = await scanner.scan({
+      images,
+      mode: normalizedScanMode
+    });
     return repository.createQuestionScanTask({
       attachmentIds: ids,
+      scanMode: normalizedScanMode,
       candidates: result.candidates,
       scanner: {
         provider: result.provider,
@@ -84,7 +96,8 @@ export async function createQuestionScan({
         provider: scanner.provider,
         model: scanner.model,
         promptVersion: scanner.promptVersion || ""
-      }
+      },
+      normalizedScanMode
     );
   }
 }
@@ -95,16 +108,42 @@ function scanImportError(code, message, status = 400) {
   return error;
 }
 
+function splitAcceptedAnswers(value) {
+  return String(value || "")
+    .split(/[或;；\n]/)
+    .map((answer) => answer.trim())
+    .filter(Boolean);
+}
+
 async function createCandidateAttachment({
   repository,
   attachmentStore,
   context,
   candidate
 }) {
+  const cropped = await cropScanContext(attachmentStore, context);
+  const saved = attachmentStore.save(cropped, {
+    declaredMime: "image/png",
+    originalName: `scan-${candidate.candidateNo}.png`,
+    kind: "question"
+  });
+  try {
+    return repository.insertAttachment(saved);
+  } catch (error) {
+    try {
+      attachmentStore.delete(saved.storageKey);
+    } catch {
+      // Orphan cleanup handles a file that cannot be removed immediately.
+    }
+    throw error;
+  }
+}
+
+async function cropScanContext(attachmentStore, context) {
   const buffer = attachmentStore.read(context.storageKey);
   const width = Number(context.width);
   const height = Number(context.height);
-  const region = candidate.region;
+  const region = context.region;
   const left = Math.max(
     0,
     Math.min(width - 1, Math.round(region.x * width))
@@ -121,7 +160,7 @@ async function createCandidateAttachment({
     1,
     Math.min(height - top, Math.round(region.height * height))
   );
-  const cropped = await sharp(buffer)
+  return sharp(buffer)
     .rotate()
     .extract({
       left,
@@ -131,21 +170,187 @@ async function createCandidateAttachment({
     })
     .png()
     .toBuffer();
-  const saved = attachmentStore.save(cropped, {
-    declaredMime: "image/png",
-    originalName: `scan-${candidate.candidateNo}.png`,
-    kind: "question"
+}
+
+function analysisError(code, message, status = 400) {
+  const error = new LearningValidationError(code, message);
+  error.status = status;
+  return error;
+}
+
+function translateAnalysisBlocks(blocks, sourceRegion, context) {
+  const width = Number(context.width);
+  const height = Number(context.height);
+  const left = Math.round(sourceRegion.x * width);
+  const top = Math.round(sourceRegion.y * height);
+  return (Array.isArray(blocks) ? blocks : []).slice(0, 80).map((block) => {
+    const region =
+      block?.region && typeof block.region === "object"
+        ? {
+            x: sourceRegion.x + Number(block.region.x || 0) * sourceRegion.width,
+            y: sourceRegion.y + Number(block.region.y || 0) * sourceRegion.height,
+            width: Number(block.region.width || 0) * sourceRegion.width,
+            height: Number(block.region.height || 0) * sourceRegion.height
+          }
+        : {};
+    const bbox = Array.isArray(block?.bbox)
+      ? [
+          Number(block.bbox[0]) + left,
+          Number(block.bbox[1]) + top,
+          Number(block.bbox[2]) + left,
+          Number(block.bbox[3]) + top
+        ]
+      : [];
+    return {
+      ...block,
+      imageIndex: 0,
+      region,
+      bbox
+    };
   });
-  try {
-    return repository.insertAttachment(saved);
-  } catch (error) {
-    try {
-      attachmentStore.delete(saved.storageKey);
-    } catch {
-      // Orphan cleanup handles a file that cannot be removed immediately.
-    }
-    throw error;
+}
+
+function largestAnalyzedCandidate(candidates) {
+  return [...candidates].sort((left, right) => {
+    const area = (candidate) =>
+      Math.max(0, Number(candidate.region?.width) || 0) *
+      Math.max(0, Number(candidate.region?.height) || 0);
+    return area(right) - area(left);
+  })[0];
+}
+
+export async function analyzeQuestionScan({
+  repository,
+  attachmentStore,
+  scanner,
+  scanId,
+  candidateIds
+}) {
+  const scan = repository.getQuestionScan(scanId);
+  if (!scan) {
+    throw analysisError("SCAN_NOT_FOUND", "没有找到这次扫描任务", 404);
   }
+  if (scan.status === "expired") {
+    throw analysisError("SCAN_EXPIRED", "扫描任务已失效，请重新扫描", 409);
+  }
+  if (scan.storedStatus !== "ready") {
+    throw analysisError(
+      "SCAN_NOT_ANALYZABLE",
+      "这次扫描没有可分析的候选题目",
+      409
+    );
+  }
+  if (scan.scanMode !== "multi") {
+    throw analysisError(
+      "SCAN_SINGLE_ALREADY_ANALYZED",
+      "单题扫描已经完成小问与答案分析",
+      409
+    );
+  }
+  if (!scanner?.isConfigured()) {
+    throw analysisError(
+      "SCAN_NOT_CONFIGURED",
+      "当前没有配置内部 OCR，暂时不能分析所选题目",
+      503
+    );
+  }
+  const ids = [
+    ...new Set(
+      (Array.isArray(candidateIds) ? candidateIds : [])
+        .map(Number)
+        .filter((id) => Number.isInteger(id) && id > 0)
+    )
+  ];
+  if (!ids.length) {
+    throw analysisError("SCAN_SELECTION_REQUIRED", "请先勾选要分析的题目");
+  }
+  const candidates = scan.candidates.filter((candidate) =>
+    ids.includes(candidate.id)
+  );
+  if (candidates.length !== ids.length) {
+    throw analysisError(
+      "SCAN_CANDIDATE_NOT_FOUND",
+      "部分题目不属于这次扫描"
+    );
+  }
+  if (candidates.some((candidate) => !candidate.selected)) {
+    throw analysisError(
+      "SCAN_CANDIDATE_NOT_SELECTED",
+      "只能分析当前已勾选的题目"
+    );
+  }
+
+  const results = [];
+  for (const candidate of candidates) {
+    if (
+      candidate.analysisStage === "analyzed" ||
+      candidate.importedQuestionId
+    ) {
+      results.push({
+        candidateId: candidate.id,
+        status: "already_analyzed"
+      });
+      continue;
+    }
+    try {
+      const context = repository.getQuestionScanImageContext(
+        scanId,
+        candidate.id
+      );
+      if (!context) throw new Error("题目图片不存在");
+      const cropped = await cropScanContext(attachmentStore, context);
+      const result = await scanner.scan({
+        images: [{ mimeType: "image/png", buffer: cropped }],
+        mode: "single"
+      });
+      const analyzed = largestAnalyzedCandidate(result.candidates || []);
+      if (!analyzed) {
+        throw new Error("没有识别到题目内容");
+      }
+      repository.updateQuestionScanCandidate(scanId, candidate.id, {
+        analysisStage: "analyzed",
+        questionNo: candidate.questionNo,
+        text: analyzed.text,
+        questionType: analyzed.questionType,
+        options: analyzed.options,
+        studentAnswer: analyzed.studentAnswer,
+        suggestedAnswer: analyzed.suggestedAnswer,
+        parts: analyzed.parts,
+        completenessStatus: analyzed.completenessStatus,
+        suspectedWrong: analyzed.suspectedWrong,
+        answerPending: analyzed.answerPending,
+        confidence: analyzed.confidence,
+        pendingReasons: analyzed.pendingReasons,
+        sourceBlocks: translateAnalysisBlocks(
+          analyzed.sourceBlocks,
+          candidate.region,
+          context
+        ),
+        region: candidate.region,
+        recognitionError: ""
+      });
+      results.push({
+        candidateId: candidate.id,
+        status: "analyzed"
+      });
+    } catch (error) {
+      repository.updateQuestionScanCandidate(scanId, candidate.id, {
+        recognitionError: error?.message || "逐题识别失败，可重新勾选后再试"
+      });
+      results.push({
+        candidateId: candidate.id,
+        status: "failed",
+        error: error?.message || "逐题识别失败"
+      });
+    }
+  }
+  const updated = repository.getQuestionScan(scanId);
+  return {
+    scan: updated,
+    analyzedCount: results.filter((item) => item.status === "analyzed").length,
+    failedCount: results.filter((item) => item.status === "failed").length,
+    results
+  };
 }
 
 export async function importQuestionScan({
@@ -195,6 +400,19 @@ export async function importQuestionScan({
     );
   }
   if (
+    selected.some(
+      (candidate) =>
+        candidate.analysisStage !== "analyzed" ||
+        candidate.importedQuestionId
+    )
+  ) {
+    throw scanImportError(
+      "SCAN_ANALYSIS_REQUIRED",
+      "所选题目需要先完成逐题分析，再导入题库",
+      409
+    );
+  }
+  if (
     selected.some((candidate) => candidate.completenessStatus !== "complete") &&
     confirmIncomplete !== true
   ) {
@@ -235,17 +453,48 @@ export async function importQuestionScan({
         context,
         candidate
       });
+      const parts = (
+        candidate.parts?.length
+          ? candidate.parts
+          : [
+              {
+                label: "小问 1",
+                prompt: candidate.text,
+                studentAnswer: candidate.studentAnswer,
+                suggestedAnswer: candidate.suggestedAnswer,
+                answerType: "auto",
+                pendingReasons: candidate.pendingReasons,
+                answerSource: "system_suggested"
+              }
+            ]
+      ).map((part, index) => ({
+        label: part.label || `小问 ${index + 1}`,
+        prompt: part.prompt || (index === 0 ? candidate.text : ""),
+        studentAnswer: part.studentAnswer || "",
+        answerType: part.answerType || "auto",
+        comparisonRule: "auto",
+        acceptedAnswers: splitAcceptedAnswers(part.suggestedAnswer)
+      }));
+      const studentAnswer = parts
+        .map((part) => part.studentAnswer)
+        .filter(Boolean)
+        .join("；");
+      const suggestedAnswer = parts
+        .map((part) => part.acceptedAnswers[0] || "")
+        .filter(Boolean)
+        .join("；");
       const imported = repository.importQuestionScanCandidate({
         scanId,
         candidateId: candidate.id,
         input: {
           question: candidate.text,
-          studentAnswer: candidate.studentAnswer || "",
-          correctAnswer: candidate.suggestedAnswer || "",
+          studentAnswer,
+          correctAnswer: suggestedAnswer,
           analysis: "",
           knowledgePoint: "",
           errorType: candidate.suspectedWrong ? "扫描识别待确认" : "",
-          attachmentIds: [attachment.id]
+          attachmentIds: [attachment.id],
+          parts
         },
         questionType: candidate.questionType,
         completenessStatus:
@@ -255,7 +504,12 @@ export async function importQuestionScan({
         answerPending:
           candidate.answerPending ||
           candidate.pendingReasons.length > 0 ||
-          !candidate.suggestedAnswer,
+          candidate.parts?.some(
+            (part) =>
+              part.pendingReasons.length > 0 ||
+              part.answerSource !== "user_confirmed" ||
+              !part.suggestedAnswer
+          ),
         suspectedWrong: candidate.suspectedWrong,
         options: candidate.options
       });

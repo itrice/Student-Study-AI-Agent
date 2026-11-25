@@ -350,8 +350,7 @@ test("OCR 只发送裁剪区域，恢复原图后改发原图", async () => {
       repository,
       attachmentStore: store,
       extractor,
-      attachmentId: attachment.id,
-      consent: true
+      attachmentId: attachment.id
     });
     assert.equal(cropped.available, true);
     assert.equal(cropped.usedCrop, true);
@@ -367,8 +366,7 @@ test("OCR 只发送裁剪区域，恢复原图后改发原图", async () => {
       repository,
       attachmentStore: store,
       extractor,
-      attachmentId: attachment.id,
-      consent: true
+      attachmentId: attachment.id
     });
     assert.equal(original.available, true);
     assert.equal(original.usedCrop, false);
@@ -444,7 +442,7 @@ test("备份恢复同时保留原图、裁剪图和裁剪元数据", () => {
       databasePath: restoredDatabase,
       attachmentsDir: restoredAttachments
     });
-    assert.equal(restored.schemaVersion, 15);
+    assert.equal(restored.schemaVersion, 16);
     assert.equal(restored.attachmentCount, 2);
 
     const db = new DatabaseSync(restoredDatabase, { readOnly: true });

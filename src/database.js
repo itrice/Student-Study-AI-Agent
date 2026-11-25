@@ -490,6 +490,14 @@ export const MAX_SCAN_CANDIDATES = 20;
 export const MAX_SCAN_IMAGES = 3;
 
 const SCAN_COMPLETENESS = new Set(["complete", "incomplete", "unknown"]);
+const SCAN_ANSWER_TYPES = new Set([
+  "auto",
+  "text",
+  "number",
+  "fraction",
+  "percent",
+  "ratio"
+]);
 
 function normalizeScanRegion(value, { strict = false } = {}) {
   if (value === undefined || value === null || value === "") {
@@ -546,6 +554,91 @@ function normalizeScanBoolean(value) {
   return false;
 }
 
+function normalizeScanCandidateParts(
+  value,
+  {
+    prompt = "",
+    studentAnswer = "",
+    suggestedAnswer = "",
+    confidence = null,
+    pendingReasons = []
+  } = {}
+) {
+  const source =
+    Array.isArray(value) && value.length
+      ? value
+      : [
+          {
+            label: "小问 1",
+            prompt,
+            studentAnswer,
+            suggestedAnswer,
+            answerType: "auto",
+            confidence,
+            pendingReasons,
+            answerSource: "system_suggested"
+          }
+        ];
+  return source.slice(0, 20).map((part, index) => {
+    const acceptedAnswers = Array.isArray(part?.acceptedAnswers)
+      ? part.acceptedAnswers
+      : [];
+    const answer = String(
+      part?.suggestedAnswer ||
+        part?.correctAnswer ||
+        acceptedAnswers.join("；") ||
+        (source.length === 1 ? suggestedAnswer : "")
+    )
+      .trim()
+      .slice(0, 2000);
+    const partConfidence = Number(part?.confidence);
+    const reasons = Array.isArray(part?.pendingReasons)
+      ? part.pendingReasons
+      : part?.pendingReasons
+        ? [part.pendingReasons]
+        : [];
+    return {
+      partNo: index + 1,
+      label: String(part?.label || `小问 ${index + 1}`)
+        .trim()
+        .slice(0, 50),
+      prompt: String(
+        part?.prompt || (source.length === 1 ? prompt : "")
+      )
+        .trim()
+        .slice(0, 2000),
+      studentAnswer: String(
+        part?.studentAnswer || (source.length === 1 ? studentAnswer : "")
+      )
+        .trim()
+        .slice(0, 2000),
+      suggestedAnswer: answer,
+      answerType: SCAN_ANSWER_TYPES.has(String(part?.answerType || "auto"))
+        ? String(part?.answerType || "auto")
+        : "auto",
+      confidence:
+        Number.isFinite(partConfidence) &&
+        partConfidence >= 0 &&
+        partConfidence <= 1
+          ? partConfidence
+          : source.length === 1 && Number.isFinite(Number(confidence))
+            ? Number(confidence)
+            : null,
+      pendingReasons: [
+        ...new Set(
+          reasons
+            .map((reason) => String(reason || "").trim().slice(0, 100))
+            .filter(Boolean)
+        )
+      ].slice(0, 20),
+      answerSource:
+        part?.answerSource === "user_confirmed"
+          ? "user_confirmed"
+          : "system_suggested"
+    };
+  });
+}
+
 function mapQuestionContentUnit(row) {
   return {
     id: row.id,
@@ -577,6 +670,18 @@ function mapQuestionSource(row) {
 
 function mapQuestionScanCandidate(row, scanId) {
   const analysis = parseJsonObject(row.analysis_json);
+  const analysisStage =
+    analysis.analysisStage === "discovered" ? "discovered" : "analyzed";
+  const parts =
+    analysisStage === "discovered"
+      ? []
+      : normalizeScanCandidateParts(analysis.parts, {
+          prompt: row.recognized_text,
+          studentAnswer: analysis.studentAnswer,
+          suggestedAnswer: analysis.suggestedAnswer,
+          confidence: row.confidence,
+          pendingReasons: analysis.pendingReasons
+        });
   return {
     id: row.id,
     candidateNo: row.candidate_no,
@@ -587,10 +692,13 @@ function mapQuestionScanCandidate(row, scanId) {
     selected: row.selected === 1,
     manuallySelected: row.manually_selected === 1,
     text: row.recognized_text,
+    questionNo: analysis.questionNo || row.candidate_no,
+    analysisStage,
     questionType: analysis.questionType || "general",
     options: Array.isArray(analysis.options) ? analysis.options : [],
     studentAnswer: analysis.studentAnswer || "",
     suggestedAnswer: analysis.suggestedAnswer || "",
+    parts,
     pendingReasons: Array.isArray(analysis.pendingReasons)
       ? analysis.pendingReasons
       : [],
@@ -3920,6 +4028,7 @@ export class LearningRepository {
   createQuestionScanTask({
     attachmentIds,
     candidates = [],
+    scanMode = "single",
     status = "ready",
     errorMessage = "",
     scanner = {},
@@ -3974,6 +4083,7 @@ export class LearningRepository {
     const normalizedStatus = ["ready", "failed"].includes(status)
       ? status
       : "ready";
+    const normalizedScanMode = scanMode === "multi" ? "multi" : "single";
     if (normalizedStatus === "ready" && !candidates.length) {
       throw new LearningValidationError(
         "SCAN_EMPTY_RESULT",
@@ -3992,15 +4102,16 @@ export class LearningRepository {
       const task = this.db
         .prepare(
           `INSERT INTO question_scan_tasks (
-            student_id, status, error_message, candidate_count,
+            student_id, status, scan_mode, error_message, candidate_count,
             scanner_provider, scanner_model, prompt_version,
             ocr_provider, ocr_model, ocr_blocks_json,
             created_at, updated_at, expires_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           student.id,
           normalizedStatus,
+          normalizedScanMode,
           String(errorMessage || "").slice(0, 1000),
           normalizedStatus === "ready" ? candidates.length : 0,
           String(scanner.provider || "").slice(0, 100),
@@ -4040,36 +4151,68 @@ export class LearningRepository {
         );
         candidates.forEach((candidate, index) => {
           const candidateNo = index + 1;
+          const analysisStage =
+            candidate.analysisStage === "discovered"
+              ? "discovered"
+              : "analyzed";
           const candidateStatus = candidate.status === "failed"
             ? "failed"
             : "ready";
+          const parts =
+            analysisStage === "discovered"
+              ? []
+              : normalizeScanCandidateParts(candidate.parts, {
+                  prompt: candidate.text,
+                  studentAnswer: candidate.studentAnswer,
+                  suggestedAnswer: candidate.suggestedAnswer,
+                  confidence: candidate.confidence,
+                  pendingReasons: candidate.pendingReasons
+                });
+          const studentAnswer = parts
+            .map((part) => part.studentAnswer)
+            .filter(Boolean)
+            .join("；");
+          const suggestedAnswer = parts
+            .map((part) => part.suggestedAnswer)
+            .filter(Boolean)
+            .join("；");
+          const pendingReasons = [
+            ...new Set([
+              ...(Array.isArray(candidate.pendingReasons)
+                ? candidate.pendingReasons
+                : []),
+              ...parts.flatMap((part) => part.pendingReasons)
+            ])
+          ]
+            .map((reason) => String(reason || "").trim().slice(0, 100))
+            .filter(Boolean)
+            .slice(0, 20);
+          const answerPending =
+            normalizeScanBoolean(candidate.answerPending) ||
+            parts.some((part) => part.pendingReasons.length > 0);
           insertCandidate.run(
             taskId,
             candidateNo,
             candidateStatus,
             normalizeScanCompleteness(candidate.completenessStatus),
             normalizeScanBoolean(candidate.suspectedWrong) ? 1 : 0,
-            normalizeScanBoolean(candidate.answerPending) ? 1 : 0,
+            answerPending ? 1 : 0,
             String(candidate.text || "").slice(0, 5000),
             Number.isFinite(Number(candidate.confidence))
               ? Number(candidate.confidence)
               : null,
             JSON.stringify(normalizeScanRegion(candidate.region)),
             JSON.stringify({
+              analysisStage,
+              questionNo: Number(candidate.questionNo) || candidateNo,
               questionType: candidate.questionType || "general",
               options: Array.isArray(candidate.options)
                 ? candidate.options.slice(0, 20)
                 : [],
-              studentAnswer: String(candidate.studentAnswer || "").slice(0, 2000),
-              suggestedAnswer: String(
-                candidate.suggestedAnswer || ""
-              ).slice(0, 2000),
-              pendingReasons: Array.isArray(candidate.pendingReasons)
-                ? candidate.pendingReasons
-                    .map((reason) => String(reason || "").trim().slice(0, 100))
-                    .filter(Boolean)
-                    .slice(0, 20)
-                : [],
+              studentAnswer,
+              suggestedAnswer,
+              parts,
+              pendingReasons,
               sourceBlocks: Array.isArray(candidate.sourceBlocks)
                 ? candidate.sourceBlocks.slice(0, 80)
                 : []
@@ -4098,9 +4241,16 @@ export class LearningRepository {
       row.status === "ready" && expired ? "expired" : row.status;
     const images = this.db
       .prepare(
-        `SELECT si.*, a.mime_type, a.byte_size, a.width, a.height, a.created_at AS attachment_created_at
+        `SELECT si.*,
+                a.mime_type, a.byte_size, a.width, a.height,
+                c.storage_key AS crop_storage_key,
+                c.mime_type AS crop_mime_type,
+                c.byte_size AS crop_byte_size,
+                c.width AS crop_width_px,
+                c.height AS crop_height_px
          FROM question_scan_images si
          JOIN attachments a ON a.id = si.attachment_id
+         LEFT JOIN attachment_crops c ON c.attachment_id = a.id
          WHERE si.scan_task_id = ?
          ORDER BY si.position, si.id`
       )
@@ -4110,11 +4260,17 @@ export class LearningRepository {
         attachmentId: image.attachment_id,
         role: image.role,
         position: image.position,
-        mimeType: image.mime_type,
-        byteSize: image.byte_size,
-        width: image.width,
-        height: image.height,
-        url: `/api/attachments/${image.attachment_id}?variant=original`
+        mimeType: image.crop_storage_key
+          ? image.crop_mime_type
+          : image.mime_type,
+        byteSize: image.crop_storage_key
+          ? image.crop_byte_size
+          : image.byte_size,
+        width: image.crop_storage_key ? image.crop_width_px : image.width,
+        height: image.crop_storage_key ? image.crop_height_px : image.height,
+        url: `/api/attachments/${image.attachment_id}?variant=${
+          image.crop_storage_key ? "crop" : "original"
+        }`
       }));
     const candidates = this.db
       .prepare(
@@ -4125,14 +4281,39 @@ export class LearningRepository {
       .all(scanId)
       .map((candidate) => mapQuestionScanCandidate(candidate, scanId));
     const selectedCandidates = candidates.filter((item) => item.selected);
+    const analyzedCandidates = candidates.filter(
+      (item) => item.analysisStage === "analyzed"
+    );
+    const discoveredCandidates = candidates.filter(
+      (item) => item.analysisStage === "discovered"
+    );
+    const selectedDiscoveredCandidates = selectedCandidates.filter(
+      (item) => item.analysisStage === "discovered"
+    );
+    const selectedAnalyzedCandidates = selectedCandidates.filter(
+      (item) =>
+        item.analysisStage === "analyzed" && !item.importedQuestionId
+    );
+    const analysisStage =
+      !candidates.length
+        ? "empty"
+        : !discoveredCandidates.length
+          ? "analyzed"
+          : !analyzedCandidates.length
+            ? "discovered"
+            : "partially_analyzed";
     return {
       id: row.id,
       status: effectiveStatus,
       storedStatus: row.status,
       expired,
+      scanMode: row.scan_mode === "multi" ? "multi" : "single",
+      analysisStage,
       errorMessage: row.error_message,
       candidateCount: row.candidate_count,
       selectedCount: selectedCandidates.length,
+      analyzedCount: analyzedCandidates.length,
+      selectedDiscoveredCount: selectedDiscoveredCandidates.length,
       incompleteSelectedCount: selectedCandidates.filter(
         (item) => item.completenessStatus !== "complete"
       ).length,
@@ -4150,7 +4331,11 @@ export class LearningRepository {
       candidates,
       canImport:
         effectiveStatus === "ready" &&
-        selectedCandidates.some((item) => !item.importedQuestionId),
+        !selectedDiscoveredCandidates.length &&
+        selectedAnalyzedCandidates.length > 0,
+      canAnalyze:
+        effectiveStatus === "ready" &&
+        selectedDiscoveredCandidates.length > 0,
       importStage: "ready",
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -4197,12 +4382,19 @@ export class LearningRepository {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       if (action === "select_all") {
+        const includeDiscovered =
+          scan.scanMode === "multi" && scan.analysisStage !== "analyzed";
         this.db
           .prepare(
             `UPDATE question_scan_candidates
              SET selected = CASE
                WHEN status = 'ready'
-                 AND completeness_status = 'complete'
+                 AND (
+                   completeness_status = 'complete'
+                   ${includeDiscovered
+                     ? "OR json_extract(analysis_json, '$.analysisStage') = 'discovered'"
+                     : ""}
+                 )
                  AND imported_question_id IS NULL THEN 1
                WHEN manually_selected = 1 THEN 1
                ELSE 0
@@ -4332,20 +4524,83 @@ export class LearningRepository {
       text = String(input.text || "").trim().slice(0, 5000);
     }
     const currentAnalysis = parseJsonObject(current.analysis_json);
+    const partsProvided = Object.hasOwn(input, "parts");
+    if (
+      partsProvided &&
+      (!Array.isArray(input.parts) || input.parts.length === 0)
+    ) {
+      throw new LearningValidationError(
+        "SCAN_PARTS_REQUIRED",
+        "请至少保留一个小问"
+      );
+    }
     const questionType =
       input.questionType === undefined
         ? currentAnalysis.questionType || "general"
         : String(input.questionType || "general");
+    const completenessStatus =
+      input.completenessStatus === undefined
+        ? current.completeness_status
+        : normalizeScanCompleteness(input.completenessStatus);
+    const confidence =
+      input.confidence === undefined
+        ? current.confidence
+        : Number.isFinite(Number(input.confidence))
+          ? Number(input.confidence)
+          : null;
+    const analysisStage =
+      input.analysisStage === "discovered"
+        ? "discovered"
+        : input.analysisStage === "analyzed"
+          ? "analyzed"
+          : currentAnalysis.analysisStage === "discovered"
+            ? "discovered"
+            : "analyzed";
+    const questionNo =
+      Number.isInteger(Number(input.questionNo)) && Number(input.questionNo) > 0
+        ? Number(input.questionNo)
+        : currentAnalysis.questionNo || current.candidate_no;
+    const recognitionError =
+      Object.hasOwn(input, "recognitionError")
+        ? String(input.recognitionError || "").trim().slice(0, 1000)
+        : current.recognition_error;
+    const parts =
+      analysisStage === "discovered" && !partsProvided
+        ? []
+        : normalizeScanCandidateParts(
+            partsProvided ? input.parts : currentAnalysis.parts,
+            {
+              prompt: text,
+              studentAnswer:
+                input.studentAnswer ?? currentAnalysis.studentAnswer,
+              suggestedAnswer:
+                input.suggestedAnswer ?? currentAnalysis.suggestedAnswer,
+              confidence: current.confidence,
+              pendingReasons:
+                input.pendingReasons ?? currentAnalysis.pendingReasons
+            }
+          );
     const studentAnswer =
-      input.studentAnswer === undefined
+      partsProvided
+        ? parts
+            .map((part) => part.studentAnswer)
+            .filter(Boolean)
+            .join("；")
+        : input.studentAnswer === undefined
         ? String(currentAnalysis.studentAnswer || "")
         : String(input.studentAnswer || "").trim().slice(0, 2000);
     const suggestedAnswer =
-      input.suggestedAnswer === undefined
+      partsProvided
+        ? parts
+            .map((part) => part.suggestedAnswer)
+            .filter(Boolean)
+            .join("；")
+        : input.suggestedAnswer === undefined
         ? String(currentAnalysis.suggestedAnswer || "")
         : String(input.suggestedAnswer || "").trim().slice(0, 2000);
-    const pendingReasons =
-      input.pendingReasons === undefined
+    const pendingReasons = [
+      ...new Set([
+        ...(input.pendingReasons === undefined
         ? Array.isArray(currentAnalysis.pendingReasons)
           ? currentAnalysis.pendingReasons
           : []
@@ -4354,9 +4609,19 @@ export class LearningRepository {
               .map((reason) => String(reason || "").trim().slice(0, 100))
               .filter(Boolean)
               .slice(0, 20)
-          : [];
+          : []),
+        ...parts.flatMap((part) => part.pendingReasons)
+      ])
+    ].slice(0, 20);
     const answerPending =
-      input.answerPending === undefined
+      partsProvided
+        ? input.answerPending === true ||
+          pendingReasons.length > 0 ||
+          parts.some(
+            (part) =>
+              part.pendingReasons.length > 0 || !part.suggestedAnswer
+          )
+        : input.answerPending === undefined
         ? current.answer_pending === 1
         : input.answerPending === true;
     let region = normalizeScanRegion(parseJsonObject(current.region_json));
@@ -4377,28 +4642,39 @@ export class LearningRepository {
     this.db
       .prepare(
         `UPDATE question_scan_candidates
-         SET status = ?, recognized_text = ?, region_json = ?,
-             answer_pending = ?, analysis_json = ?,
+         SET status = ?, completeness_status = ?, recognized_text = ?,
+             confidence = ?, region_json = ?, answer_pending = ?,
+             recognition_error = ?, analysis_json = ?,
              selected = ?, manually_selected = ?, updated_at = ?
          WHERE id = ?`
       )
       .run(
         status,
+        completenessStatus,
         text,
+        confidence,
         JSON.stringify(region),
         answerPending ? 1 : 0,
+        recognitionError,
         JSON.stringify({
           ...currentAnalysis,
+          analysisStage,
+          questionNo,
           questionType,
-          options: Array.isArray(currentAnalysis.options)
-            ? currentAnalysis.options
-            : [],
+          options: Array.isArray(input.options)
+            ? input.options.slice(0, 20)
+            : Array.isArray(currentAnalysis.options)
+              ? currentAnalysis.options
+              : [],
           studentAnswer,
           suggestedAnswer,
+          parts,
           pendingReasons,
-          sourceBlocks: Array.isArray(currentAnalysis.sourceBlocks)
-            ? currentAnalysis.sourceBlocks
-            : []
+          sourceBlocks: Array.isArray(input.sourceBlocks)
+            ? input.sourceBlocks.slice(0, 80)
+            : Array.isArray(currentAnalysis.sourceBlocks)
+              ? currentAnalysis.sourceBlocks
+              : []
         }),
         selected,
         manuallySelected,
@@ -4418,9 +4694,15 @@ export class LearningRepository {
     if (!task) return null;
     const primary = this.db
       .prepare(
-        `SELECT si.attachment_id, a.storage_key, a.mime_type, a.width, a.height
+        `SELECT si.attachment_id,
+                a.storage_key, a.mime_type, a.width, a.height,
+                c.storage_key AS crop_storage_key,
+                c.mime_type AS crop_mime_type,
+                c.width AS crop_width_px,
+                c.height AS crop_height_px
          FROM question_scan_images si
          JOIN attachments a ON a.id = si.attachment_id
+         LEFT JOIN attachment_crops c ON c.attachment_id = a.id
          WHERE si.scan_task_id = ? AND si.role = 'primary'
          ORDER BY si.position LIMIT 1`
       )
@@ -4439,10 +4721,16 @@ export class LearningRepository {
     }
     return {
       attachmentId: primary.attachment_id,
-      storageKey: primary.storage_key,
-      mimeType: primary.mime_type,
-      width: primary.width,
-      height: primary.height,
+      storageKey: primary.crop_storage_key || primary.storage_key,
+      mimeType: primary.crop_storage_key
+        ? primary.crop_mime_type
+        : primary.mime_type,
+      width: primary.crop_storage_key
+        ? primary.crop_width_px
+        : primary.width,
+      height: primary.crop_storage_key
+        ? primary.crop_height_px
+        : primary.height,
       region
     };
   }

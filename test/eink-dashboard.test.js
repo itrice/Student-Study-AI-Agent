@@ -293,10 +293,7 @@ test(
         HOST: "127.0.0.1",
         PORT: String(port),
         DB_PATH: databasePath,
-        ATTACHMENTS_DIR: attachmentsDirectory,
-        VISION_BASE_URL: "",
-        VISION_API_KEY: "",
-        VISION_MODEL: ""
+        ATTACHMENTS_DIR: attachmentsDirectory
       },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true
