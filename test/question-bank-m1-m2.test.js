@@ -5,6 +5,7 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
@@ -32,6 +33,16 @@ const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2fXkAAAAASUVORK5CYII=",
   "base64"
 );
+const SCAN_PNG = await sharp({
+  create: {
+    width: 20,
+    height: 20,
+    channels: 3,
+    background: { r: 250, g: 250, b: 250 }
+  }
+})
+  .png()
+  .toBuffer();
 const NOW = "2026-01-10T08:00:00.000Z";
 
 function withTemporaryDirectory(callback) {
@@ -1627,7 +1638,7 @@ test("OCR 非 2xx 时保留上游状态与错误体", async () => {
   await assert.rejects(
     () =>
       scanner.scan({
-        images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+        images: [{ mimeType: "image/png", buffer: SCAN_PNG }]
       }),
     (error) =>
       error.code === "OCR_PROCESSING_FAILED" &&
@@ -1661,13 +1672,14 @@ test("OCR 文本模型不可用时降级为待确认候选并保留字块", asyn
                 confidence: 0.72
               }
             ]
+            
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
     })
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+    images: [{ mimeType: "image/png", buffer: SCAN_PNG }]
   });
   assert.equal(result.candidates.length, 2);
   assert.equal(result.candidates[0].answerPending, true);
@@ -1741,7 +1753,7 @@ test("答案引用未声明的低置信字块时仍标记待确认", async () =>
     }
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+    images: [{ mimeType: "image/png", buffer: SCAN_PNG }]
   });
   assert.equal(result.candidates[0].answerPending, true);
   assert.ok(result.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
