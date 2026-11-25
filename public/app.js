@@ -79,6 +79,8 @@ const state = {
   followUpRequestKey: null,
   attemptRequestKey: null,
   entryChoiceTrigger: null,
+  entryChoiceStep: "choice",
+  addDialogReturnToEntryChoice: false,
   dialogMode: "create",
   editingMistakeId: null,
   editSubmissionKey: null,
@@ -439,9 +441,10 @@ function renderScanIntake() {
       !state.scanAttachments.length;
     start.textContent = state.scanBusy ? "正在定位题目…" : "识别题目范围";
   }
+  renderEntryPhotoControls();
 }
 
-async function uploadScanFiles(fileList) {
+async function uploadScanFiles(fileList, { returnToEntryPhoto = false } = {}) {
   const files = [...(fileList || [])].filter(
     (file) => !file.type || file.type.startsWith("image/")
   );
@@ -449,6 +452,7 @@ async function uploadScanFiles(fileList) {
     showToast("没有找到可用的图片", true);
     return;
   }
+  setEntryPhotoStatus("正在上传图片…");
   let lastUploaded = null;
   for (const file of files) {
     if (state.scanAttachments.length >= MAX_SCAN_IMAGES) {
@@ -468,13 +472,34 @@ async function uploadScanFiles(fileList) {
       state.scanAttachments.push(attachment);
       lastUploaded = attachment;
       $("#scan-status").textContent = `已添加 ${state.scanAttachments.length} 张图片；识别结果只进入候选页。`;
+      setEntryPhotoStatus(
+        `正在上传图片…已添加 ${state.scanAttachments.length} 张`
+      );
     } catch (error) {
       $("#scan-status").textContent = error.message;
+      setEntryPhotoStatus(error.message, true);
       showToast(error.message, true);
     }
   }
   renderScanIntake();
-  if (lastUploaded) openCropEditor(lastUploaded.id, "scan");
+  if (lastUploaded && returnToEntryPhoto) {
+    setEntryPhotoStatus(
+      `已添加 ${state.scanAttachments.length} 张图片，正在打开裁剪…`
+    );
+    closeEntryChoice({ restoreFocus: false, preserveTrigger: true });
+    openCropEditor(lastUploaded.id, "scan", {
+      returnToEntryChoice: true
+    });
+  } else if (lastUploaded) {
+    openCropEditor(lastUploaded.id, "scan");
+  } else {
+    setEntryPhotoStatus(
+      state.scanAttachments.length
+        ? `已添加 ${state.scanAttachments.length} 张图片，可继续选图或识别题目范围。`
+        : "没有成功添加图片，请重新选择。",
+      true
+    );
+  }
 }
 
 async function removeScanAttachment(id) {
@@ -505,14 +530,22 @@ async function clearScanAttachments() {
   );
 }
 
-async function startQuestionScan() {
+async function startQuestionScan({ revealWhenReady = false } = {}) {
   if (!state.scanAttachments.length) {
     showToast("请先选择扫描图片", true);
     return;
   }
+  const revealResult =
+    revealWhenReady || isEntryChoiceOpen();
+  if (revealResult && !isEntryChoiceOpen()) {
+    openEntryChoice(null, { step: "photo", preserveTrigger: true });
+  }
   state.scanBusy = true;
   $("#scan-loading").hidden = false;
   renderScanIntake();
+  if (isEntryChoiceOpen()) {
+    setEntryPhotoStatus("正在识别题目范围，请稍候…");
+  }
   try {
     const task = await api("/api/questions/scans", {
       method: "POST",
@@ -524,9 +557,26 @@ async function startQuestionScan() {
     state.scanTask = task;
     state.scanId = task.id;
     state.scanAttachments = [];
+    if (isEntryChoiceOpen()) {
+      closeEntryChoice({ restoreFocus: false });
+    }
     history.pushState(null, "", `#scan/${task.id}`);
+    if (revealResult) {
+      showView("scan", { updateHash: false });
+    }
     renderQuestionScan(task);
+    if (revealResult) {
+      window.setTimeout(() => {
+        $("#scan-task").focus({ preventScroll: true });
+      }, 40);
+    }
   } catch (error) {
+    if (revealResult && !isEntryChoiceOpen()) {
+      openEntryChoice(null, { step: "photo", preserveTrigger: true });
+    }
+    if (isEntryChoiceOpen()) {
+      setEntryPhotoStatus(error.message, true);
+    }
     showToast(error.message, true);
     $("#scan-status").textContent = error.message;
   } finally {
@@ -1586,7 +1636,11 @@ function resetCropEditor() {
   renderCropEditor();
 }
 
-function openCropEditor(attachmentId, scope = "dialog") {
+function openCropEditor(
+  attachmentId,
+  scope = "dialog",
+  { returnToEntryChoice = false } = {}
+) {
   const attachment = findCropAttachment(attachmentId, scope);
   if (!attachment) return;
   closeCropEditor();
@@ -1595,6 +1649,7 @@ function openCropEditor(attachmentId, scope = "dialog") {
     attachmentId,
     attachment,
     scope,
+    returnToEntryChoice,
     image: null,
     rotation,
     selection: selectionForAttachment(attachment, rotation),
@@ -1635,6 +1690,15 @@ function closeCropEditor() {
   if (cropDialog.open) cropDialog.close();
   $("#crop-status").textContent = "";
   $("#crop-status").classList.remove("is-error");
+}
+
+function cancelCropEditor() {
+  const returnToEntryChoice =
+    state.cropEditor?.returnToEntryChoice === true;
+  closeCropEditor();
+  if (returnToEntryChoice) {
+    openEntryChoice(null, { step: "photo", preserveTrigger: true });
+  }
 }
 
 function toggleOriginalPreview(attachmentId) {
@@ -1760,7 +1824,9 @@ async function applyCropEditor() {
         : "裁剪已应用，识别文字将只使用裁剪区域"
     );
     if (editor.scope === "scan") {
-      await startQuestionScan();
+      await startQuestionScan({
+        revealWhenReady: editor.returnToEntryChoice === true
+      });
     }
   } catch (error) {
     setCropStatus(error.message || "裁剪图片保存失败，原图未改变。", true);
@@ -1776,6 +1842,7 @@ async function restoreOriginalImage() {
     : null;
   if (!attachment?.hasCrop) return;
   const button = $("#restore-original-button");
+  const returnToEntryChoice = editor.returnToEntryChoice === true;
   setBusy(button, true, "正在恢复…");
   try {
     const updated = await api(`/api/attachments/${attachment.id}/crop`, {
@@ -1788,6 +1855,9 @@ async function restoreOriginalImage() {
     showToast(
       editor.scope === "scan" ? "已恢复原图，OCR 将使用完整原图" : "已恢复原图"
     );
+    if (returnToEntryChoice) {
+      openEntryChoice(null, { step: "photo", preserveTrigger: true });
+    }
   } catch (error) {
     setCropStatus(error.message || "恢复原图失败，请稍后重试。", true);
   } finally {
@@ -5206,46 +5276,101 @@ function renderReviewResult(result) {
   target.focus({ preventScroll: true });
 }
 
-function openEntryChoice(trigger = document.activeElement) {
-  const dialog = $("#entry-choice-dialog");
-  state.entryChoiceTrigger =
-    trigger instanceof HTMLElement && trigger.isConnected ? trigger : null;
-  if (!dialog.open) dialog.showModal();
-  $("#entry-photo-button").focus({ preventScroll: true });
+function isEntryChoiceOpen() {
+  return $("#entry-choice-dialog").open;
 }
 
-function closeEntryChoice({ restoreFocus = true } = {}) {
+function setEntryPhotoStatus(message, isError = false) {
+  const status = $("#entry-photo-status");
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle("is-error", isError);
+}
+
+function renderEntryPhotoControls() {
+  const start = $("#entry-photo-start-button");
+  if (!start) return;
+  start.disabled = state.scanBusy || !state.scanAttachments.length;
+  start.textContent = state.scanBusy
+    ? "正在识别题目范围…"
+    : "识别题目范围";
+}
+
+function renderEntryChoiceStep(step = "choice") {
+  const photoStep = step === "photo";
+  state.entryChoiceStep = photoStep ? "photo" : "choice";
+  $("#entry-choice-eyebrow").textContent = photoStep ? "拍照录入" : "新增题目";
+  $("#entry-choice-title").textContent = photoStep
+    ? "拍摄或选择题目图片"
+    : "选择录入方式";
+  $("#entry-choice-description").textContent = photoStep
+    ? "选图后会打开裁剪；应用裁剪保存成功后自动识别题目范围。"
+    : "拍照录入可以一次识别多道题；手工录入适合直接填写或整理已有文字。";
+  $("#entry-choice-list").hidden = photoStep;
+  $("#entry-photo-step").hidden = !photoStep;
+  $("#entry-choice-footnote").hidden = photoStep;
+  renderEntryPhotoControls();
+  if (photoStep) {
+    setEntryPhotoStatus(
+      state.scanAttachments.length
+        ? `已添加 ${state.scanAttachments.length} 张图片，可继续选图或识别题目范围。`
+        : "支持 JPG、PNG、WebP；一次最多 3 张。选图并应用裁剪后会自动识别题目范围。"
+    );
+    $("#entry-photo-pick-button").focus({ preventScroll: true });
+  } else {
+    $("#entry-photo-button").focus({ preventScroll: true });
+  }
+}
+
+function openEntryChoice(
+  trigger = document.activeElement,
+  { step = "choice", preserveTrigger = false } = {}
+) {
+  const dialog = $("#entry-choice-dialog");
+  if (trigger instanceof HTMLElement && trigger.isConnected) {
+    state.entryChoiceTrigger = trigger;
+  } else if (!preserveTrigger) {
+    state.entryChoiceTrigger = null;
+  }
+  if (!dialog.open) dialog.showModal();
+  renderEntryChoiceStep(step);
+}
+
+function closeEntryChoice({
+  restoreFocus = true,
+  resetStep = true,
+  preserveTrigger = false
+} = {}) {
   const dialog = $("#entry-choice-dialog");
   const trigger = state.entryChoiceTrigger;
-  state.entryChoiceTrigger = null;
+  if (!preserveTrigger) state.entryChoiceTrigger = null;
   if (dialog.open) dialog.close();
+  if (resetStep) state.entryChoiceStep = "choice";
   if (restoreFocus && trigger?.isConnected) {
     trigger.focus({ preventScroll: true });
   }
 }
 
 function openPhotoEntry() {
-  closeEntryChoice({ restoreFocus: false });
-  navigateTo("scan");
-  window.setTimeout(() => {
-    const target = [...document.querySelectorAll("#view-scan button")].find(
-      (button) =>
-        !button.hidden &&
-        !button.disabled &&
-        button.getClientRects().length > 0
-    );
-    target?.focus({ preventScroll: true });
-  }, 80);
+  renderEntryChoiceStep("photo");
 }
 
 function openManualEntry() {
-  closeEntryChoice({ restoreFocus: false });
+  closeEntryChoice({ restoreFocus: false, preserveTrigger: true });
+  state.addDialogReturnToEntryChoice = true;
   openAddDialog();
+}
+
+function returnToEntryChoiceFromManual() {
+  closeAddDialog();
+  openEntryChoice(null, { step: "choice", preserveTrigger: true });
 }
 
 function openAddDialog() {
   const dialog = $("#add-dialog");
   closeCropEditor();
+  $("#manual-entry-back-button").hidden =
+    !state.addDialogReturnToEntryChoice;
   $("#add-form").reset();
   renderPartsEditor();
   state.dialogAttachments = [];
@@ -5306,6 +5431,8 @@ async function openEditDialog(
     $("#ocr-candidate").hidden = true;
     renderDialogAttachments();
     state.dialogMode = "edit";
+    state.addDialogReturnToEntryChoice = false;
+    $("#manual-entry-back-button").hidden = true;
     state.editingMistakeId = id;
     state.editSubmissionKey = null;
     state.lastDiagnosis = null;
@@ -5336,6 +5463,8 @@ function closeAddDialog({ discardAttachments = true } = {}) {
   $("#ocr-panel").hidden = true;
   $("#ocr-candidate").hidden = true;
   state.dialogMode = "create";
+  state.addDialogReturnToEntryChoice = false;
+  $("#manual-entry-back-button").hidden = true;
   state.editingMistakeId = null;
   state.editSubmissionKey = null;
   state.lastDiagnosis = null;
@@ -5632,10 +5761,27 @@ function bindEvents() {
   );
   $("#entry-photo-button").addEventListener("click", openPhotoEntry);
   $("#entry-manual-button").addEventListener("click", openManualEntry);
+  $("#entry-photo-back-button").addEventListener("click", () =>
+    renderEntryChoiceStep("choice")
+  );
+  $("#entry-photo-pick-button").addEventListener("click", () => {
+    $("#entry-photo-file-input").click();
+  });
+  $("#entry-photo-file-input").addEventListener("change", (event) => {
+    uploadScanFiles(event.target.files, { returnToEntryPhoto: true });
+    event.target.value = "";
+  });
+  $("#entry-photo-start-button").addEventListener("click", () =>
+    startQuestionScan({ revealWhenReady: true })
+  );
   $("#entry-choice-dialog").addEventListener("cancel", (event) => {
     event.preventDefault();
     closeEntryChoice();
   });
+  $("#manual-entry-back-button").addEventListener(
+    "click",
+    returnToEntryChoiceFromManual
+  );
   $("#curriculum-close-button").addEventListener("click", closeCurriculumDialog);
   $("#curriculum-cancel-button").addEventListener("click", closeCurriculumDialog);
   $("#curriculum-preview-button").addEventListener("click", previewCurriculumSwitch);
@@ -5877,10 +6023,10 @@ function bindEvents() {
   $("#restore-original-button").addEventListener("click", restoreOriginalImage);
   $("#crop-editor").addEventListener("cancel", (event) => {
     event.preventDefault();
-    closeCropEditor();
+    cancelCropEditor();
   });
-  $("#close-crop-editor-button").addEventListener("click", closeCropEditor);
-  $("#cancel-crop-button").addEventListener("click", closeCropEditor);
+  $("#close-crop-editor-button").addEventListener("click", cancelCropEditor);
+  $("#cancel-crop-button").addEventListener("click", cancelCropEditor);
   $("#apply-crop-button").addEventListener("click", applyCropEditor);
   $("#crop-selection").addEventListener("pointerdown", startCropDrag);
   document.addEventListener("pointermove", moveCropDrag);
@@ -6173,7 +6319,7 @@ function bindEvents() {
     }
     if (event.key === "Escape" && state.cropEditor) {
       event.preventDefault();
-      closeCropEditor();
+      cancelCropEditor();
       return;
     }
     if (event.key === "Escape") closeSidebar({ restoreFocus: true });

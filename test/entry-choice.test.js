@@ -45,18 +45,41 @@ test("所有录入入口先提供拍照录入和手工录入选择", () => {
     /#quick-add-button"\)\.addEventListener\("click", openAddDialog\)/
   );
 
-  assert.match(app, /function openPhotoEntry\(\)[\s\S]*navigateTo\("scan"\)/);
+  assert.match(
+    app,
+    /function openPhotoEntry\(\) \{\s*renderEntryChoiceStep\("photo"\);/
+  );
+  assert.doesNotMatch(
+    app,
+    /function openPhotoEntry\(\)[\s\S]{0,180}navigateTo\("scan"\)/
+  );
   assert.match(
     app,
     /function openManualEntry\(\)[\s\S]*openAddDialog\(\)/
   );
+  assert.match(
+    app,
+    /function returnToEntryChoiceFromManual\(\)[\s\S]*openEntryChoice\(null, \{ step: "choice", preserveTrigger: true \}\)/
+  );
   assert.match(app, /#entry-photo-button"\)\.addEventListener\("click", openPhotoEntry\)/);
   assert.match(app, /#entry-manual-button"\)\.addEventListener\("click", openManualEntry\)/);
+  assert.match(app, /#manual-entry-back-button"\)\.addEventListener/);
+  assert.match(app, /#entry-photo-back-button"\)\.addEventListener[\s\S]*renderEntryChoiceStep\("choice"\)/);
+  assert.match(app, /uploadScanFiles\(event\.target\.files, \{ returnToEntryPhoto: true \}\)/);
+  assert.match(app, /openCropEditor\(lastUploaded\.id, "scan", \{\s*returnToEntryChoice: true/);
+  assert.match(
+    app,
+    /function cancelCropEditor\(\)[\s\S]*openEntryChoice\(null, \{ step: "photo", preserveTrigger: true \}\)/
+  );
+  assert.match(app, /startQuestionScan\(\{\s*revealWhenReady: true/);
+  assert.match(app, /showView\("scan", \{ updateHash: false \}\)/);
   assert.match(app, /#entry-choice-dialog"\)\.addEventListener\("cancel"/);
   assert.match(app, /entry-photo-button"\)\.focus/);
 
   assert.match(styles, /\.entry-choice-option\.is-primary/);
   assert.match(styles, /\.entry-choice-option:focus-visible/);
   assert.match(styles, /\.entry-choice-dialog::backdrop/);
+  assert.match(styles, /\.entry-photo-step/);
+  assert.match(styles, /\.manual-entry-back-button/);
   assert.match(styles, /min-height:\s*82px/);
 });
