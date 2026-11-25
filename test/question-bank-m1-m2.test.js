@@ -5,7 +5,6 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
@@ -33,16 +32,21 @@ const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2fXkAAAAASUVORK5CYII=",
   "base64"
 );
-const SCAN_PNG = await sharp({
-  create: {
-    width: 20,
-    height: 20,
-    channels: 3,
-    background: { r: 250, g: 250, b: 250 }
-  }
-})
-  .png()
-  .toBuffer();
+async function makeScanPng(width = 1000, height = 800) {
+  return sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background: { r: 250, g: 250, b: 250 }
+    }
+  })
+    .png()
+    .toBuffer();
+}
+
+const SCAN_PNG = await makeScanPng();
+const SCAN_SHORT_PNG = await makeScanPng(1000, 200);
 const NOW = "2026-01-10T08:00:00.000Z";
 
 function withTemporaryDirectory(callback) {
@@ -821,11 +825,13 @@ test("扫描未配置和图片读取失败都保留图片且不写正式题库",
 
 test("多题扫描首轮只返回题号和边界，不提前生成小问或答案", async () => {
   const prompts = [];
+  let ocrCalls = 0;
   const scanner = new OcrTextQuestionScanner({
     ocrClient: new InternalOcrClient({
       baseUrl: "https://example.invalid",
-      fetchImpl: async () =>
-        new Response(
+      fetchImpl: async () => {
+        ocrCalls += 1;
+        return new Response(
           JSON.stringify({
             engine: "rapidocr",
             modelVersion: "PP-OCRv6-small",
@@ -853,7 +859,8 @@ test("多题扫描首轮只返回题号和边界，不提前生成小问或答�
             ]
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+        );
+      }
     }),
     llmGateway: {
       model: "fixture-model",
@@ -877,11 +884,12 @@ test("多题扫描首轮只返回题号和边界，不提前生成小问或答�
   });
 
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }],
+    images: [{ mimeType: "image/png", buffer: SCAN_PNG }],
     mode: "multi"
   });
 
   assert.equal(prompts.length, 1);
+  assert.equal(ocrCalls, 1, "图片预处理后必须调用 OCR mock");
   assert.match(
     prompts[0].messages[0].content,
     /不分析小问|不建议标准答案/
@@ -1209,16 +1217,7 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       );
       assert.equal(initial.total, 0);
 
-      const image = await sharp({
-        create: {
-          width: 8,
-          height: 8,
-          channels: 3,
-          background: { r: 240, g: 240, b: 240 }
-        }
-      })
-        .png()
-        .toBuffer();
+      const image = SCAN_PNG;
       const upload = await fetch(`${baseUrl}/api/attachments?kind=question`, {
         method: "POST",
         headers: {
@@ -1285,9 +1284,13 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       assert.equal(task.candidates[0].answerPending, true);
       assert.ok(task.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
       assert.equal(fake.requests.length, 4);
-      assert.equal(fake.requests[1].contentType, "image/png");
+      assert.equal(fake.requests[1].contentType, "image/jpeg");
       assert.equal(fake.requests[1].url, "/v1/ocr/raw");
-      assert.deepEqual(fake.requests[1].body, image);
+      assert.notDeepEqual(fake.requests[1].body, image);
+      const preparedOcrImage = await sharp(fake.requests[1].body).metadata();
+      assert.equal(preparedOcrImage.format, "jpeg");
+      assert.equal(preparedOcrImage.width, 1000);
+      assert.equal(preparedOcrImage.height, 800);
       assert.equal(fake.requests[2].url, "/chat/completions");
       assert.equal(fake.requests[3].url, "/chat/completions");
       assert.doesNotMatch(
@@ -1518,16 +1521,7 @@ test("HTTP 多题扫描先定位，勾选后逐题分析", async () => {
     try {
       await waitForServer(child);
       const baseUrl = `http://127.0.0.1:${port}`;
-      const image = await sharp({
-        create: {
-          width: 8,
-          height: 8,
-          channels: 3,
-          background: { r: 245, g: 245, b: 245 }
-        }
-      })
-        .png()
-        .toBuffer();
+      const image = SCAN_PNG;
       const upload = await fetch(`${baseUrl}/api/attachments?kind=question`, {
         method: "POST",
         headers: {
@@ -1824,7 +1818,7 @@ test("模型漏报 sourceBlockIds 时按 OCR 文本补齐两行候选区域", as
     }
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+    images: [{ mimeType: "image/png", buffer: SCAN_SHORT_PNG }]
   });
   const candidate = result.candidates[0];
   assert.deepEqual(
@@ -1890,7 +1884,7 @@ test("结构修复失败时按问句拆分两个小问", async () => {
     }
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+    images: [{ mimeType: "image/png", buffer: SCAN_SHORT_PNG }]
   });
   const parts = result.candidates[0].parts;
   assert.equal(parts.length, 2);
@@ -1971,7 +1965,7 @@ test("多小问保留系统答案建议并对公式不足标记待确认", async
     }
   });
   const result = await scanner.scan({
-    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+    images: [{ mimeType: "image/png", buffer: SCAN_PNG }]
   });
   const candidate = result.candidates[0];
   assert.equal(candidate.parts.length, 2);
