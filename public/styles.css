@@ -2463,39 +2463,10 @@ svg {
   line-height: 1.6;
 }
 
-.entry-photo-step {
-  display: grid;
-  gap: 14px;
-  padding: 20px 28px 18px;
-}
-
-.entry-photo-back-button,
 .manual-entry-back-button {
   justify-self: start;
   padding: 2px 0;
   color: var(--green);
-}
-
-.entry-photo-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-  gap: 10px;
-}
-
-.entry-photo-actions .primary-button,
-.entry-photo-actions .secondary-button {
-  min-height: 48px;
-}
-
-.entry-photo-status {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: var(--text-label);
-  line-height: 1.65;
-}
-
-.entry-photo-status.is-error {
-  color: #a13e32;
 }
 
 .manual-entry-back-button {
@@ -2512,8 +2483,7 @@ svg {
   display: none;
 }
 
-.manual-entry-back-button:focus-visible,
-.entry-photo-back-button:focus-visible {
+.manual-entry-back-button:focus-visible {
   outline: 2px solid var(--green);
   outline-offset: 2px;
 }
@@ -2867,14 +2837,6 @@ svg {
 
   .entry-choice-footnote {
     padding: 0 18px 20px;
-  }
-
-  .entry-photo-step {
-    padding: 17px 18px 14px;
-  }
-
-  .entry-photo-actions {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .main-content {
