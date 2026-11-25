@@ -1,4 +1,5 @@
-export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-parts-3";
+export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-parts-4";
+export const QUESTION_DISCOVERY_PROMPT_VERSION = "m2-ocr-boundaries-1";
 export const INTERNAL_OCR_TEXT_VERSION = "internal-ocr-1";
 export const MAX_SCAN_CANDIDATES = 20;
 
@@ -29,13 +30,35 @@ const SCAN_SYSTEM_PROMPT = [
   "印刷题干、学生手写答案和标准答案必须分开；不确定的字段留空，不得编造答案。",
   "学生手写答案只能根据文字块整理，不得把题目编号、批改符号或额外符号当作答案。",
   "识别题目中的全部小问；没有明确小问时只生成 1 个默认小问。",
+  "必须返回 parts 数组；一个题干中每个独立问句都要成为单独小问，不能只把整题填成一个小问。",
   "标准答案建议只能在题意完整、公式和几何关系足够时给出；信息不足时留空并标记 FORMULA_UNCERTAIN 或 GEOMETRY_UNCERTAIN。",
+  "题意完整且可通过六年级数学计算得到时，必须给出 suggestedAnswer；不得因为需要计算而留空。",
   "同一小问的等价标准答案用中文分号“；”分隔。",
   "返回严格 JSON：",
   "{\"candidates\":[{\"text\":\"整题题干\",\"options\":[{\"label\":\"A\",\"text\":\"选项内容\",\"sourceBlockIds\":[\"b2\"]}],\"questionType\":\"general|single_choice|multiple_choice|true_false|fill_blank|short_answer|proof|drawing|composite\",\"parts\":[{\"partNo\":1,\"label\":\"小问 1\",\"prompt\":\"小问文字\",\"studentAnswer\":\"\",\"suggestedAnswer\":\"\",\"answerType\":\"auto|text|number|fraction|percent|ratio\",\"confidence\":0.8,\"sourceBlockIds\":[\"b1\"],\"pendingReasons\":[]}],\"completeness\":\"complete|incomplete|unknown\",\"suspectedWrong\":false,\"answerPending\":false,\"confidence\":0.8,\"sourceBlockIds\":[\"b1\"],\"region\":{\"x\":0,\"y\":0,\"width\":1,\"height\":0.2},\"pendingReasons\":[]}]}",
   "候选题必须按阅读顺序，单次最多 20 道；region 是相对主图的 0～1 坐标。",
   "字块置信度低、字块被拆分、存在额外符号、公式或几何关系不足时，answerPending 必须为 true，并在对应 pendingReasons 说明原因。",
   "图形没有可识别结构时只保留题目图片关联，不编造几何信息。"
+].join("\n");
+
+const SCAN_PART_REPAIR_PROMPT = [
+  "你是六年级数学题结构化助手。",
+  "严格依据 OCR 文字和候选题干，只返回 JSON：{\"candidates\":[{\"candidateNo\":1,\"parts\":[{\"label\":\"小问 1\",\"prompt\":\"小问文字\",\"studentAnswer\":\"\",\"suggestedAnswer\":\"\",\"answerType\":\"auto|text|number|fraction|percent|ratio\",\"confidence\":0.8,\"pendingReasons\":[]}]}]}。",
+  "题干中每个独立问句都必须是单独小问；家长式或复合题保留原顺序。",
+  "学生答案只能来自 OCR 文字；不确定就留空并标记待确认。",
+  "信息完整且可计算时必须给出标准答案建议，等价答案用中文分号分隔；公式或几何关系不足时留空并标记 FORMULA_UNCERTAIN 或 GEOMETRY_UNCERTAIN。"
+].join("\n");
+
+const MULTI_QUESTION_DISCOVERY_PROMPT = [
+  "你是作业页题目边界整理助手。",
+  "只根据输入的 OCR 文字块、坐标和置信度确定每道题的边界与可见题号。",
+  "这一步只做题目分组，不分析小问，不识别学生答案，不建议标准答案，不判断题型。",
+  "每道题必须包含该题从题号开始的全部 OCR 字块，按页面阅读顺序返回。",
+  "不得把同一题拆成多道，也不得把不同题合并；无法确认边界时仍返回最保守的单题范围。",
+  "返回严格 JSON：",
+  "{\"questions\":[{\"questionNo\":7,\"sourceBlockIds\":[\"i1b2\",\"i1b3\"]}]}",
+  "questionNo 使用页面上可见的题号；看不清题号时按阅读顺序使用 1、2、3。",
+  "sourceBlockIds 只能引用输入中实际存在的字块，单次最多 20 道题。"
 ].join("\n");
 
 export class QuestionScanError extends Error {
@@ -392,29 +415,73 @@ function normalizePartFromLlm(
   };
 }
 
+function inferPartPrompts(text) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return [""];
+
+  const markers = [
+    ...normalized.matchAll(/(?:^|\s)(?:\((\d{1,2})\)|(\d{1,2})[.、．])\s*/gu)
+  ];
+  if (markers.length >= 2) {
+    return markers.map((marker, index) => {
+      const start = marker.index + marker[0].length;
+      const end =
+        index + 1 < markers.length ? markers[index + 1].index : normalized.length;
+      return normalized.slice(start, end).trim();
+    });
+  }
+
+  const questions = normalized
+    .split(/(?<=？)/u)
+    .map((question) => question.trim())
+    .filter(Boolean);
+  if (questions.length > 1) return questions;
+  return [normalized.replace(/^\s*\d{1,2}\s*[.、．]\s*/u, "")];
+}
+
+function inferAnswerType(prompt) {
+  if (/[%％]/u.test(prompt)) return "percent";
+  if (/比|比例/u.test(prompt)) return "ratio";
+  if (/几分之几|分数/u.test(prompt)) return "fraction";
+  if (/多少|求|计算/u.test(prompt)) return "number";
+  return "auto";
+}
+
 function normalizeCandidateParts(
   candidate,
   allBlocks,
   warningsByBlock,
   lowConfidence
 ) {
+  const inferredPrompts = inferPartPrompts(
+    candidate?.text || candidate?.question || ""
+  );
   const rawParts =
     Array.isArray(candidate?.parts) && candidate.parts.length
       ? candidate.parts
-      : [
-          {
-            partNo: 1,
-            label: "小问 1",
-            prompt: candidate?.text || candidate?.question || "",
-            studentAnswer: candidate?.studentAnswer || "",
-            suggestedAnswer:
-              candidate?.suggestedAnswer || candidate?.correctAnswer || "",
-            answerType: candidate?.answerType || "auto",
-            confidence: candidate?.confidence,
-            sourceBlockIds: candidate?.sourceBlockIds,
-            pendingReasons: candidate?.pendingReasons
-          }
-        ];
+      : inferredPrompts.map((prompt, index) => ({
+          partNo: index + 1,
+          label: `小问 ${index + 1}`,
+          prompt,
+          studentAnswer:
+            inferredPrompts.length === 1 ? candidate?.studentAnswer || "" : "",
+          suggestedAnswer:
+            inferredPrompts.length === 1
+              ? candidate?.suggestedAnswer || candidate?.correctAnswer || ""
+              : "",
+          answerType:
+            candidate?.answerType || inferAnswerType(prompt),
+          confidence: candidate?.confidence,
+          sourceBlockIds: candidate?.sourceBlockIds,
+          pendingReasons: uniqueStrings([
+            ...(Array.isArray(candidate?.pendingReasons)
+              ? candidate.pendingReasons
+              : candidate?.pendingReasons
+                ? [candidate.pendingReasons]
+                : []),
+            ...(inferredPrompts.length > 1 ? ["PART_SPLIT_INFERRED"] : [])
+          ])
+        }));
   return rawParts
     .slice(0, 20)
     .map((part, partIndex) =>
@@ -583,6 +650,62 @@ function normalizeLlmCandidates(
   return candidates;
 }
 
+function candidateNeedsPartRepair(rawOutput) {
+  const parsed = parseJson(rawOutput);
+  const candidates = Array.isArray(parsed?.candidates)
+    ? parsed.candidates
+    : Array.isArray(parsed?.questions)
+      ? parsed.questions
+      : [];
+  return candidates.some((candidate) => {
+    const inferredCount = inferPartPrompts(
+      candidate?.text || candidate?.question || ""
+    ).length;
+    return (
+      !Array.isArray(candidate?.parts) ||
+      candidate.parts.length === 0 ||
+      (inferredCount > 1 && candidate.parts.length < inferredCount)
+    );
+  });
+}
+
+function mergePartRepair(rawOutput, repairOutput) {
+  const original = parseJson(rawOutput);
+  const repaired = parseJson(repairOutput);
+  const originalCandidates = Array.isArray(original?.candidates)
+    ? original.candidates
+    : Array.isArray(original?.questions)
+      ? original.questions
+      : [];
+  const repairedCandidates = Array.isArray(repaired?.candidates)
+    ? repaired.candidates
+    : Array.isArray(repaired?.questions)
+      ? repaired.questions
+      : repaired?.parts
+        ? [{ candidateNo: 1, parts: repaired.parts }]
+        : [];
+  if (!originalCandidates.length || !repairedCandidates.length) return null;
+  const hasExplicitCandidateIds = repairedCandidates.some((item) =>
+    Number.isInteger(
+      Number(item?.candidateNo ?? item?.index ?? item?.no)
+    )
+  );
+  return JSON.stringify({
+    candidates: originalCandidates.map((candidate, index) => {
+      const repairedCandidate = hasExplicitCandidateIds
+        ? repairedCandidates.find(
+            (item) =>
+              Number(item?.candidateNo ?? item?.index ?? item?.no) === index + 1
+          )
+        : repairedCandidates[index];
+      return Array.isArray(repairedCandidate?.parts) &&
+        repairedCandidate.parts.length
+        ? { ...candidate, parts: repairedCandidate.parts }
+        : candidate;
+    })
+  });
+}
+
 function fallbackCandidates(blocks, warningsByBlock, fallbackReason) {
   const groups = [];
   let current = null;
@@ -673,6 +796,156 @@ function fallbackCandidates(blocks, warningsByBlock, fallbackReason) {
       sourceBlocks: sourceBlocks.map(publicSourceBlock)
     };
   });
+}
+
+function discoveredCandidateNo(value, sourceBlocks, fallback) {
+  const explicit = Number(value?.questionNo ?? value?.number ?? value?.no);
+  if (Number.isInteger(explicit) && explicit > 0) return explicit;
+  const match = /^\s*(\d{1,3})\s*[.、．)）]/u.exec(
+    String(sourceBlocks[0]?.text || "")
+  );
+  const visible = Number(match?.[1]);
+  return Number.isInteger(visible) && visible > 0 ? visible : fallback;
+}
+
+function discoveredCandidate(
+  value,
+  index,
+  total,
+  allBlocks,
+  warningsByBlock,
+  fallbackReason = ""
+) {
+  const byId = new Map(allBlocks.map((block) => [block.id, block]));
+  const explicitIds = uniqueStrings(
+    value?.sourceBlockIds,
+    MAX_SCAN_CANDIDATES * 8
+  );
+  let sourceBlocks = explicitIds
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .sort((left, right) => left.order - right.order);
+  if (!sourceBlocks.length) {
+    const questionNo = discoveredCandidateNo(value, [], index + 1);
+    const primaryBlocks = allBlocks.filter((block) => block.imageIndex === 0);
+    const startIndex = primaryBlocks.findIndex((block) =>
+      new RegExp(`^\\s*${questionNo}\\s*[.、．)）]`, "u").test(block.text)
+    );
+    if (startIndex >= 0) {
+      const nextIndex = primaryBlocks.findIndex(
+        (block, blockIndex) =>
+          blockIndex > startIndex &&
+          /^\s*\d{1,3}\s*[.、．)）]/u.test(block.text)
+      );
+      sourceBlocks = primaryBlocks.slice(
+        startIndex,
+        nextIndex < 0 ? undefined : nextIndex
+      );
+    } else {
+      sourceBlocks = primaryBlocks.slice(0, 1);
+    }
+  }
+  sourceBlocks = sourceBlocks.map((block) => ({
+    ...block,
+    warnings: warningsByBlock.get(block.id) || block.warnings || []
+  }));
+  const confidenceValues = sourceBlocks
+    .map((block) => Number(block.confidence))
+    .filter(Number.isFinite);
+  return {
+    text: sourceBlocks.map((block) => block.text.trim()).join("\n"),
+    options: [],
+    questionType: "general",
+    studentAnswer: "",
+    suggestedAnswer: "",
+    parts: [],
+    analysisStage: "discovered",
+    questionNo: discoveredCandidateNo(value, sourceBlocks, index + 1),
+    completenessStatus: "unknown",
+    suspectedWrong: false,
+    answerPending: true,
+    confidence: confidenceValues.length
+      ? Math.min(...confidenceValues)
+      : null,
+    region: unionBlockRegion(
+      sourceBlocks,
+      normalizeRegion(null, index, total)
+    ),
+    pendingReasons: uniqueStrings([
+      ...sourceBlocks.flatMap((block) => block.warnings),
+      ...(fallbackReason ? [fallbackReason] : [])
+    ]),
+    sourceBlocks: sourceBlocks.map(publicSourceBlock)
+  };
+}
+
+function normalizeDiscoveredCandidates(
+  rawOutput,
+  allBlocks,
+  warningsByBlock
+) {
+  const parsed = parseJson(rawOutput);
+  const rawCandidates = Array.isArray(parsed?.questions)
+    ? parsed.questions
+    : Array.isArray(parsed?.candidates)
+      ? parsed.candidates
+      : null;
+  if (!rawCandidates?.length) {
+    throw new QuestionScanError(
+      "SCAN_DISCOVERY_INVALID_OUTPUT",
+      "文本模型没有返回有效的题目边界"
+    );
+  }
+  if (rawCandidates.length > MAX_SCAN_CANDIDATES) {
+    throw new QuestionScanError(
+      "SCAN_TOO_MANY_CANDIDATES",
+      `识别到 ${rawCandidates.length} 道题，超过单次 ${MAX_SCAN_CANDIDATES} 道，请分批扫描`
+    );
+  }
+  return rawCandidates.map((candidate, index) =>
+    discoveredCandidate(
+      candidate,
+      index,
+      rawCandidates.length,
+      allBlocks,
+      warningsByBlock
+    )
+  );
+}
+
+function fallbackDiscoveredCandidates(
+  blocks,
+  warningsByBlock,
+  fallbackReason
+) {
+  const groups = [];
+  let current = null;
+  for (const block of blocks.filter((item) => item.imageIndex === 0)) {
+    if (/^\s*\d{1,3}\s*[.、．)）]/u.test(block.text)) {
+      if (current) groups.push(current);
+      current = [block];
+    } else if (current) {
+      current.push(block);
+    }
+  }
+  if (current) groups.push(current);
+  const sourceGroups = groups.length ? groups : [blocks];
+  if (sourceGroups.length > MAX_SCAN_CANDIDATES) {
+    throw new QuestionScanError(
+      "SCAN_TOO_MANY_CANDIDATES",
+      `识别到 ${sourceGroups.length} 道题，超过单次 ${MAX_SCAN_CANDIDATES} 道，请分批扫描`
+    );
+  }
+  return sourceGroups.map((sourceBlocks, index) =>
+    discoveredCandidate(
+      { sourceBlockIds: sourceBlocks.map((block) => block.id) },
+      index,
+      sourceGroups.length,
+      blocks,
+      warningsByBlock,
+      fallbackReason
+    )
+  );
 }
 
 export class InternalOcrClient {
@@ -806,7 +1079,7 @@ export class OcrTextQuestionScanner {
     return this.ocrClient?.isConfigured() === true;
   }
 
-  async scan({ images }) {
+  async scan({ images, mode = "single" }) {
     if (!this.isConfigured()) {
       throw new QuestionScanError(
         "SCAN_NOT_CONFIGURED",
@@ -867,6 +1140,67 @@ export class OcrTextQuestionScanner {
           `text=${block.text}`
       )
       .join("\n");
+    if (mode === "multi") {
+      let rawOutput = "";
+      let fallbackReason = null;
+      let candidates;
+      let provider = "internal-ocr+rules";
+      let model = "rules";
+      if (this.llmGateway?.isConfigured?.()) {
+        try {
+          const result = await this.llmGateway.chat({
+            messages: [
+              { role: "system", content: MULTI_QUESTION_DISCOVERY_PROMPT },
+              {
+                role: "user",
+                content:
+                  "请仅整理以下 OCR 字块所属的题目边界，只返回严格 JSON：\n" +
+                  ocrText
+              }
+            ],
+            responseFormat: { type: "json_object" }
+          });
+          rawOutput = responseContent(result.message);
+          candidates = normalizeDiscoveredCandidates(
+            rawOutput,
+            withWarnings,
+            warningsByBlock
+          );
+          provider = `${this.ocrClient.provider || "ocr"}+${
+            result.provider || "llm"
+          }`;
+          model = result.model || this.llmGateway.model;
+        } catch {
+          fallbackReason = "BOUNDARY_FROM_RULES";
+        }
+      } else {
+        fallbackReason = "LLM_NOT_CONFIGURED";
+      }
+      if (!candidates) {
+        candidates = fallbackDiscoveredCandidates(
+          withWarnings,
+          warningsByBlock,
+          fallbackReason
+        );
+      }
+      console.log(
+        `[question-scan] 多题边界完成 blocks=${blocks.length} ` +
+          `questions=${candidates.length} images=${images.length} provider=${provider}`
+      );
+      return {
+        candidates,
+        rawOutput,
+        provider,
+        model,
+        promptVersion: QUESTION_DISCOVERY_PROMPT_VERSION,
+        ocr: {
+          provider: ocrResults[0]?.provider || "internal-ocr",
+          model: ocrResults[0]?.model || "ocr",
+          version: ocrResults[0]?.version || "",
+          blocks: withWarnings
+        }
+      };
+    }
     let rawOutput = "";
     let fallbackReason = null;
     let candidates;
@@ -887,6 +1221,44 @@ export class OcrTextQuestionScanner {
           responseFormat: { type: "json_object" }
         });
         rawOutput = responseContent(result.message);
+        if (candidateNeedsPartRepair(rawOutput)) {
+          try {
+            const parsed = parseJson(rawOutput);
+            const candidateText = (
+              Array.isArray(parsed?.candidates)
+                ? parsed.candidates
+                : parsed?.questions || []
+            )
+              .map(
+                (candidate, index) =>
+                  `候选 ${index + 1}：${String(
+                    candidate?.text || candidate?.question || ""
+                  ).trim()}`
+              )
+              .join("\n");
+            const repaired = await this.llmGateway.chat({
+              messages: [
+                { role: "system", content: SCAN_PART_REPAIR_PROMPT },
+                {
+                  role: "user",
+                  content:
+                    "OCR 字块：\n" +
+                    ocrText +
+                    "\n候选题干：\n" +
+                    candidateText
+                }
+              ],
+              responseFormat: { type: "json_object" }
+            });
+            const merged = mergePartRepair(
+              rawOutput,
+              responseContent(repaired.message)
+            );
+            if (merged) rawOutput = merged;
+          } catch {
+            // Structural splitting below remains available if repair fails.
+          }
+        }
         candidates = normalizeLlmCandidates(
           rawOutput,
           withWarnings,

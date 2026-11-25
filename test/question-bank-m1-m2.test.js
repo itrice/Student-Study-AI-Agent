@@ -14,6 +14,7 @@ import { AttachmentStore } from "../src/attachments.js";
 import { saveAttachmentCrop } from "../src/attachment-crop.js";
 import { migrateDatabase, SCHEMA_MIGRATIONS } from "../src/migrations.js";
 import {
+  analyzeQuestionScan,
   createQuestionScan,
   importQuestionScan
 } from "../src/question-bank/scan-service.js";
@@ -288,6 +289,8 @@ async function stopServer(child) {
 function startFakeScanPipeline({
   ocrBlocks,
   llmCandidates = [],
+  discoveryCandidates = [],
+  repairCandidates = [],
   ocrStatus = 200,
   llmStatus = 200
 }) {
@@ -323,6 +326,23 @@ function startFakeScanPipeline({
         );
         return;
       }
+      const requestPayload = body.length
+        ? JSON.parse(body.toString("utf8"))
+        : {};
+      const isRepair = Array.isArray(requestPayload.messages)
+        ? requestPayload.messages.some(
+            (message) =>
+              typeof message.content === "string" &&
+              message.content.includes("结构化助手")
+          )
+        : false;
+      const isDiscovery = Array.isArray(requestPayload.messages)
+        ? requestPayload.messages.some(
+            (message) =>
+              typeof message.content === "string" &&
+              message.content.includes("题目边界整理助手")
+          )
+        : false;
       response.writeHead(llmStatus, { "Content-Type": "application/json" });
       response.end(
         JSON.stringify(
@@ -331,7 +351,15 @@ function startFakeScanPipeline({
                 choices: [
                   {
                     message: {
-                      content: JSON.stringify({ candidates: llmCandidates })
+                      content: JSON.stringify({
+                        ...(isDiscovery
+                          ? { questions: discoveryCandidates }
+                          : {
+                              candidates: isRepair
+                                ? repairCandidates
+                                : llmCandidates
+                            })
+                      })
                     }
                   }
                 ],
@@ -350,7 +378,7 @@ function startFakeScanPipeline({
   });
 }
 
-test("v13 升级到 v15 保留 15 条现有数据并回填兼容层", () => {
+test("v13 升级到 v16 保留 15 条现有数据并回填兼容层", () => {
   withTemporaryDirectory((directory) => {
     const databasePath = path.join(directory, "learning.sqlite");
     const before = seedV13Database(databasePath);
@@ -364,7 +392,7 @@ test("v13 升级到 v15 保留 15 条现有数据并回填兼容层", () => {
     });
 
     const repository = new LearningRepository(databasePath);
-    assert.equal(repository.getSchemaVersion(), 15);
+    assert.equal(repository.getSchemaVersion(), 16);
     assert.ok(repository.lastBackupPath);
 
     const after = {
@@ -392,7 +420,12 @@ test("v13 升级到 v15 保留 15 条现有数据并回填兼容层", () => {
         .all()
         .map((row) => row.name)
     );
-    for (const column of ["ocr_provider", "ocr_model", "ocr_blocks_json"]) {
+    for (const column of [
+      "ocr_provider",
+      "ocr_model",
+      "ocr_blocks_json",
+      "scan_mode"
+    ]) {
       assert.ok(taskColumns.has(column));
     }
     for (const column of ["analysis_json", "imported_question_id"]) {
@@ -775,6 +808,278 @@ test("扫描未配置和图片读取失败都保留图片且不写正式题库",
   });
 });
 
+test("多题扫描首轮只返回题号和边界，不提前生成小问或答案", async () => {
+  const prompts = [];
+  const scanner = new OcrTextQuestionScanner({
+    ocrClient: new InternalOcrClient({
+      baseUrl: "https://example.invalid",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            engine: "rapidocr",
+            modelVersion: "PP-OCRv6-small",
+            width: 1000,
+            height: 800,
+            blocks: [
+              {
+                order: 1,
+                text: "6. 第一题",
+                bbox: [20, 20, 700, 100],
+                confidence: 0.96
+              },
+              {
+                order: 2,
+                text: "第一题剩余条件",
+                bbox: [20, 110, 700, 160],
+                confidence: 0.94
+              },
+              {
+                order: 3,
+                text: "7. 第二题",
+                bbox: [20, 220, 700, 300],
+                confidence: 0.93
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    }),
+    llmGateway: {
+      model: "fixture-model",
+      isConfigured: () => true,
+      chat: async (payload) => {
+        prompts.push(payload);
+        return {
+          provider: "fixture",
+          model: "fixture-model",
+          message: {
+            content: JSON.stringify({
+              questions: [
+                { questionNo: 6 },
+                { questionNo: 7 }
+              ]
+            })
+          }
+        };
+      }
+    }
+  });
+
+  const result = await scanner.scan({
+    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }],
+    mode: "multi"
+  });
+
+  assert.equal(prompts.length, 1);
+  assert.match(
+    prompts[0].messages[0].content,
+    /不分析小问|不建议标准答案/
+  );
+  assert.equal(result.promptVersion, "m2-ocr-boundaries-1");
+  assert.equal(result.candidates.length, 2);
+  assert.deepEqual(
+    result.candidates.map((candidate) => candidate.questionNo),
+    [6, 7]
+  );
+  assert.ok(
+    result.candidates.every(
+      (candidate) =>
+        candidate.analysisStage === "discovered" &&
+        candidate.parts.length === 0 &&
+        candidate.studentAnswer === "" &&
+        candidate.suggestedAnswer === ""
+    )
+  );
+  assert.deepEqual(
+    result.candidates[0].sourceBlocks.map((block) => block.id),
+    ["i1b1", "i1b2"]
+  );
+  assert.ok(result.candidates[0].region.height > 0.1);
+});
+
+test("多题勾选后逐题裁剪并复用单题分析，未选题保持边界状态", async () => {
+  await withTemporaryDirectory(async (directory) => {
+    const { repository, store } = createFixture(directory);
+    const original = await sharp({
+      create: {
+        width: 80,
+        height: 60,
+        channels: 3,
+        background: { r: 245, g: 245, b: 245 }
+      }
+    })
+      .png()
+      .toBuffer();
+    const attachment = saveAttachment(
+      repository,
+      store,
+      "multi-page.png",
+      original
+    );
+    const calls = [];
+    const scanner = {
+      provider: "fixture",
+      model: "fixture-model",
+      isConfigured: () => true,
+      scan: async ({ images, mode }) => {
+        const metadata = await sharp(images[0].buffer).metadata();
+        calls.push({ mode, ...metadata });
+        if (mode === "multi") {
+          return {
+            provider: "fixture-discovery",
+            model: "fixture-model",
+            promptVersion: "m2-ocr-boundaries-1",
+            candidates: [
+              {
+                analysisStage: "discovered",
+                questionNo: 6,
+                text: "6. 第一题",
+                completenessStatus: "unknown",
+                region: { x: 0, y: 0.1, width: 1, height: 0.35 },
+                sourceBlocks: []
+              },
+              {
+                analysisStage: "discovered",
+                questionNo: 7,
+                text: "7. 第二题",
+                completenessStatus: "unknown",
+                region: { x: 0, y: 0.5, width: 1, height: 0.35 },
+                sourceBlocks: []
+              }
+            ]
+          };
+        }
+        return {
+          provider: "fixture-single",
+          model: "fixture-model",
+          promptVersion: "m2-ocr-parts-4",
+          candidates: [
+            {
+              text: "6. 人民公园圆形人工湖",
+              questionType: "composite",
+              completenessStatus: "complete",
+              suspectedWrong: false,
+              answerPending: false,
+              confidence: 0.95,
+              region: { x: 0, y: 0, width: 1, height: 1 },
+              parts: [
+                {
+                  label: "（1）",
+                  prompt: "至少需要多少米护栏？",
+                  suggestedAnswer: "125.6米",
+                  answerType: "number",
+                  answerSource: "system_suggested"
+                },
+                {
+                  label: "（2）",
+                  prompt: "人工湖的占地面积是多少平方米？",
+                  suggestedAnswer: "1256平方米",
+                  answerType: "number",
+                  answerSource: "system_suggested"
+                }
+              ],
+              sourceBlocks: [
+                {
+                  id: "i1b1",
+                  imageIndex: 0,
+                  order: 1,
+                  text: "6. 人民公园圆形人工湖",
+                  confidence: 0.95,
+                  region: { x: 0, y: 0, width: 0.8, height: 0.2 },
+                  bbox: [0, 0, 64, 12]
+                }
+              ]
+            }
+          ]
+        };
+      }
+    };
+
+    const task = await createQuestionScan({
+      repository,
+      attachmentStore: store,
+      scanner,
+      attachmentIds: [attachment.id],
+      scanMode: "multi"
+    });
+    assert.equal(task.scanMode, "multi");
+    assert.equal(task.analysisStage, "discovered");
+    assert.equal(task.canAnalyze, false);
+    assert.equal(task.canImport, false);
+    assert.equal(task.candidates[0].questionNo, 6);
+    assert.equal(task.candidates[0].analysisStage, "discovered");
+    assert.equal(task.candidates[0].parts.length, 0);
+    const allSelected = repository.updateQuestionScanSelection(task.id, {
+      action: "select_all"
+    });
+    assert.ok(allSelected.candidates.every((candidate) => candidate.selected));
+    repository.updateQuestionScanSelection(task.id, { action: "clear_all" });
+    await assert.rejects(
+      () =>
+        importQuestionScan({
+          repository,
+          attachmentStore: store,
+          scanId: task.id,
+          candidateIds: [task.candidates[0].id]
+        }),
+      (error) => error.code === "SCAN_CANDIDATE_NOT_SELECTED"
+    );
+
+    const selected = repository.updateQuestionScanSelection(task.id, {
+      action: "select_candidate",
+      candidateId: task.candidates[0].id
+    });
+    assert.equal(selected.canAnalyze, true);
+    assert.equal(selected.canImport, false);
+    await assert.rejects(
+      () =>
+        importQuestionScan({
+          repository,
+          attachmentStore: store,
+          scanId: task.id,
+          candidateIds: [task.candidates[0].id]
+        }),
+      (error) => error.code === "SCAN_ANALYSIS_REQUIRED"
+    );
+
+    const analyzed = await analyzeQuestionScan({
+      repository,
+      attachmentStore: store,
+      scanner,
+      scanId: task.id,
+      candidateIds: [task.candidates[0].id]
+    });
+    assert.equal(analyzed.analyzedCount, 1);
+    assert.equal(analyzed.failedCount, 0);
+    assert.deepEqual(
+      calls.map((call) => call.mode),
+      ["multi", "single"]
+    );
+    assert.equal(calls[1].width, 80);
+    assert.equal(calls[1].height, 21);
+    const first = analyzed.scan.candidates[0];
+    const second = analyzed.scan.candidates[1];
+    assert.equal(first.analysisStage, "analyzed");
+    assert.equal(first.questionNo, 6);
+    assert.equal(first.parts.length, 2);
+    assert.equal(first.parts[0].suggestedAnswer, "125.6米");
+    assert.deepEqual(first.region, {
+      x: 0,
+      y: 0.1,
+      width: 1,
+      height: 0.35
+    });
+    assert.ok(
+      Math.abs(first.sourceBlocks[0].region.y - 0.1) < 0.000001
+    );
+    assert.equal(second.analysisStage, "discovered");
+    assert.equal(second.parts.length, 0);
+    assert.equal(analyzed.scan.canImport, true);
+    assert.equal(repository.listQuestions().length, 0);
+    repository.close();
+  });
+});
+
 test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", async () => {
   await withTemporaryDirectory(async (directory) => {
     const fake = await startFakeScanPipeline({
@@ -844,6 +1149,24 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
           confidence: 0.8,
           sourceBlockIds: ["i1b2"],
           region: { x: 0, y: 0.5, width: 0.5, height: 0.5 }
+        }
+      ],
+      repairCandidates: [
+        {
+          candidateNo: 2,
+          parts: [
+            {
+              partNo: 1,
+              label: "小问 1",
+              prompt: "2. 残缺题",
+              studentAnswer: "",
+              suggestedAnswer: "",
+              answerType: "auto",
+              confidence: 0.8,
+              sourceBlockIds: ["i1b2"],
+              pendingReasons: ["ANSWER_PENDING"]
+            }
+          ]
         }
       ]
     });
@@ -950,14 +1273,19 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       assert.equal(task.candidates[0].options.length, 2);
       assert.equal(task.candidates[0].answerPending, true);
       assert.ok(task.candidates[0].pendingReasons.includes("LOW_CONFIDENCE"));
-      assert.equal(fake.requests.length, 3);
+      assert.equal(fake.requests.length, 4);
       assert.equal(fake.requests[1].contentType, "image/png");
       assert.equal(fake.requests[1].url, "/v1/ocr/raw");
       assert.deepEqual(fake.requests[1].body, image);
       assert.equal(fake.requests[2].url, "/chat/completions");
+      assert.equal(fake.requests[3].url, "/chat/completions");
       assert.doesNotMatch(
         fake.requests[2].body.toString("utf8"),
         /data:image\/png;base64/
+      );
+      assert.match(
+        fake.requests[3].body.toString("utf8"),
+        /结构化助手/
       );
 
       const unselectedImport = await fetch(
@@ -970,6 +1298,21 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
       );
       assert.equal(unselectedImport.status, 400);
       assert.match((await unselectedImport.json()).error, /已选择/);
+
+      const selectWrong = await fetch(
+        `${baseUrl}/api/questions/scans/${task.id}/selection`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "select_wrong",
+            candidateId: null
+          })
+        }
+      );
+      assert.equal(selectWrong.status, 200);
+      const selectWrongTask = await selectWrong.json();
+      assert.equal(selectWrongTask.candidates[0].selected, true);
 
       const crop = await fetch(`${baseUrl}${task.candidates[0].imageUrl}`);
       assert.equal(crop.status, 200);
@@ -1093,6 +1436,174 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
         ["28.26平方厘米", "9π平方厘米", "3厘米"]
       );
       verificationDb.close();
+    } finally {
+      await stopServer(child);
+      await new Promise((resolve) => fake.server.close(resolve));
+    }
+  });
+});
+
+test("HTTP 多题扫描先定位，勾选后逐题分析", async () => {
+  await withTemporaryDirectory(async (directory) => {
+    const fake = await startFakeScanPipeline({
+      ocrBlocks: [
+        {
+          order: 1,
+          text: "6. 第一题",
+          bbox: [0, 0, 500, 400],
+          confidence: 0.96
+        },
+        {
+          order: 2,
+          text: "7. 第二题",
+          bbox: [0, 400, 500, 800],
+          confidence: 0.95
+        }
+      ],
+      discoveryCandidates: [
+        { questionNo: 6, sourceBlockIds: ["i1b1"] },
+        { questionNo: 7, sourceBlockIds: ["i1b2"] }
+      ],
+      llmCandidates: [
+        {
+          text: "6. 第一题",
+          questionType: "number",
+          completeness: "complete",
+          answerPending: false,
+          sourceBlockIds: ["i1b1"],
+          parts: [
+            {
+              label: "（1）",
+              prompt: "第一题答案是多少？",
+              studentAnswer: "",
+              suggestedAnswer: "42",
+              answerType: "number",
+              pendingReasons: []
+            }
+          ]
+        }
+      ]
+    });
+    const port = await freePort();
+    const child = spawn(process.execPath, ["src/server.js"], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        HOST: "127.0.0.1",
+        PORT: String(port),
+        DB_PATH: path.join(directory, "learning.sqlite"),
+        ATTACHMENTS_DIR: path.join(directory, "attachments"),
+        OCR_BASE_URL: `http://127.0.0.1:${fake.port}`,
+        OCR_TIMEOUT_MS: "5000",
+        OCR_LOW_CONFIDENCE: "0.8",
+        LLM_BASE_URL: `http://127.0.0.1:${fake.port}`,
+        LLM_API_KEY: "fixture-key",
+        LLM_MODEL: "fixture-model",
+        LLM_MAX_RETRIES: "0"
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true
+    });
+    try {
+      await waitForServer(child);
+      const baseUrl = `http://127.0.0.1:${port}`;
+      const image = await sharp({
+        create: {
+          width: 8,
+          height: 8,
+          channels: 3,
+          background: { r: 245, g: 245, b: 245 }
+        }
+      })
+        .png()
+        .toBuffer();
+      const upload = await fetch(`${baseUrl}/api/attachments?kind=question`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "image/png",
+          "X-Original-Name": encodeURIComponent("multi.png")
+        },
+        body: image
+      });
+      assert.equal(upload.status, 201);
+      const attachment = await upload.json();
+
+      const scanResponse = await fetch(`${baseUrl}/api/questions/scans`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          attachmentIds: [attachment.id],
+          scanMode: "multi"
+        })
+      });
+      assert.equal(scanResponse.status, 201);
+      const task = await scanResponse.json();
+      assert.equal(task.scanMode, "multi");
+      assert.equal(task.analysisStage, "discovered");
+      assert.equal(task.candidateCount, 2);
+      assert.deepEqual(
+        task.candidates.map((candidate) => candidate.questionNo),
+        [6, 7]
+      );
+      assert.ok(
+        task.candidates.every(
+          (candidate) =>
+            candidate.analysisStage === "discovered" &&
+            candidate.parts.length === 0
+        )
+      );
+
+      const selectedResponse = await fetch(
+        `${baseUrl}/api/questions/scans/${task.id}/selection`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "select_candidate",
+            candidateId: task.candidates[0].id
+          })
+        }
+      );
+      assert.equal(selectedResponse.status, 200);
+      const selected = await selectedResponse.json();
+      assert.equal(selected.canAnalyze, true);
+      assert.equal(selected.canImport, false);
+
+      const analyzeResponse = await fetch(
+        `${baseUrl}/api/questions/scans/${task.id}/analyze`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ candidateIds: [task.candidates[0].id] })
+        }
+      );
+      assert.equal(analyzeResponse.status, 200);
+      const analyzed = await analyzeResponse.json();
+      assert.equal(analyzed.analyzedCount, 1);
+      assert.equal(analyzed.failedCount, 0);
+      assert.equal(analyzed.scan.candidates[0].analysisStage, "analyzed");
+      assert.equal(analyzed.scan.candidates[0].parts.length, 1);
+      assert.equal(
+        analyzed.scan.candidates[0].parts[0].suggestedAnswer,
+        "42"
+      );
+      assert.equal(
+        analyzed.scan.candidates[1].analysisStage,
+        "discovered"
+      );
+      assert.equal(analyzed.scan.canImport, true);
+
+      const llmRequests = fake.requests.filter(
+        (request) => request.url === "/chat/completions"
+      );
+      assert.equal(llmRequests.length, 2);
+      assert.match(llmRequests[0].body.toString("utf8"), /题目边界整理助手/);
+      assert.match(llmRequests[1].body.toString("utf8"), /小问/);
+      assert.equal(
+        fake.requests.filter((request) => request.url === "/v1/ocr/raw")
+          .length,
+        2
+      );
     } finally {
       await stopServer(child);
       await new Promise((resolve) => fake.server.close(resolve));
@@ -1315,6 +1826,68 @@ test("模型漏报 sourceBlockIds 时按 OCR 文本补齐两行候选区域", as
   );
 });
 
+test("结构修复失败时按问句拆分两个小问", async () => {
+  let calls = 0;
+  const scanner = new OcrTextQuestionScanner({
+    ocrClient: new InternalOcrClient({
+      baseUrl: "https://example.invalid",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            engine: "rapidocr",
+            modelVersion: "PP-OCRv6-small",
+            width: 1000,
+            height: 200,
+            blocks: [
+              {
+                order: 1,
+                text: "人民公园有一个半径为200 dm的圆形人工湖。至少需要多少米护栏？这个人工湖的占地面积是多少平方米？",
+                bbox: [20, 30, 950, 150],
+                confidence: 0.98
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+    }),
+    llmGateway: {
+      model: "fixture-model",
+      isConfigured: () => true,
+      chat: async () => {
+        calls += 1;
+        if (calls > 1) throw new Error("repair unavailable");
+        return {
+          provider: "fixture",
+          model: "fixture-model",
+          message: {
+            content: JSON.stringify({
+              candidates: [
+                {
+                  text: "人民公园有一个半径为200 dm的圆形人工湖。至少需要多少米护栏？这个人工湖的占地面积是多少平方米？",
+                  questionType: "short_answer",
+                  completeness: "complete",
+                  answerPending: false,
+                  confidence: 0.98,
+                  region: { x: 0.02, y: 0.15, width: 0.93, height: 0.6 }
+                }
+              ]
+            })
+          }
+        };
+      }
+    }
+  });
+  const result = await scanner.scan({
+    images: [{ mimeType: "image/png", buffer: Buffer.from("fixture") }]
+  });
+  const parts = result.candidates[0].parts;
+  assert.equal(parts.length, 2);
+  assert.match(parts[0].prompt, /多少米护栏/);
+  assert.match(parts[1].prompt, /占地面积/);
+  assert.ok(parts[0].pendingReasons.includes("PART_SPLIT_INFERRED"));
+  assert.ok(parts[1].pendingReasons.includes("ANSWER_PENDING"));
+});
+
 test("多小问保留系统答案建议并对公式不足标记待确认", async () => {
   const scanner = new OcrTextQuestionScanner({
     ocrClient: new InternalOcrClient({
@@ -1439,6 +2012,9 @@ test("扫描 UI 展示题型与答案候选并只在选中后允许导入", () =
   assert.match(app, /标准答案（用户已修改）/);
   assert.match(app, /candidate\.options/);
   assert.match(app, /scanCandidateInput/);
+  assert.match(app, /分析所选题目/);
+  assert.match(app, /candidate\.analysisStage === "discovered"/);
+  assert.match(app, /analyzeSelectedScanCandidates/);
   assert.match(app, /importSelectedScanCandidates/);
   assert.match(app, /candidate\.importedQuestionId/);
   assert.match(app, /pendingReasons\.map\(scanPendingLabel\)/);
@@ -1448,5 +2024,9 @@ test("扫描 UI 展示题型与答案候选并只在选中后允许导入", () =
     /openCropEditor\(\s*Number\(crop\.dataset\.cropAttachment\),\s*crop\.dataset\.cropContext/
   );
   assert.match(html, /导入所选题目/);
+  assert.match(html, /name="scan-mode"/);
+  assert.match(html, /value="single"\s+checked/);
+  assert.match(html, /value="multi"/);
+  assert.match(html, /分析所选题目/);
   assert.doesNotMatch(html, /M3 开放/);
 });

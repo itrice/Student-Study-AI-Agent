@@ -1609,6 +1609,8 @@ const questionScanCandidateSchema = {
     "selected",
     "manuallySelected",
     "text",
+    "questionNo",
+    "analysisStage",
     "questionType",
     "options",
     "studentAnswer",
@@ -1640,6 +1642,17 @@ const questionScanCandidateSchema = {
       description: "是否由学生手动选择；快捷选择会保留手动项。"
     },
     text: { type: "string" },
+    questionNo: {
+      type: "integer",
+      minimum: 1,
+      description: "页面上可见的题号；看不清时使用阅读顺序编号。"
+    },
+    analysisStage: {
+      type: "string",
+      enum: ["discovered", "analyzed"],
+      description:
+        "多题扫描先返回 discovered 边界；用户勾选并逐题分析后变为 analyzed。"
+    },
     questionType: {
       type: "string",
       enum: [
@@ -1685,9 +1698,11 @@ const questionScanCandidateSchema = {
     },
     parts: {
       type: "array",
-      minItems: 1,
+      minItems: 0,
       maxItems: 20,
-      items: ref("QuestionScanPart")
+      items: ref("QuestionScanPart"),
+      description:
+        "discovered 阶段为空，不提前分析小问；analyzed 阶段至少 1 个。"
     },
     pendingReasons: { type: "array", items: { type: "string" } },
     sourceBlocks: {
@@ -1714,11 +1729,16 @@ const questionScanSchema = {
   required: [
     "id",
     "status",
+    "scanMode",
+    "analysisStage",
     "candidateCount",
     "selectedCount",
+    "analyzedCount",
+    "selectedDiscoveredCount",
     "incompleteSelectedCount",
     "images",
     "candidates",
+    "canAnalyze",
     "canImport",
     "importStage",
     "createdAt",
@@ -1734,9 +1754,19 @@ const questionScanSchema = {
     },
     storedStatus: { type: "string" },
     expired: { type: "boolean" },
+    scanMode: {
+      type: "string",
+      enum: ["single", "multi"]
+    },
+    analysisStage: {
+      type: "string",
+      enum: ["empty", "discovered", "partially_analyzed", "analyzed"]
+    },
     errorMessage: { type: "string" },
     candidateCount: { type: "integer", minimum: 0 },
     selectedCount: { type: "integer", minimum: 0 },
+    analyzedCount: { type: "integer", minimum: 0 },
+    selectedDiscoveredCount: { type: "integer", minimum: 0 },
     incompleteSelectedCount: { type: "integer", minimum: 0 },
     scanner: {
       type: "object",
@@ -1783,9 +1813,14 @@ const questionScanSchema = {
       maxItems: 20,
       items: ref("QuestionScanCandidate")
     },
+    canAnalyze: {
+      type: "boolean",
+      description: "是否至少有一道已勾选且尚未分析的边界候选。"
+    },
     canImport: {
       type: "boolean",
-      description: "是否至少有一道已选择且尚未导入的候选。"
+      description:
+        "是否至少有一道已选择、已完成分析且尚未导入的候选；多题扫描不能跳过分析直接导入。"
     },
     importStage: { type: "string", enum: ["ready"] },
     createdAt: { type: "string", format: "date-time" },
@@ -1815,6 +1850,13 @@ const createQuestionScanInputSchema = {
       maxItems: 3,
       items: { type: "integer", minimum: 1 },
       description: "已通过 POST /api/attachments 上传的图片编号。"
+    },
+    scanMode: {
+      type: "string",
+      enum: ["single", "multi"],
+      default: "single",
+      description:
+        "single 直接使用现有单题 OCR+LLM；multi 先只识别题目边界，勾选后再逐题分析。"
     }
   },
   additionalProperties: false
@@ -1899,6 +1941,21 @@ const importQuestionScanInputSchema = {
   additionalProperties: false
 };
 
+const analyzeQuestionScanInputSchema = {
+  type: "object",
+  required: ["candidateIds"],
+  properties: {
+    candidateIds: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: { type: "integer", minimum: 1 },
+      description: "必须是当前扫描中已勾选的边界候选。"
+    }
+  },
+  additionalProperties: false
+};
+
 const TAGS = [
   { name: "系统", description: "健康检查、运行状态与启动引导数据。" },
   { name: "教材", description: "教材目录、切换预演/执行和不可篡改的切换审计日志。" },
@@ -1944,6 +2001,7 @@ const components = {
     EditSessionResult: editSessionResultSchema,
     UpdateResult: updateResultSchema,
     ImportQuestionScanInput: importQuestionScanInputSchema,
+    AnalyzeQuestionScanInput: analyzeQuestionScanInputSchema,
     MasteryEvidence: masteryEvidenceSchema,
     KnowledgePointSummary: knowledgePointSummarySchema,
     KnowledgeCard: knowledgeCardSchema,
@@ -1987,7 +2045,7 @@ const paths = {
         200: jsonResponse(
           "服务正常",
           ref("Health"),
-          { ok: true, schemaVersion: 15, toolCount: 9 }
+          { ok: true, schemaVersion: 16, toolCount: 9 }
         )
       }
     }
@@ -3309,7 +3367,7 @@ Object.assign(paths, {
       tags: ["题库"],
       summary: "创建扫描候选任务",
       description:
-        "接收 1～3 张已上传图片，先调用内部 OCR 保留文字、坐标和置信度，再用现有纯文本 LLM 整理题干、题型、学生答案和标准答案候选。候选默认不选；任务有效 24 小时。OCR/LLM 失败时保留图片并降级或不创建正式题目。",
+        "接收 1～3 张已上传图片。默认 single 模式直接使用现有单题 OCR+LLM；multi 模式只识别题目边界与题号，不提前分析小问和答案。候选默认不选；任务有效 24 小时。OCR/LLM 失败时保留图片并降级或不创建正式题目。",
       operationId: "createQuestionScan",
       requestBody: requestBody(ref("CreateQuestionScanInput")),
       responses: {
@@ -3442,6 +3500,47 @@ Object.assign(paths, {
       }
     }
   },
+  "/api/questions/scans/{id}/analyze": {
+    post: {
+      tags: ["题库"],
+      summary: "逐题分析已勾选的多题边界",
+      description:
+        "仅用于 multi 扫描。对每个已勾选候选，按题目区域裁图并复用 single 模式的 OCR+LLM 流程分析小问、学生答案和标准答案。未勾选题不处理；逐题失败不影响其他题。",
+      operationId: "analyzeQuestionScan",
+      parameters: [
+        {
+          name: "id",
+          in: "path",
+          required: true,
+          description: "扫描任务编号",
+          schema: { type: "integer", minimum: 1 }
+        }
+      ],
+      requestBody: requestBody(ref("AnalyzeQuestionScanInput")),
+      responses: {
+        200: jsonResponse(
+          "逐题分析结果",
+          {
+            type: "object",
+            required: ["scan", "analyzedCount", "failedCount", "results"],
+            properties: {
+              scan: ref("QuestionScan"),
+              analyzedCount: { type: "integer", minimum: 0 },
+              failedCount: { type: "integer", minimum: 0 },
+              results: {
+                type: "array",
+                items: { type: "object", additionalProperties: true }
+              }
+            },
+            additionalProperties: false
+          }
+        ),
+        400: errorResponse("未勾选或候选编号无效"),
+        404: errorResponse("没有找到扫描任务"),
+        409: errorResponse("扫描任务已失效或不是多题扫描")
+      }
+    }
+  },
   "/api/questions/scans/{id}/candidates/{candidateId}/image": {
     get: {
       tags: ["题库"],
@@ -3490,7 +3589,7 @@ const INFO_DESCRIPTION = [
   "",
   "1. `GET /api/health` 检查服务；`GET /api/bootstrap` 读取当前学生和教材。",
   "2. 文字题直接 `POST /api/mistakes`；图片题先 `POST /api/attachments`，再带 `attachmentIds` 保存。",
-  "3. 作业页可先 `POST /api/questions/scans` 生成 OCR+文本模型候选；用户选择并核对后调用 `/import` 写入统一题库。",
+  "3. 作业页可先 `POST /api/questions/scans` 生成候选；`single` 直接分析，`multi` 勾选后调用 `/analyze`，再通过 `/import` 写入统一题库。",
   "4. 通过 `GET /api/review/queue` 取题，`POST /api/mistakes/{id}/attempts` 提交作答。",
   "5. 使用 `GET /api/feedback/daily`、`/weekly`、`/calendar` 和 `/day` 展示学习反馈。"
 ].join("\n");
