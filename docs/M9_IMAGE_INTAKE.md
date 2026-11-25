@@ -1,7 +1,8 @@
 # M9.1 + M9.2 图片录题最小切片
 
 > 状态：M9.1/M9.2 最小切片已验收；图片裁剪 P1 已实现待验收；
-> 2026-11-24 起使用内部 OCR，上传图片不再要求二次确认
+> 2026-11-24 起使用内部 OCR，上传图片不再要求二次确认；
+> 2026-11-25 起支持单题/多题两阶段扫描
 > 范围：图片附件闭环与内部 OCR 文字识别辅助；不包含 M9.3 图形推理
 
 本文档冻结本轮图片录题的最小数据契约、API 契约、文件生命周期、隐私边界和备份恢复方式。
@@ -23,7 +24,13 @@
 
 ## 2. 数据库契约
 
-当前 schema 版本为 **v11**。迁移名称：`image_attachments`（v10）、`image_crops`（v11）。
+当前 schema 版本为 **v16**。图片相关迁移为 `image_attachments`（v10）、
+`image_crops`（v11）、`question_bank_compatibility`（v14）、
+`ocr_scan_candidates`（v15）和 `multi_question_scan`（v16）。
+
+`question_scan_tasks.scan_mode` 保存 `single|multi`。多题模式的首轮边界候选与
+逐题分析结果通过 `analysisStage=discovered|analyzed` 区分，不能把边界发现误写为分析完成。
+任务级分析状态可为 `empty|discovered|partially_analyzed|analyzed`。
 
 ### `attachments`
 
@@ -234,6 +241,42 @@ Content-Type: application/json
 
 纯文本 LLM 只接收 OCR 文字、坐标和置信度。完成分析的候选在 `parts[]` 中保存小问；
 没有明确小问时返回 1 个默认小问，不得把整页其他题目当作该候选的小问。
+
+扫描创建：
+
+```http
+POST /api/questions/scans
+Content-Type: application/json
+
+{"attachmentIds":[12,13],"scanMode":"multi"}
+```
+
+`scanMode` 只允许 `single|multi`，缺省为 `single`。单题模式直接分析并返回
+`analysisStage=analyzed` 的候选；多题模式首轮返回 `analysisStage=discovered` 的边界候选。
+
+多题逐题分析：
+
+```http
+POST /api/questions/scans/{id}/analyze
+Content-Type: application/json
+
+{"candidateIds":[31,33]}
+```
+
+接口只分析已勾选的 `discovered` 候选，逐题返回成功或失败。成功的候选变为
+`analysisStage=analyzed`；失败项保留原题目区域、错误信息和重新分析能力。
+
+导入：
+
+```http
+POST /api/questions/scans/{id}/import
+Content-Type: application/json
+
+{"candidateIds":[31,33],"confirmIncomplete":false}
+```
+
+只有 `analysisStage=analyzed`、任务未过期且用户确认的候选可以导入。`discovered`
+边界候选即使由客户端直接提交也必须被服务端拒绝。
 
 ```json
 {
