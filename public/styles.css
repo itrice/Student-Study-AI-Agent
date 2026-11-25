@@ -5519,12 +5519,15 @@ body.review-focus-mode #view-review .review-attachments img {
   display: inline-flex;
   min-height: 30px;
   align-items: center;
-  gap: 5px;
-  padding: 3px 6px;
+  gap: 4px;
+  padding: 2px;
   border: 0;
   border-radius: 6px;
   color: #9f1239;
-  background: rgba(255, 255, 255, 0.9);
+  background: transparent;
+  text-shadow:
+    0 0 3px rgba(255, 255, 255, 0.95),
+    0 0 6px rgba(255, 255, 255, 0.78);
   font-size: var(--text-label);
   font-weight: 700;
   line-height: 1;
@@ -5533,10 +5536,42 @@ body.review-focus-mode #view-review .review-attachments img {
 }
 
 .scan-ocr-box-marker input {
+  position: relative;
+  display: grid;
   width: 20px;
   height: 20px;
   margin: 0;
-  accent-color: #e11d48;
+  place-items: center;
+  appearance: none;
+  border: 2px solid rgba(225, 29, 72, 0.82);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.22);
+  cursor: pointer;
+}
+
+.scan-ocr-box-marker input::after {
+  width: 9px;
+  height: 5px;
+  border-bottom: 2px solid #fff;
+  border-left: 2px solid #fff;
+  content: "";
+  opacity: 0;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.scan-ocr-box-marker input:checked {
+  border-color: rgba(225, 29, 72, 0.72);
+  background: rgba(225, 29, 72, 0.62);
+}
+
+.scan-ocr-box-marker input:checked::after {
+  opacity: 1;
+}
+
+.scan-ocr-box-marker input:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 .scan-ocr-box-handle {
