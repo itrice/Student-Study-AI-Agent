@@ -59,6 +59,15 @@ const state = {
   scanTask: null,
   scanId: null,
   scanBusy: false,
+  scanOcrBoxesBlocks: [],
+  scanOcrBoxesSelection: new Set(),
+  scanOcrBoxesMode: "single",
+  scanOcrBoxesFocusedId: null,
+  scanOcrBoxesDrag: null,
+  scanOcrBoxesAttachmentId: null,
+  scanOcrBoxesOriginalRegions: new Map(),
+  scanOcrBoxesOcr: null,
+  scanOcrBoxesBusy: false,
   filter: "all",
   mistakeQuery: "",
   mistakeSearchTimer: null,
@@ -483,6 +492,455 @@ async function uploadScanFiles(fileList, { returnToEntryChoice = false } = {}) {
     });
   } else if (lastUploaded) {
     openCropEditor(lastUploaded.id, "scan");
+  }
+}
+
+function setScanOcrBoxesStatus(message, isError = false) {
+  const status = $("#scan-ocr-boxes-status");
+  status.textContent = message;
+  status.classList.toggle("is-error", isError);
+}
+
+function updateScanOcrBoxesConfirmButton() {
+  const button = $("#scan-ocr-boxes-confirm");
+  if (!button) return;
+  const blocks = sortedScanOcrBoxes(state.scanOcrBoxesBlocks);
+  const hasSelection =
+    state.scanOcrBoxesMode === "single"
+      ? Boolean(centralScanOcrBox(blocks))
+      : blocks.some((block) =>
+          state.scanOcrBoxesSelection.has(String(block.id))
+        );
+  button.disabled =
+    state.scanOcrBoxesBusy ||
+    !state.scanOcrBoxesAttachmentId ||
+    !hasSelection;
+  button.textContent = state.scanOcrBoxesBusy ? "正在分析…" : "确认分析";
+}
+
+function resetScanOcrBoxesState() {
+  state.scanOcrBoxesBlocks = [];
+  state.scanOcrBoxesSelection = new Set();
+  state.scanOcrBoxesFocusedId = null;
+  state.scanOcrBoxesDrag = null;
+  state.scanOcrBoxesAttachmentId = null;
+  state.scanOcrBoxesOriginalRegions = new Map();
+  state.scanOcrBoxesOcr = null;
+  state.scanOcrBoxesBusy = false;
+  $("#scan-ocr-boxes-overlay").replaceChildren();
+  updateScanOcrBoxesConfirmButton();
+}
+
+function sortedScanOcrBoxes(blocks) {
+  return (Array.isArray(blocks) ? blocks : [])
+    .filter((block) => {
+      const region = block?.region;
+      return (
+        region &&
+        Number(region.width) > 0 &&
+        Number(region.height) > 0
+      );
+    })
+    .sort(
+      (left, right) =>
+        Number(left.region.y) - Number(right.region.y) ||
+        Number(left.region.x) - Number(right.region.x)
+    );
+}
+
+function centralScanOcrBox(blocks) {
+  return sortedScanOcrBoxes(blocks).reduce((closest, block) => {
+    const centerX = Number(block.region.x) + Number(block.region.width) / 2;
+    const centerY = Number(block.region.y) + Number(block.region.height) / 2;
+    const distance =
+      (centerX - 0.5) * (centerX - 0.5) +
+      (centerY - 0.5) * (centerY - 0.5);
+    if (!closest || distance < closest.distance) {
+      return { block, distance };
+    }
+    return closest;
+  }, null)?.block || null;
+}
+
+function appendScanOcrBoxHandles(box, blockId) {
+  for (const handle of ["nw", "ne", "sw", "se"]) {
+    const resize = createElement("span", "scan-ocr-box-handle");
+    resize.dataset.ocrResize = handle;
+    resize.dataset.ocrBoxId = blockId;
+    box.append(resize);
+  }
+}
+
+function renderScanOcrBoxDim() {
+  const overlay = $("#scan-ocr-boxes-overlay");
+  overlay.querySelector(".scan-ocr-box-dim")?.remove();
+  const image = $("#scan-ocr-boxes-image");
+  if (!image?.getAttribute("src")) return;
+  const block =
+    state.scanOcrBoxesFocusedId === null
+      ? null
+      : state.scanOcrBoxesBlocks.find(
+          (item) => String(item.id) === String(state.scanOcrBoxesFocusedId)
+        );
+
+  const namespace = "http://www.w3.org/2000/svg";
+  const maskId = "scan-ocr-box-focus-mask";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.classList.add("scan-ocr-box-dim");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+
+  const definitions = document.createElementNS(namespace, "defs");
+  const mask = document.createElementNS(namespace, "mask");
+  mask.id = maskId;
+  mask.setAttribute("maskUnits", "userSpaceOnUse");
+  mask.setAttribute("x", "0");
+  mask.setAttribute("y", "0");
+  mask.setAttribute("width", "100%");
+  mask.setAttribute("height", "100%");
+
+  const maskBackground = document.createElementNS(namespace, "rect");
+  maskBackground.setAttribute("width", "100%");
+  maskBackground.setAttribute("height", "100%");
+  maskBackground.setAttribute("fill", "#fff");
+  mask.append(maskBackground);
+  if (block?.region) {
+    const aperture = document.createElementNS(namespace, "rect");
+    aperture.setAttribute("x", `${clampNumber(block.region.x, 0, 1) * 100}%`);
+    aperture.setAttribute(
+      "y",
+      `${clampNumber(block.region.y, 0, 1) * 100}%`
+    );
+    aperture.setAttribute(
+      "width",
+      `${clampNumber(block.region.width, 0, 1) * 100}%`
+    );
+    aperture.setAttribute(
+      "height",
+      `${clampNumber(block.region.height, 0, 1) * 100}%`
+    );
+    aperture.setAttribute("rx", "8");
+    aperture.setAttribute("ry", "8");
+    aperture.setAttribute("fill", "#000");
+    mask.append(aperture);
+  }
+
+  const shade = document.createElementNS(namespace, "rect");
+  shade.setAttribute("width", "100%");
+  shade.setAttribute("height", "100%");
+  shade.setAttribute("fill", "#111827");
+  shade.setAttribute("fill-opacity", "0.22");
+  shade.setAttribute("mask", `url(#${maskId})`);
+  definitions.append(mask);
+  svg.append(definitions, shade);
+  overlay.prepend(svg);
+}
+
+function paintScanOcrBoxFocus() {
+  const overlay = $("#scan-ocr-boxes-overlay");
+  const focusedId =
+    state.scanOcrBoxesFocusedId === null
+      ? null
+      : String(state.scanOcrBoxesFocusedId);
+  $$(".scan-ocr-box", overlay).forEach((box) => {
+    const isFocused = box.dataset.ocrBoxId === focusedId;
+    box.classList.toggle("is-focused", isFocused);
+    box.querySelectorAll(".scan-ocr-box-handle").forEach((handle) => {
+      handle.remove();
+    });
+    if (isFocused) appendScanOcrBoxHandles(box, box.dataset.ocrBoxId);
+  });
+  renderScanOcrBoxDim();
+}
+
+function setScanOcrBoxFocus(blockId) {
+  state.scanOcrBoxesFocusedId =
+    blockId === null || blockId === undefined ? null : String(blockId);
+  if (state.scanOcrBoxesFocusedId === null) {
+    state.scanOcrBoxesDrag = null;
+  }
+  paintScanOcrBoxFocus();
+}
+
+function renderScanOcrBoxes() {
+  const overlay = $("#scan-ocr-boxes-overlay");
+  overlay.replaceChildren();
+  const blocks = sortedScanOcrBoxes(state.scanOcrBoxesBlocks);
+  const visible =
+    state.scanOcrBoxesMode === "single"
+      ? [centralScanOcrBox(blocks)].filter(Boolean)
+      : blocks;
+  visible.forEach((block, index) => {
+    const region = block.region;
+    const selected =
+      state.scanOcrBoxesMode === "single" ||
+      state.scanOcrBoxesSelection.has(block.id);
+    const focused = String(state.scanOcrBoxesFocusedId) === String(block.id);
+    const box = createElement("div", "scan-ocr-box");
+    box.dataset.ocrBoxId = block.id;
+    box.tabIndex = 0;
+    box.classList.toggle("is-selected", selected);
+    box.classList.toggle("is-focused", focused);
+    box.setAttribute("aria-label", `OCR Part ${index + 1}`);
+    box.style.left = `${clampNumber(Number(region.x) || 0, 0, 1) * 100}%`;
+    box.style.top = `${clampNumber(Number(region.y) || 0, 0, 1) * 100}%`;
+    box.style.width = `${
+      clampNumber(Number(region.width) || 0, 0, 1) * 100
+    }%`;
+    box.style.height = `${
+      clampNumber(Number(region.height) || 0, 0, 1) * 100
+    }%`;
+    if (state.scanOcrBoxesMode === "multi") {
+      const marker = document.createElement("label");
+      marker.className = "scan-ocr-box-marker";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = state.scanOcrBoxesSelection.has(block.id);
+      checkbox.dataset.ocrBoxId = block.id;
+      marker.append(checkbox, createElement("span", "", String(index + 1)));
+      box.append(marker);
+    }
+    if (focused) appendScanOcrBoxHandles(box, block.id);
+    overlay.append(box);
+  });
+  renderScanOcrBoxDim();
+  updateScanOcrBoxesConfirmButton();
+}
+
+function moveScanOcrBox(event) {
+  const drag = state.scanOcrBoxesDrag;
+  if (
+    !drag ||
+    state.scanOcrBoxesFocusedId !== drag.blockId ||
+    !document.hasFocus()
+  ) {
+    if (drag) state.scanOcrBoxesDrag = null;
+    return;
+  }
+  const image = $("#scan-ocr-boxes-image");
+  const block = state.scanOcrBoxesBlocks.find(
+    (item) => String(item.id) === String(drag.blockId)
+  );
+  if (!block || !image) return;
+  event.preventDefault();
+  const bounds = image.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return;
+  const dx = (event.clientX - drag.startX) / bounds.width;
+  const dy = (event.clientY - drag.startY) / bounds.height;
+  const start = drag.region;
+  if (drag.type === "move") {
+    block.region = {
+      x: clampNumber(start.x + dx, 0, 1 - start.width),
+      y: clampNumber(start.y + dy, 0, 1 - start.height),
+      width: start.width,
+      height: start.height
+    };
+  } else {
+    const minWidth = Math.min(0.25, 24 / bounds.width);
+    const minHeight = Math.min(0.25, 24 / bounds.height);
+    let left = start.x;
+    let top = start.y;
+    let right = start.x + start.width;
+    let bottom = start.y + start.height;
+    if (drag.handle.includes("w")) {
+      left = clampNumber(start.x + dx, 0, right - minWidth);
+    }
+    if (drag.handle.includes("e")) {
+      right = clampNumber(start.x + start.width + dx, left + minWidth, 1);
+    }
+    if (drag.handle.includes("n")) {
+      top = clampNumber(start.y + dy, 0, bottom - minHeight);
+    }
+    if (drag.handle.includes("s")) {
+      bottom = clampNumber(start.y + start.height + dy, top + minHeight, 1);
+    }
+    block.region = {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top
+    };
+  }
+  const box = $$(".scan-ocr-box", $("#scan-ocr-boxes-overlay")).find(
+    (item) => item.dataset.ocrBoxId === String(block.id)
+  );
+  if (box) {
+    box.style.left = `${block.region.x * 100}%`;
+    box.style.top = `${block.region.y * 100}%`;
+    box.style.width = `${block.region.width * 100}%`;
+    box.style.height = `${block.region.height * 100}%`;
+  }
+  renderScanOcrBoxDim();
+}
+
+function endScanOcrBoxDrag() {
+  state.scanOcrBoxesDrag = null;
+}
+
+async function runScanOcrBoxesValidation(file) {
+  const panel = $("#scan-ocr-boxes-panel");
+  const imageElement = $("#scan-ocr-boxes-image");
+  const previousAttachmentId = state.scanOcrBoxesAttachmentId;
+  resetScanOcrBoxesState();
+  if (previousAttachmentId) {
+    api(`/api/attachments/${previousAttachmentId}`, {
+      method: "DELETE"
+    }).catch(() => {});
+  }
+  panel.hidden = false;
+  setScanOcrBoxesStatus("正在加载图片…");
+  if (file.size > MAX_IMAGE_BYTES) {
+    setScanOcrBoxesStatus("单张图片不能超过 8 MB", true);
+    return;
+  }
+  if (file.type && !ALLOWED_IMAGE_TYPES.has(file.type)) {
+    setScanOcrBoxesStatus("仅支持 JPG、PNG 或 WebP 图片", true);
+    return;
+  }
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    await new Promise((resolve, reject) => {
+      imageElement.onload = resolve;
+      imageElement.onerror = () => reject(new Error("图片加载失败"));
+      imageElement.src = objectUrl;
+    });
+    renderScanOcrBoxDim();
+    setScanOcrBoxesStatus("图片已加载，正在调用内部 OCR…");
+
+    let attachmentId = null;
+    try {
+      const attachment = await uploadAttachment(file);
+      attachmentId = attachment.id;
+      state.scanOcrBoxesAttachmentId = attachment.id;
+      const result = await api(`/api/attachments/${attachment.id}/ocr-boxes`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      state.scanOcrBoxesBlocks = Array.isArray(result.blocks)
+        ? result.blocks
+        : [];
+      state.scanOcrBoxesFocusedId = null;
+      state.scanOcrBoxesSelection = new Set(
+        state.scanOcrBoxesBlocks.map((block) => block.id)
+      );
+      state.scanOcrBoxesOriginalRegions = new Map(
+        state.scanOcrBoxesBlocks.map((block) => [
+          String(block.id),
+          { ...block.region }
+        ])
+      );
+      state.scanOcrBoxesOcr = result;
+      renderScanOcrBoxes();
+      updateScanOcrBoxesConfirmButton();
+      const model = result.model || result.engine || "OCR";
+      setScanOcrBoxesStatus(
+        result.blocks?.length
+          ? `OCR 完成 · ${result.blocks.length} 个字块 · ${model}`
+          : `OCR 完成，但没有识别到文字 · ${model}`,
+        !result.blocks?.length
+      );
+    } catch (error) {
+      resetScanOcrBoxesState();
+      $("#scan-ocr-boxes-overlay").replaceChildren();
+      renderScanOcrBoxDim();
+      setScanOcrBoxesStatus(
+        error.message || "OCR 识别失败，请重新选择图片",
+        true
+      );
+      if (attachmentId) {
+        api(`/api/attachments/${attachmentId}`, { method: "DELETE" }).catch(
+          () => {}
+        );
+      }
+    }
+  } catch (error) {
+    setScanOcrBoxesStatus(error.message || "图片加载失败", true);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function confirmScanOcrBoxes() {
+  const attachmentId = state.scanOcrBoxesAttachmentId;
+  const blocks = sortedScanOcrBoxes(state.scanOcrBoxesBlocks);
+  const selected =
+    state.scanOcrBoxesMode === "single"
+      ? [centralScanOcrBox(blocks)].filter(Boolean)
+      : blocks.filter((block) =>
+          state.scanOcrBoxesSelection.has(String(block.id))
+        );
+  if (!attachmentId || !selected.length || state.scanOcrBoxesBusy) return;
+  const ocr = state.scanOcrBoxesOcr;
+  if (!ocr) {
+    setScanOcrBoxesStatus("OCR 结果已失效，请重新选择图片", true);
+    return;
+  }
+
+  state.scanOcrBoxesBusy = true;
+  updateScanOcrBoxesConfirmButton();
+  setScanOcrBoxesStatus(
+    `正在分析 ${selected.length} 个题框${state.scanOcrBoxesMode === "multi" ? "，未修改题框将复用 OCR" : ""}…`
+  );
+  try {
+    const result = await api(
+      `/api/attachments/${attachmentId}/ocr-boxes/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          scanMode: state.scanOcrBoxesMode,
+          selections: selected.map((block, index) => ({
+            blockId: String(block.id),
+            questionNo: index + 1,
+            region: { ...block.region }
+          })),
+          ocr: {
+            provider: ocr.provider,
+            engine: ocr.engine,
+            model: ocr.model,
+            version: ocr.version,
+            width: ocr.width,
+            height: ocr.height,
+            blocks: blocks.map((block) => ({
+              id: String(block.id),
+              order: block.order,
+              text: block.text,
+              bbox: block.bbox,
+              confidence: block.confidence,
+              region:
+                state.scanOcrBoxesOriginalRegions.get(String(block.id)) || {
+                  ...block.region
+                }
+            }))
+          }
+        })
+      }
+    );
+    state.scanTask = result.scan;
+    state.scanId = result.scan.id;
+    state.scanAttachments = [];
+    state.scanOcrBoxesAttachmentId = null;
+    history.pushState(null, "", `#scan/${result.scan.id}`);
+    showView("scan", { updateHash: false });
+    renderQuestionScan(result.scan);
+    window.setTimeout(() => {
+      $("#scan-task").focus({ preventScroll: true });
+    }, 40);
+    const sourceMessage =
+      result.reOcrCount || result.cachedCount
+        ? `，复用 ${result.cachedCount || 0} 个，重识别 ${result.reOcrCount || 0} 个`
+        : "";
+    showToast(
+      result.failedCount
+        ? `分析完成：成功 ${result.analyzedCount} 道，失败 ${result.failedCount} 道${sourceMessage}`
+        : `已分析 ${result.analyzedCount} 道题${sourceMessage}`,
+      result.failedCount > 0
+    );
+  } catch (error) {
+    setScanOcrBoxesStatus(error.message, true);
+    showToast(error.message, true);
+  } finally {
+    state.scanOcrBoxesBusy = false;
+    updateScanOcrBoxesConfirmButton();
   }
 }
 
@@ -5793,6 +6251,112 @@ function bindEvents() {
     uploadScanFiles(event.target.files);
     event.target.value = "";
   });
+  $("#scan-ocr-boxes-button").addEventListener("click", () => {
+    $("#scan-ocr-boxes-file").click();
+  });
+  $("#scan-ocr-boxes-file").addEventListener("change", (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) runScanOcrBoxesValidation(file);
+  });
+  $("#scan-ocr-boxes-confirm").addEventListener(
+    "click",
+    confirmScanOcrBoxes
+  );
+  $$('input[name="scan-ocr-boxes-mode"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      setScanOcrBoxFocus(null);
+      state.scanOcrBoxesMode =
+        input.value === "multi" ? "multi" : "single";
+      renderScanOcrBoxes();
+    });
+  });
+  $("#scan-ocr-boxes-overlay").addEventListener("change", (event) => {
+    const checkbox = event.target.closest("[data-ocr-box-id]");
+    if (!checkbox) return;
+    setScanOcrBoxFocus(null);
+    if (checkbox.checked) {
+      state.scanOcrBoxesSelection.add(checkbox.dataset.ocrBoxId);
+    } else {
+      state.scanOcrBoxesSelection.delete(checkbox.dataset.ocrBoxId);
+    }
+    renderScanOcrBoxes();
+  });
+  $("#scan-ocr-boxes-overlay").addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest("[data-ocr-resize]");
+    if (handle) {
+      if (state.scanOcrBoxesFocusedId !== handle.dataset.ocrBoxId) return;
+      const block = state.scanOcrBoxesBlocks.find(
+        (item) => String(item.id) === handle.dataset.ocrBoxId
+      );
+      if (!block) return;
+      event.preventDefault();
+      state.scanOcrBoxesDrag = {
+        type: "resize",
+        blockId: block.id,
+        handle: handle.dataset.ocrResize,
+        startX: event.clientX,
+        startY: event.clientY,
+        region: { ...block.region }
+      };
+      return;
+    }
+    const box = event.target.closest(".scan-ocr-box");
+    if (!box) {
+      setScanOcrBoxFocus(null);
+      return;
+    }
+    if (event.target.closest(".scan-ocr-box-marker")) {
+      setScanOcrBoxFocus(null);
+      return;
+    }
+    event.preventDefault();
+    setScanOcrBoxFocus(box.dataset.ocrBoxId);
+    box.focus({ preventScroll: true });
+    const block = state.scanOcrBoxesBlocks.find(
+      (item) => String(item.id) === box.dataset.ocrBoxId
+    );
+    if (block) {
+      state.scanOcrBoxesDrag = {
+        type: "move",
+        blockId: block.id,
+        startX: event.clientX,
+        startY: event.clientY,
+        region: { ...block.region }
+      };
+    }
+  });
+  $("#scan-ocr-boxes-overlay").addEventListener("focusin", (event) => {
+    const box = event.target.closest?.(".scan-ocr-box");
+    if (!box || event.target !== box) return;
+    setScanOcrBoxFocus(box.dataset.ocrBoxId);
+  });
+  $("#scan-ocr-boxes-overlay").addEventListener("focusout", (event) => {
+    const box = event.target.closest?.(".scan-ocr-box");
+    if (!box) return;
+    const blockId = box.dataset.ocrBoxId;
+    window.setTimeout(() => {
+      const activeBox = document.activeElement?.matches?.(".scan-ocr-box")
+        ? document.activeElement
+        : null;
+      if (activeBox) {
+        if (state.scanOcrBoxesFocusedId !== activeBox.dataset.ocrBoxId) {
+          setScanOcrBoxFocus(activeBox.dataset.ocrBoxId);
+        }
+        return;
+      }
+      if (state.scanOcrBoxesFocusedId === blockId) {
+        setScanOcrBoxFocus(null);
+      }
+    }, 0);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (event.target.closest?.("#scan-ocr-boxes-overlay")) return;
+    if (state.scanOcrBoxesFocusedId !== null) {
+      setScanOcrBoxFocus(null);
+    }
+  });
   $("#scan-image-list").addEventListener("click", (event) => {
     const crop = event.target.closest("[data-crop-attachment]");
     if (crop) {
@@ -5981,8 +6545,15 @@ function bindEvents() {
   $("#apply-crop-button").addEventListener("click", applyCropEditor);
   $("#crop-selection").addEventListener("pointerdown", startCropDrag);
   document.addEventListener("pointermove", moveCropDrag);
+  document.addEventListener("pointermove", moveScanOcrBox);
   document.addEventListener("pointerup", endCropDrag);
+  document.addEventListener("pointerup", endScanOcrBoxDrag);
   document.addEventListener("pointercancel", endCropDrag);
+  document.addEventListener("pointercancel", endScanOcrBoxDrag);
+  window.addEventListener("blur", () => setScanOcrBoxFocus(null));
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) setScanOcrBoxFocus(null);
+  });
   window.addEventListener("resize", () => {
     syncSidebarForViewport();
     if (state.cropEditor?.image) renderCropEditor();
