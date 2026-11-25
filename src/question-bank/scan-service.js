@@ -439,20 +439,17 @@ function normalizeCachedOcrBoxes(ocr) {
   };
 }
 
-function cachedOcrForScanBox(cachedOcr, region, lowConfidence) {
+function cachedOcrForScanBox(
+  cachedOcr,
+  sourceBlockIds,
+  region,
+  lowConfidence
+) {
   if (!cachedOcr?.blocks?.length) return null;
-  const selectedBlocks = cachedOcr.blocks.filter((block) => {
-    const centerX = block.region.x + block.region.width / 2;
-    const centerY = block.region.y + block.region.height / 2;
-    return (
-      centerX >= region.x &&
-      centerX <= region.x + region.width &&
-      centerY >= region.y &&
-      centerY <= region.y + region.height
-    );
-  });
+  const byId = new Map(cachedOcr.blocks.map((block) => [block.id, block]));
+  const selectedBlocks = sourceBlockIds.map((id) => byId.get(id)).filter(Boolean);
   if (
-    !selectedBlocks.length ||
+    selectedBlocks.length !== sourceBlockIds.length ||
     selectedBlocks.some(
       (block) =>
         !block.text ||
@@ -526,6 +523,24 @@ function cachedOcrForScanBox(cachedOcr, region, lowConfidence) {
   };
 }
 
+function unionCachedBlockRegion(blocks) {
+  if (!blocks.length) return null;
+  const left = Math.min(...blocks.map((block) => block.region.x));
+  const top = Math.min(...blocks.map((block) => block.region.y));
+  const right = Math.max(
+    ...blocks.map((block) => block.region.x + block.region.width)
+  );
+  const bottom = Math.max(
+    ...blocks.map((block) => block.region.y + block.region.height)
+  );
+  return {
+    x: Math.max(0, left),
+    y: Math.max(0, top),
+    width: Math.min(1, right) - Math.max(0, left),
+    height: Math.min(1, bottom) - Math.max(0, top)
+  };
+}
+
 export async function confirmQuestionScanBoxes({
   repository,
   attachmentStore,
@@ -546,11 +561,22 @@ export async function confirmQuestionScanBoxes({
   const normalizedSelections = (Array.isArray(selections) ? selections : [])
     .slice(0, 20)
     .map((selection, index) => {
-      const blockId = String(selection?.blockId || "").trim();
-      if (!blockId || seen.has(blockId)) return null;
-      seen.add(blockId);
+      const groupId = String(selection?.groupId || selection?.blockId || "").trim();
+      const sourceBlockIds = [
+        ...new Set(
+          (Array.isArray(selection?.sourceBlockIds)
+            ? selection.sourceBlockIds
+            : [selection?.blockId]
+          )
+            .map((id) => String(id || "").trim())
+            .filter(Boolean)
+        )
+      ].slice(0, 80);
+      if (!groupId || !sourceBlockIds.length || seen.has(groupId)) return null;
+      seen.add(groupId);
       return {
-        blockId,
+        groupId,
+        sourceBlockIds,
         questionNo:
           Number.isInteger(Number(selection?.questionNo)) &&
           Number(selection.questionNo) > 0
@@ -589,18 +615,26 @@ export async function confirmQuestionScanBoxes({
   const results = [];
   let lastScanner = {};
   for (const selection of normalizedSelections) {
-    const originalBlock = cachedOcr.blocks.find(
-      (block) => block.id === selection.blockId
-    );
+    const byId = new Map(cachedOcr.blocks.map((block) => [block.id, block]));
+    const originalBlocks = selection.sourceBlockIds
+      .map((id) => byId.get(id))
+      .filter(Boolean);
+    const originalRegion = unionCachedBlockRegion(originalBlocks);
     const regionChanged =
-      !originalBlock ||
-      !scanBoxRegionsEqual(originalBlock.region, selection.region);
+      !originalRegion ||
+      originalBlocks.length !== selection.sourceBlockIds.length ||
+      !scanBoxRegionsEqual(originalRegion, selection.region);
     try {
       let analysis;
       let source = "re_ocr";
       const cachedResult = regionChanged
         ? null
-        : cachedOcrForScanBox(cachedOcr, selection.region, lowConfidence);
+        : cachedOcrForScanBox(
+            cachedOcr,
+            selection.sourceBlockIds,
+            selection.region,
+            lowConfidence
+          );
       if (cachedResult) {
         source = "cache";
         analysis = await scanner.scan({
@@ -647,7 +681,11 @@ export async function confirmQuestionScanBoxes({
         region: selection.region,
         recognitionError: ""
       });
-      results.push({ blockId: selection.blockId, status: "analyzed", source });
+      results.push({
+        groupId: selection.groupId,
+        status: "analyzed",
+        source
+      });
     } catch (error) {
       taskCandidates.push({
         status: "failed",
@@ -659,7 +697,7 @@ export async function confirmQuestionScanBoxes({
           error?.message || "题框识别失败，请调整题框后重试"
       });
       results.push({
-        blockId: selection.blockId,
+        groupId: selection.groupId,
         status: "failed",
         source: regionChanged ? "re_ocr" : "cache_or_retry",
         error: error?.message || "题框识别失败"

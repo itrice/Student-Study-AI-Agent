@@ -1122,6 +1122,10 @@ async function handleApi(request, response, url) {
       buffer: content.buffer,
       mimeType: content.mimeType
     });
+    const grouped = await questionScanner.scan({
+      mode: "multi",
+      ocrResults: [result]
+    });
     return sendJson(response, 200, {
       provider: result.provider,
       engine: result.engine,
@@ -1130,12 +1134,25 @@ async function handleApi(request, response, url) {
       width: result.width,
       height: result.height,
       processingTimeMs: result.processingTimeMs,
+      groupingProvider: grouped.provider,
+      groupingModel: grouped.model,
+      groupingPromptVersion: grouped.promptVersion,
       blocks: result.blocks.map((block) => ({
         id: block.id,
+        order: block.order,
         text: block.text,
         bbox: block.bbox,
         confidence: block.confidence,
         region: block.region
+      })),
+      questions: grouped.candidates.map((candidate, index) => ({
+        id: `q${index + 1}`,
+        questionNo: candidate.questionNo || index + 1,
+        text: candidate.text,
+        confidence: candidate.confidence,
+        region: candidate.region,
+        pendingReasons: candidate.pendingReasons || [],
+        sourceBlockIds: (candidate.sourceBlocks || []).map((block) => block.id)
       }))
     });
   }

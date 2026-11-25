@@ -1979,6 +1979,37 @@ const questionScanOcrBlockSchema = {
   additionalProperties: false
 };
 
+const questionScanOcrQuestionSchema = {
+  type: "object",
+  required: [
+    "id",
+    "questionNo",
+    "text",
+    "confidence",
+    "region",
+    "pendingReasons",
+    "sourceBlockIds"
+  ],
+  properties: {
+    id: { type: "string" },
+    questionNo: { type: "integer", minimum: 1 },
+    text: { type: "string" },
+    confidence: anyOfNullable({
+      type: "number",
+      minimum: 0,
+      maximum: 1
+    }),
+    region: ref("QuestionScanRegion"),
+    pendingReasons: { type: "array", items: { type: "string" } },
+    sourceBlockIds: {
+      type: "array",
+      minItems: 1,
+      items: { type: "string" }
+    }
+  },
+  additionalProperties: false
+};
+
 const questionScanOcrSchema = {
   type: "object",
   required: ["provider", "engine", "model", "version", "width", "height", "blocks"],
@@ -1994,6 +2025,12 @@ const questionScanOcrSchema = {
       type: "array",
       maxItems: 120,
       items: ref("QuestionScanOcrBlock")
+    },
+    questions: {
+      type: "array",
+      maxItems: 20,
+      items: ref("QuestionScanOcrQuestion"),
+      description: "按题目边界分组后的整题区域，前端只展示这些题框。"
     }
   },
   additionalProperties: false
@@ -2010,10 +2047,16 @@ const confirmQuestionScanBoxesInputSchema = {
       maxItems: 20,
       items: {
         type: "object",
-        required: ["blockId", "region"],
+        required: ["groupId", "sourceBlockIds", "region"],
         properties: {
-          blockId: { type: "string" },
+          groupId: { type: "string" },
           questionNo: { type: "integer", minimum: 1 },
+          sourceBlockIds: {
+            type: "array",
+            minItems: 1,
+            maxItems: 80,
+            items: { type: "string" }
+          },
           region: ref("QuestionScanRegion")
         },
         additionalProperties: false
@@ -2044,9 +2087,9 @@ const confirmQuestionScanBoxesResultSchema = {
       type: "array",
       items: {
         type: "object",
-        required: ["blockId", "status", "source"],
+        required: ["groupId", "status", "source"],
         properties: {
-          blockId: { type: "string" },
+          groupId: { type: "string" },
           status: { type: "string", enum: ["analyzed", "failed"] },
           source: { type: "string", enum: ["cache", "re_ocr", "cache_or_retry"] },
           error: { type: "string" }
@@ -2083,6 +2126,7 @@ const components = {
     QuestionScanCandidate: questionScanCandidateSchema,
     QuestionScan: questionScanSchema,
     QuestionScanOcrBlock: questionScanOcrBlockSchema,
+    QuestionScanOcrQuestion: questionScanOcrQuestionSchema,
     QuestionScanOcr: questionScanOcrSchema,
     QuestionList: questionListSchema,
     Mistake: mistakeSchema,
@@ -2536,9 +2580,9 @@ const paths = {
   "/api/attachments/{id}/ocr-boxes": {
     post: {
       tags: ["附件"],
-      summary: "识别图片 OCR 字块框",
+      summary: "识别并分组题目框",
       description:
-        "仅调用同一部署环境内的内部 OCR，返回文字、原图归一化坐标和置信度。接口不创建候选题，也不调用文本模型。",
+        "内部 OCR 返回原始文字字块后，纯文本模型复用现有题目边界逻辑生成整题区域。响应同时保留原始字块供缓存分析，但前端只展示 questions 中的整题框。接口不创建正式候选题。",
       operationId: "getAttachmentOcrBoxes",
       parameters: [idParameter("附件编号")],
       responses: {

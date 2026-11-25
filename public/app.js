@@ -65,7 +65,6 @@ const state = {
   scanOcrBoxesFocusedId: null,
   scanOcrBoxesDrag: null,
   scanOcrBoxesAttachmentId: null,
-  scanOcrBoxesOriginalRegions: new Map(),
   scanOcrBoxesOcr: null,
   scanOcrBoxesBusy: false,
   filter: "all",
@@ -524,7 +523,6 @@ function resetScanOcrBoxesState() {
   state.scanOcrBoxesFocusedId = null;
   state.scanOcrBoxesDrag = null;
   state.scanOcrBoxesAttachmentId = null;
-  state.scanOcrBoxesOriginalRegions = new Map();
   state.scanOcrBoxesOcr = null;
   state.scanOcrBoxesBusy = false;
   $("#scan-ocr-boxes-overlay").replaceChildren();
@@ -681,7 +679,10 @@ function renderScanOcrBoxes() {
     box.tabIndex = 0;
     box.classList.toggle("is-selected", selected);
     box.classList.toggle("is-focused", focused);
-    box.setAttribute("aria-label", `OCR Part ${index + 1}`);
+    box.setAttribute(
+      "aria-label",
+      `第 ${index + 1} 题${block.text ? `：${block.text.slice(0, 80)}` : ""}`
+    );
     box.style.left = `${clampNumber(Number(region.x) || 0, 0, 1) * 100}%`;
     box.style.top = `${clampNumber(Number(region.y) || 0, 0, 1) * 100}%`;
     box.style.width = `${
@@ -805,7 +806,7 @@ async function runScanOcrBoxesValidation(file) {
       imageElement.src = objectUrl;
     });
     renderScanOcrBoxDim();
-    setScanOcrBoxesStatus("图片已加载，正在调用内部 OCR…");
+    setScanOcrBoxesStatus("图片已加载，正在识别文字和题目边界…");
 
     let attachmentId = null;
     try {
@@ -816,28 +817,22 @@ async function runScanOcrBoxesValidation(file) {
         method: "POST",
         body: JSON.stringify({})
       });
-      state.scanOcrBoxesBlocks = Array.isArray(result.blocks)
-        ? result.blocks
+      state.scanOcrBoxesBlocks = Array.isArray(result.questions)
+        ? result.questions
         : [];
       state.scanOcrBoxesFocusedId = null;
       state.scanOcrBoxesSelection = new Set(
         state.scanOcrBoxesBlocks.map((block) => block.id)
-      );
-      state.scanOcrBoxesOriginalRegions = new Map(
-        state.scanOcrBoxesBlocks.map((block) => [
-          String(block.id),
-          { ...block.region }
-        ])
       );
       state.scanOcrBoxesOcr = result;
       renderScanOcrBoxes();
       updateScanOcrBoxesConfirmButton();
       const model = result.model || result.engine || "OCR";
       setScanOcrBoxesStatus(
-        result.blocks?.length
-          ? `OCR 完成 · ${result.blocks.length} 个字块 · ${model}`
-          : `OCR 完成，但没有识别到文字 · ${model}`,
-        !result.blocks?.length
+        result.questions?.length
+          ? `识别完成 · ${result.questions.length} 道题 · ${result.blocks?.length || 0} 个字块 · ${result.groupingModel || model}`
+          : `识别完成，但没有定位到题目 · ${model}`,
+        !result.questions?.length
       );
     } catch (error) {
       resetScanOcrBoxesState();
@@ -888,10 +883,13 @@ async function confirmScanOcrBoxes() {
         method: "POST",
         body: JSON.stringify({
           scanMode: state.scanOcrBoxesMode,
-          selections: selected.map((block, index) => ({
-            blockId: String(block.id),
-            questionNo: index + 1,
-            region: { ...block.region }
+          selections: selected.map((question, index) => ({
+            groupId: String(question.id),
+            questionNo: question.questionNo || index + 1,
+            sourceBlockIds: Array.isArray(question.sourceBlockIds)
+              ? question.sourceBlockIds
+              : [],
+            region: { ...question.region }
           })),
           ocr: {
             provider: ocr.provider,
@@ -900,16 +898,13 @@ async function confirmScanOcrBoxes() {
             version: ocr.version,
             width: ocr.width,
             height: ocr.height,
-            blocks: blocks.map((block) => ({
+            blocks: (ocr.blocks || []).map((block) => ({
               id: String(block.id),
               order: block.order,
               text: block.text,
               bbox: block.bbox,
               confidence: block.confidence,
-              region:
-                state.scanOcrBoxesOriginalRegions.get(String(block.id)) || {
-                  ...block.region
-                }
+              region: { ...block.region }
             }))
           }
         })
