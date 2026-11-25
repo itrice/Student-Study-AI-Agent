@@ -531,6 +531,11 @@ test("图片录入 UI 提供鼠标/触摸裁剪、旋转、重置、取消和查
   assert.match(app, /uploadImageFiles\(files, \{ autoCrop: false \}\)/);
   assert.match(app, /cropDialog\.showModal\(\)/);
   assert.match(styles, /\.crop-editor::backdrop/);
+  assert.match(
+    app,
+    /if \(editor\.scope === "scan"\) \{\s*await startQuestionScan\(\);/
+  );
+  assert.match(app, /addEventListener\("cancel", \(event\) => \{[\s\S]*closeCropEditor\(\)/);
   const thumbStyles = styles.match(
     /\.attachment-thumb img\s*\{([\s\S]*?)\}/
   )?.[1] || "";

@@ -2030,9 +2030,10 @@ test("扫描 UI 展示题型与答案候选并只在选中后允许导入", () =
     /openCropEditor\(\s*Number\(crop\.dataset\.cropAttachment\),\s*crop\.dataset\.cropContext/
   );
   assert.match(html, /导入所选题目/);
-  assert.match(html, /name="scan-mode"/);
-  assert.match(html, /value="single"\s+checked/);
-  assert.match(html, /value="multi"/);
+  assert.doesNotMatch(html, /name="scan-mode"/);
+  assert.doesNotMatch(html, /<strong>单题<\/strong>/);
+  assert.doesNotMatch(html, /<strong>多题<\/strong>/);
+  assert.match(app, /scanMode: "multi"/);
   assert.match(html, /分析所选题目/);
   assert.doesNotMatch(html, /M3 开放/);
 });

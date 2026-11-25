@@ -58,7 +58,6 @@ const state = {
   scanAttachments: [],
   scanTask: null,
   scanId: null,
-  scanMode: "single",
   scanBusy: false,
   filter: "all",
   mistakeQuery: "",
@@ -437,13 +436,7 @@ function renderScanIntake() {
     start.disabled =
       state.scanBusy ||
       !state.scanAttachments.length;
-    start.textContent = state.scanBusy
-      ? state.scanMode === "multi"
-        ? "正在定位题目…"
-        : "正在识别…"
-      : state.scanMode === "multi"
-        ? "识别题目范围"
-        : "开始识别候选";
+    start.textContent = state.scanBusy ? "正在定位题目…" : "识别题目范围";
   }
 }
 
@@ -524,7 +517,7 @@ async function startQuestionScan() {
       method: "POST",
       body: JSON.stringify({
         attachmentIds: state.scanAttachments.map((attachment) => attachment.id),
-        scanMode: state.scanMode
+        scanMode: "multi"
       })
     });
     state.scanTask = task;
@@ -963,7 +956,6 @@ function renderScanCandidate(candidate, task) {
 function renderQuestionScan(task) {
   state.scanTask = task;
   state.scanId = task.id;
-  state.scanMode = task.scanMode === "multi" ? "multi" : "single";
   $("#scan-intake").hidden = true;
   $("#scan-task").hidden = false;
   $("#scan-task-id").textContent = String(task.id);
@@ -979,8 +971,8 @@ function renderQuestionScan(task) {
         : "识别失败";
   $("#scan-task-message").textContent =
     task.errorMessage ||
-    (task.scanMode === "multi" && task.analysisStage === "discovered"
-      ? `多题模式已定位 ${task.candidateCount} 道题；先勾选需要的题，再逐题分析。`
+    (task.analysisStage === "discovered"
+      ? `已定位 ${task.candidateCount} 道题；先勾选需要的题，再逐题分析。`
       : `共 ${task.candidateCount} 道候选；默认不选，当前选择 ${task.selectedCount} 道。`);
 
   const list = $("#scan-candidate-list");
@@ -1766,6 +1758,9 @@ async function applyCropEditor() {
         ? "裁剪已应用，OCR 将只使用裁剪区域，原图已保留"
         : "裁剪已应用，识别文字将只使用裁剪区域"
     );
+    if (editor.scope === "scan") {
+      await startQuestionScan();
+    }
   } catch (error) {
     setCropStatus(error.message || "裁剪图片保存失败，原图未改变。", true);
   } finally {
@@ -5649,13 +5644,6 @@ function bindEvents() {
   $("#scan-file-input").addEventListener("change", (event) => {
     uploadScanFiles(event.target.files);
     event.target.value = "";
-  });
-  $$('input[name="scan-mode"]').forEach((input) => {
-    input.addEventListener("change", () => {
-      if (!input.checked) return;
-      state.scanMode = input.value === "multi" ? "multi" : "single";
-      renderScanIntake();
-    });
   });
   $("#scan-image-list").addEventListener("click", (event) => {
     const crop = event.target.closest("[data-crop-attachment]");
