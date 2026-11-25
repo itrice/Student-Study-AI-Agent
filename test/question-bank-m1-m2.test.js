@@ -1534,6 +1534,19 @@ test("HTTP 多题扫描先定位，勾选后逐题分析", async () => {
       assert.equal(upload.status, 201);
       const attachment = await upload.json();
 
+      const boxesResponse = await fetch(
+        `${baseUrl}/api/attachments/${attachment.id}/ocr-boxes`,
+        { method: "POST" }
+      );
+      assert.equal(boxesResponse.status, 200);
+      const boxes = await boxesResponse.json();
+      assert.equal(boxes.blocks.length, 2);
+      assert.equal(boxes.questions.length, 2);
+      assert.deepEqual(
+        boxes.questions.map((question) => question.sourceBlockIds),
+        [["i1b1"], ["i1b2"]]
+      );
+
       const scanResponse = await fetch(`${baseUrl}/api/questions/scans`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1602,13 +1615,14 @@ test("HTTP 多题扫描先定位，勾选后逐题分析", async () => {
       const llmRequests = fake.requests.filter(
         (request) => request.url === "/chat/completions"
       );
-      assert.equal(llmRequests.length, 2);
+      assert.equal(llmRequests.length, 3);
       assert.match(llmRequests[0].body.toString("utf8"), /题目边界整理助手/);
-      assert.match(llmRequests[1].body.toString("utf8"), /小问/);
+      assert.match(llmRequests[1].body.toString("utf8"), /题目边界整理助手/);
+      assert.match(llmRequests[2].body.toString("utf8"), /小问/);
       assert.equal(
         fake.requests.filter((request) => request.url === "/v1/ocr/raw")
           .length,
-        2
+        3
       );
     } finally {
       await stopServer(child);
@@ -2038,8 +2052,10 @@ test("扫描 UI 展示题型与答案候选并只在选中后允许导入", () =
   assert.match(app, /confirmScanOcrBoxes/);
   assert.match(app, /state\.scanOcrBoxesSelection\.has/);
   assert.match(app, /ocr-boxes\/confirm/);
+  assert.match(app, /result\.questions/);
   assert.match(html, /分析所选题目/);
   assert.match(html, /id="scan-ocr-boxes-confirm"/);
+  assert.match(html, /题目框确认/);
   assert.doesNotMatch(html, /M3 开放/);
 });
 
@@ -2102,6 +2118,14 @@ test("题框确认未修改时复用 OCR，修改或低置信时回退重新识�
         bbox: [10, 40, 90, 60],
         confidence: 0.12,
         region: { x: 0.1, y: 0.4, width: 0.8, height: 0.2 }
+      },
+      {
+        id: "i1b3",
+        order: 3,
+        text: "人工湖的占地面积是多少平方米？",
+        bbox: [10, 65, 70, 80],
+        confidence: 0.95,
+        region: { x: 0.1, y: 0.65, width: 0.6, height: 0.15 }
       }
     ];
     const ocr = {
@@ -2120,8 +2144,9 @@ test("题框确认未修改时复用 OCR，修改或低置信时回退重新识�
       scanMode: "single",
       selections: [
         {
-          blockId: "i1b1",
-          region: { x: 0.1, y: 0.1, width: 0.8, height: 0.2 }
+          groupId: "q1",
+          sourceBlockIds: ["i1b1", "i1b3"],
+          region: { x: 0.1, y: 0.1, width: 0.8, height: 0.7 }
         }
       ],
       ocr
@@ -2130,6 +2155,7 @@ test("题框确认未修改时复用 OCR，修改或低置信时回退重新识�
     assert.equal(cached.reOcrCount, 0);
     assert.equal(calls[0].mode, "single");
     assert.equal(calls[0].ocrResults.length, 1);
+    assert.equal(calls[0].ocrResults[0].blocks.length, 2);
     assert.equal(calls[0].images, undefined);
     assert.equal(cached.scan.candidates[0].analysisStage, "analyzed");
 
@@ -2141,11 +2167,13 @@ test("题框确认未修改时复用 OCR，修改或低置信时回退重新识�
       scanMode: "multi",
       selections: [
         {
-          blockId: "i1b1",
-          region: { x: 0.05, y: 0.1, width: 0.85, height: 0.2 }
+          groupId: "q1",
+          sourceBlockIds: ["i1b1", "i1b3"],
+          region: { x: 0.05, y: 0.1, width: 0.85, height: 0.72 }
         },
         {
-          blockId: "i1b2",
+          groupId: "q2",
+          sourceBlockIds: ["i1b2"],
           region: { x: 0.1, y: 0.4, width: 0.8, height: 0.2 }
         }
       ],
