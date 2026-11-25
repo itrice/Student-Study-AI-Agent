@@ -5609,62 +5609,6 @@ body.review-focus-mode #view-review .review-attachments img {
   cursor: nwse-resize;
 }
 
-.scan-image-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 12px;
-  margin: 16px 0;
-}
-
-.scan-image-item {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: #f9fbf9;
-}
-
-.scan-image-thumb {
-  width: 72px;
-  height: 72px;
-  flex: 0 0 72px;
-  object-fit: cover;
-  border-radius: 10px;
-  background: #e8eeea;
-}
-
-.scan-image-copy {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.scan-image-copy strong {
-  font-size: var(--text-label);
-}
-
-.scan-image-copy small {
-  color: var(--ink-soft);
-  font-size: var(--text-meta);
-}
-
-.scan-image-item-actions {
-  display: grid;
-  flex: 0 0 auto;
-  gap: 6px;
-  margin-left: auto;
-}
-
-.scan-image-item-actions .text-button {
-  min-height: 36px;
-  padding: 0;
-  font-size: var(--text-label);
-}
-
-.scan-image-copy,
 .scan-status,
 .scan-selection-summary,
 .scan-candidate-title,
@@ -6055,13 +5999,8 @@ body.review-focus-mode #view-review .review-attachments img {
     padding-right: 4px;
   }
 
-  .scan-image-list,
   .scan-candidate-list {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .scan-image-item-actions .text-button {
-    min-height: 44px;
   }
 
   .scan-region-grid {

@@ -66,7 +66,7 @@ test("所有录入入口先提供拍照录入和手工录入选择", () => {
   assert.match(app, /#manual-entry-back-button"\)\.addEventListener/);
   assert.match(
     app,
-    /const files = \[\.\.\.\(event\.target\.files \|\| \[\]\)\];[\s\S]*if \(!files\.length\) return;[\s\S]*closeEntryChoice\(\{ restoreFocus: false, preserveTrigger: true \}\);[\s\S]*uploadScanFiles\(files, \{ returnToEntryChoice: true \}\)/
+    /const files = \[\.\.\.\(event\.target\.files \|\| \[\]\)\];[\s\S]*if \(!files\.length\) return;[\s\S]*closeEntryChoice\(\{ restoreFocus: false, preserveTrigger: true \}\);[\s\S]*resetQuestionScan\(\);[\s\S]*showView\("scan", \{ updateHash: false \}\);[\s\S]*runScanOcrBoxesValidation\(files\[0\]\)/
   );
   assert.match(app, /state\.entryPhotoPickerActive = true/);
   assert.match(
@@ -77,12 +77,6 @@ test("所有录入入口先提供拍照录入和手工录入选择", () => {
     app,
     /#entry-choice-dialog"\)\.addEventListener\("cancel"[\s\S]*entryPhotoPickerActive[\s\S]*entryPhotoCancelGuard[\s\S]*return;/
   );
-  assert.match(app, /openCropEditor\(lastUploaded\.id, "scan", \{\s*returnToEntryChoice: true/);
-  assert.match(
-    app,
-    /function cancelCropEditor\(\)[\s\S]*openEntryChoice\(null, \{ preserveTrigger: true \}\)/
-  );
-  assert.match(app, /revealWhenReady: editor\.returnToEntryChoice === true/);
   assert.match(app, /showView\("scan", \{ updateHash: false \}\)/);
   assert.match(app, /#entry-choice-dialog"\)\.addEventListener\("cancel"/);
   assert.match(app, /entry-photo-button"\)\.focus/);
