@@ -119,7 +119,7 @@ git diff --name-only 4171773..11f2fd9 | grep -E '^(docker-compose\.yml|public/st
 
 ### 3.3 索引处置修正
 
-Phase 6 复核发现 `docs/README.md` §2 中 6 行“处置”与最终 diff 不符，已在本报告 PR 内修正为“更新”：`M9_IMAGE_INTAKE.md`、`eink/eink-frame-api.md`、`题库/01`、`题库/02`、`题库/05`、`题库/README.md`。其余“保留”行均为“正文保留、仅加批注”，与处置定义一致。
+Phase 6 复核发现 `docs/README.md` §2 中 7 行“处置”与最终 diff 不符，已在本报告 PR 内修正：`M9_IMAGE_INTAKE.md`、`eink/eink-frame-api.md`、`题库/01`、`题库/02`、`题库/05`、`题库/README.md` 改为“更新”；`题库/07-拍照选题最终流程.md` 改为“新建”。其余“保留”行均为“正文保留、仅加批注”，与处置定义一致。
 
 ## 4. 归档 5 份与还原
 
