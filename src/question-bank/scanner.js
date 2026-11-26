@@ -1,9 +1,10 @@
 import sharp from "sharp";
+import { MAX_SCAN_CANDIDATES } from "../database.js";
 
 export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-parts-4";
 export const QUESTION_DISCOVERY_PROMPT_VERSION = "m2-ocr-boundaries-1";
 export const INTERNAL_OCR_TEXT_VERSION = "internal-ocr-1";
-export const MAX_SCAN_CANDIDATES = 20;
+export { MAX_SCAN_CANDIDATES };
 export const MAX_OCR_IMAGE_BYTES = 900 * 1024;
 
 const OCR_JPEG_QUALITIES = [88, 80, 72, 64, 56];

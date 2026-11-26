@@ -213,9 +213,6 @@ const KNOWLEDGE_PROFILES = {
     commonErrors: ["条件遗漏", "答非所问", "中间量含义不清"]
   }
 };
-
-export const KNOWLEDGE_POINT_NAMES = Object.keys(KNOWLEDGE_PROFILES);
-
 export function getKnowledgeProfile(name) {
   const profile = KNOWLEDGE_PROFILES[name];
   if (!profile) return null;
