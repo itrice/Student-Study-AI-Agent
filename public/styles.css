@@ -20,6 +20,17 @@
   --text-meta: 16px;
   --text-label: 16px;
   --text-body: 17px;
+  --text-display: clamp(34px, 3.6vw, 52px);
+  --text-h1: clamp(30px, 3vw, 42px);
+  --text-h2: 24px;
+  --text-h2-fluid: clamp(24px, 2.4vw, 30px);
+  --text-h3: 22px;
+  --text-h3-fluid: clamp(20px, 3vw, 26px);
+  --text-h4: 18px;
+  --text-stat-xl: 30px;
+  --text-stat: 26px;
+  --text-stat-md: 24px;
+  --text-stat-sm: 20px;
   font-family:
     "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
   color: var(--ink);
@@ -413,7 +424,7 @@ svg {
 }
 
 .hero h1 {
-  font-size: clamp(34px, 3.6vw, 52px);
+  font-size: var(--text-display);
   line-height: 1.24;
 }
 
@@ -490,7 +501,7 @@ svg {
 .formula-card strong {
   color: #fff;
   font-family: Georgia, serif;
-  font-size: 18px;
+  font-size: var(--text-h4);
   font-weight: 500;
 }
 
@@ -752,7 +763,7 @@ svg {
 
 .stat-card strong {
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 26px;
+  font-size: var(--text-stat);
   font-weight: 500;
 }
 
@@ -786,7 +797,7 @@ svg {
 
 .panel-heading h2 {
   margin: 5px 0 0;
-  font-size: 18px;
+  font-size: var(--text-h4);
   font-weight: 700;
 }
 
@@ -1015,7 +1026,7 @@ svg {
 
 .page-heading h1 {
   margin: 7px 0 8px;
-  font-size: clamp(30px, 3vw, 42px);
+  font-size: var(--text-h1);
 }
 
 .page-heading p {
@@ -1579,7 +1590,7 @@ svg {
 
 .result-heading strong {
   display: block;
-  font-size: 18px;
+  font-size: var(--text-h4);
 }
 
 .result-heading small {
@@ -1714,7 +1725,7 @@ svg {
 .empty-state h2 {
   margin: 20px 0 7px;
   font-family: "STZhongsong", "Songti SC", Georgia, serif;
-  font-size: 22px;
+  font-size: var(--text-h3);
 }
 
 .empty-state p {
@@ -2180,7 +2191,7 @@ svg {
   display: block;
   margin-top: 9px;
   font-family: Georgia, serif;
-  font-size: 30px;
+  font-size: var(--text-stat-xl);
   font-weight: 500;
 }
 
@@ -2355,7 +2366,7 @@ svg {
 .entry-choice-header h2 {
   margin: 6px 0 7px;
   font-family: "STZhongsong", "Songti SC", Georgia, serif;
-  font-size: 25px;
+  font-size: var(--text-h2);
 }
 
 .entry-choice-header p {
@@ -2446,7 +2457,7 @@ svg {
 }
 
 .entry-choice-heading strong {
-  font-size: 18px;
+  font-size: var(--text-h4);
 }
 
 .entry-choice-heading small {
@@ -2509,7 +2520,7 @@ svg {
 .dialog-header h2 {
   margin: 6px 0 0;
   font-family: "STZhongsong", "Songti SC", Georgia, serif;
-  font-size: 24px;
+  font-size: var(--text-h2);
 }
 
 .dialog-body {
@@ -2867,7 +2878,7 @@ svg {
   }
 
   .hero h1 {
-    font-size: 34px;
+    font-size: var(--text-display);
   }
 
   .hero-actions {
@@ -3221,7 +3232,7 @@ svg {
 .crop-editor-heading h3 {
   margin: 0;
   color: var(--ink);
-  font-size: clamp(20px, 3vw, 26px);
+  font-size: var(--text-h3-fluid);
 }
 
 .crop-editor-heading p,
@@ -3427,7 +3438,7 @@ svg {
 .knowledge-library-head h2 {
   margin: 5px 0 6px;
   font-family: Georgia, serif;
-  font-size: 24px;
+  font-size: var(--text-h2);
   font-weight: 500;
 }
 
@@ -3561,7 +3572,7 @@ svg {
 
 .knowledge-search-item h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--text-h4);
 }
 
 .knowledge-search-item > p {
@@ -3825,7 +3836,7 @@ svg {
 }
 
 .feedback-metric strong {
-  font-size: 24px;
+  font-size: var(--text-stat-md);
   line-height: 1.1;
 }
 
@@ -4235,7 +4246,7 @@ svg {
 }
 
 .curriculum-metric strong {
-  font-size: 20px;
+  font-size: var(--text-stat-sm);
   line-height: 1.2;
 }
 
@@ -4750,7 +4761,7 @@ svg {
 .settings-entry-head h2 {
   margin: 0;
   min-width: 0;
-  font-size: 18px;
+  font-size: var(--text-h4);
   line-height: 1.4;
 }
 
@@ -4838,7 +4849,7 @@ svg {
 
 .settings-subpage-heading h2 {
   margin: 6px 0;
-  font-size: clamp(24px, 2.4vw, 30px);
+  font-size: var(--text-h2-fluid);
 }
 
 .settings-subpage-heading h2:focus-visible {
@@ -5368,7 +5379,7 @@ body.review-focus-mode #view-review .review-attachments img {
 
 .scan-intake-copy h2 {
   margin: 0 0 8px;
-  font-size: 22px;
+  font-size: var(--text-h3);
 }
 
 .scan-intake-copy p {
@@ -5644,7 +5655,7 @@ body.review-focus-mode #view-review .review-attachments img {
 
 .scan-task-head h2 {
   margin: 4px 0 6px;
-  font-size: 22px;
+  font-size: var(--text-h3);
 }
 
 .scan-task-head p {
@@ -5817,7 +5828,7 @@ body.review-focus-mode #view-review .review-attachments img {
   border-radius: 10px;
   color: var(--ink);
   background: #fff;
-  font-size: 16px;
+  font-size: var(--text-meta);
   line-height: 1.6;
   resize: vertical;
 }
@@ -5831,7 +5842,7 @@ body.review-focus-mode #view-review .review-attachments img {
   border-radius: 10px;
   color: var(--ink);
   background: #fff;
-  font-size: 16px;
+  font-size: var(--text-meta);
 }
 
 .scan-parts-editor {
@@ -5959,7 +5970,7 @@ body.review-focus-mode #view-review .review-attachments img {
   border-radius: 9px;
   color: var(--ink);
   background: #fff;
-  font-size: 16px;
+  font-size: var(--text-meta);
 }
 
 .scan-candidate-actions {
