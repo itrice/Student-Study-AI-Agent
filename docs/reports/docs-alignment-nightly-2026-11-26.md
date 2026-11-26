@@ -2,7 +2,7 @@
 
 > 日期：2026-11-26（夜跑批次 nightly-2026-11-26）
 > 最终 dev：`11f2fd9e8fcb589045df01dfe3f3b7d826d68858`
-> 状态：Phase 1–5 完成，3 次 dev 部署全部成功；本报告经用户授权合并，触发第 4 次 dev 部署
+> 状态：Phase 1–5 完成，3 次 dev 部署全部成功；本报告经用户授权合并，第 4 次 dev 部署重跑后成功
 > 范围：`docs/`、`test/`、`src/` 零引用清理与 `scripts/` 零引用删除；不改 UI 样式、不迁移、不改 e-ink 代码
 > 本报告 PR：[#68](https://github.com/itrice/Student-Study-AI-Agent/pull/68)
 
@@ -255,6 +255,16 @@ QA 分支 `codex/nightly-qa-findings-2026-11-26`，commit `b933a61`，仅新增 
 | PR #67 合并后 push | `11f2fd9` | [45825724809](https://github.com/itrice/Student-Study-AI-Agent/actions/runs/45825724809) | success | success | success |
 
 说明：计划原写“两次 dev 部署”，实际因 Phase 3 测试 PR 也 push 到 dev 而触发第 3 次；三次均在用户预授权的 3 次预算内，未执行手工部署。
+
+### 8.2.1 第 4 次 dev 部署（合并本报告 PR #68）
+
+| 项 | 结果 |
+| --- | --- |
+| 合并提交 | `e84bd13c1a4776e15a4d5a1c30f12bf00aadaf6c`（2026-11-26T14:21:12Z，用户授权） |
+| run | [45838146641](https://github.com/itrice/Student-Study-AI-Agent/actions/runs/45838146641) |
+| 第 1 次尝试 | Validate/Build 成功；Deploy 在 Set up job 失败，原因：GitHub codeload 下载 `actions/checkout` 连续 3 次 429（Too Many Requests），非代码/Runner 离线问题 |
+| 修复 | 使用 API 重跑 failed jobs（run_attempt 2）；Validate/Build/Deploy 全部 success |
+| 部署后黑盒 | `http://student-study-ai-agent-dev.home.arpa/api/health` = 200；`/api/eink/dashboard` = 200（`curl --noproxy '*'` 直连 ingress） |
 
 ### 8.3 最终部署状态
 
