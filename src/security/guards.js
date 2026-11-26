@@ -39,14 +39,3 @@ export function detectPromptInjection(text) {
     matches
   };
 }
-
-export function classifyUntrustedInput(text) {
-  const injection = detectPromptInjection(text);
-  return {
-    promptInjection: injection.detected,
-    matches: injection.matches,
-    answerRequest: /(直接|马上|立刻|只要)[^。！？\n]{0,12}(答案|结果)/.test(
-      String(text || "")
-    )
-  };
-}

@@ -2,11 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import sharp from "sharp";
 import { LearningRepository } from "../src/database.js";
@@ -24,11 +21,8 @@ import {
   OcrTextQuestionScanner,
   detectOcrBlockWarnings
 } from "../src/question-bank/scanner.js";
+import { startServer, stopServer } from "./helpers/http-fixture.js";
 
-const projectRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  ".."
-);
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2fXkAAAAASUVORK5CYII=",
   "base64"
@@ -249,56 +243,6 @@ function createScanTask(repository, attachmentId) {
         region: { x: 0, y: 0.9, width: 1, height: 0.1 }
       }
     ]
-  });
-}
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const port = server.address().port;
-      server.close(() => resolve(port));
-    });
-  });
-}
-
-function waitForServer(child) {
-  return new Promise((resolve, reject) => {
-    let output = "";
-    let errors = "";
-    const timer = setTimeout(() => {
-      reject(new Error(`服务启动超时：${errors || output}`));
-    }, 15_000);
-    child.stdout.on("data", (chunk) => {
-      output += chunk.toString();
-      if (output.includes("已启动")) {
-        clearTimeout(timer);
-        resolve();
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      errors += chunk.toString();
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`服务提前退出（${code}）：${errors || output}`));
-    });
-  });
-}
-
-async function stopServer(child) {
-  if (child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve();
-    }, 3_000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
   });
 }
 
@@ -1190,15 +1134,10 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
         }
       ]
     });
-    const port = await freePort();
-    const child = spawn(process.execPath, ["src/server.js"], {
-      cwd: projectRoot,
+    const { child, baseUrl } = await startServer({
+      directory,
+      timeoutMs: 15_000,
       env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        PORT: String(port),
-        DB_PATH: path.join(directory, "learning.sqlite"),
-        ATTACHMENTS_DIR: path.join(directory, "attachments"),
         OCR_BASE_URL: `http://127.0.0.1:${fake.port}`,
         OCR_TIMEOUT_MS: "5000",
         OCR_LOW_CONFIDENCE: "0.8",
@@ -1206,13 +1145,9 @@ test("HTTP OCR 与纯文本模型生成候选，确认后导入现有题库", as
         LLM_API_KEY: "fixture-key",
         LLM_MODEL: "fixture-model",
         LLM_MAX_RETRIES: "0"
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
+      }
     });
     try {
-      await waitForServer(child);
-      const baseUrl = `http://127.0.0.1:${port}`;
       const initial = await fetch(`${baseUrl}/api/questions`).then((response) =>
         response.json()
       );
@@ -1499,15 +1434,10 @@ test("HTTP 多题扫描先定位，勾选后逐题分析", async () => {
         }
       ]
     });
-    const port = await freePort();
-    const child = spawn(process.execPath, ["src/server.js"], {
-      cwd: projectRoot,
+    const { child, baseUrl } = await startServer({
+      directory,
+      timeoutMs: 15_000,
       env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        PORT: String(port),
-        DB_PATH: path.join(directory, "learning.sqlite"),
-        ATTACHMENTS_DIR: path.join(directory, "attachments"),
         OCR_BASE_URL: `http://127.0.0.1:${fake.port}`,
         OCR_TIMEOUT_MS: "5000",
         OCR_LOW_CONFIDENCE: "0.8",
@@ -1515,13 +1445,9 @@ test("HTTP 多题扫描先定位，勾选后逐题分析", async () => {
         LLM_API_KEY: "fixture-key",
         LLM_MODEL: "fixture-model",
         LLM_MAX_RETRIES: "0"
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
+      }
     });
     try {
-      await waitForServer(child);
-      const baseUrl = `http://127.0.0.1:${port}`;
       const image = SCAN_PNG;
       const upload = await fetch(`${baseUrl}/api/attachments?kind=question`, {
         method: "POST",

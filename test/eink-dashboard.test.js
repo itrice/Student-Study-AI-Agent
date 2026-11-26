@@ -1,11 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { LearningRepository } from "../src/database.js";
 import { AttachmentStore } from "../src/attachments.js";
@@ -27,61 +24,7 @@ import {
   EINK_HEIGHT,
   EINK_WIDTH
 } from "../src/eink/render.js";
-
-const projectRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  ".."
-);
-
-async function freePort() {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const port = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
-
-function waitForServer(child) {
-  return new Promise((resolve, reject) => {
-    let output = "";
-    let errors = "";
-    const timer = setTimeout(() => {
-      reject(new Error(`服务启动超时：${errors || output}`));
-    }, 10_000);
-    child.stdout.on("data", (chunk) => {
-      output += chunk.toString();
-      if (output.includes("已启动")) {
-        clearTimeout(timer);
-        resolve();
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      errors += chunk.toString();
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`服务提前退出（${code}）：${errors || output}`));
-    });
-  });
-}
-
-async function stopServer(child) {
-  if (child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve();
-    }, 3_000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
-}
+import { startServer, stopServer } from "./helpers/http-fixture.js";
 
 function createMistake(repository) {
   return repository.createMistake({
@@ -280,27 +223,10 @@ test(
   "HTTP 看板返回 48000 字节、强 ETag、304 且无 preview",
   { timeout: 30_000 },
   async () => {
-    const directory = fs.mkdtempSync(
-      path.join(os.tmpdir(), "math-coach-eink-dashboard-http-")
-    );
-    const databasePath = path.join(directory, "learning.sqlite");
-    const attachmentsDirectory = path.join(directory, "attachments");
-    const port = await freePort();
-    const child = spawn(process.execPath, ["src/server.js"], {
-      cwd: projectRoot,
-      env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        PORT: String(port),
-        DB_PATH: databasePath,
-        ATTACHMENTS_DIR: attachmentsDirectory
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
+    const { child, directory, baseUrl } = await startServer({
+      prefix: "math-coach-eink-dashboard-http-"
     });
     try {
-      await waitForServer(child);
-      const baseUrl = `http://127.0.0.1:${port}`;
       const create = await fetch(`${baseUrl}/api/mistakes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
