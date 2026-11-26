@@ -1,11 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { LearningRepository } from "../src/database.js";
 import { AttachmentStore } from "../src/attachments.js";
@@ -20,11 +17,7 @@ import {
 } from "../src/eink/render.js";
 import { EinkPageService } from "../src/eink/service.js";
 import { PHOTO_AREA, prepareEinkPhoto } from "../src/eink/photo.js";
-
-const projectRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  ".."
-);
+import { startServer, stopServer } from "./helpers/http-fixture.js";
 
 async function makePhoto() {
   const svg = `
@@ -65,56 +58,6 @@ async function makeOrientedJpeg() {
     exif,
     jpeg.subarray(2)
   ]);
-}
-
-async function freePort() {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const port = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
-
-function waitForServer(child) {
-  return new Promise((resolve, reject) => {
-    let output = "";
-    let errors = "";
-    const timer = setTimeout(() => {
-      reject(new Error(`服务启动超时：${errors || output}`));
-    }, 10_000);
-    child.stdout.on("data", (chunk) => {
-      output += chunk.toString();
-      if (output.includes("已启动")) {
-        clearTimeout(timer);
-        resolve();
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      errors += chunk.toString();
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`服务提前退出（${code}）：${errors || output}`));
-    });
-  });
-}
-
-async function stopServer(child) {
-  if (child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve();
-    }, 3_000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
 }
 
 async function createMistake(baseUrl, input) {
@@ -270,36 +213,10 @@ test(
   "电子墨水屏 HTTP 接口满足帧格式、缓存和照片回退契约",
   { timeout: 60_000 },
   async () => {
-    const directory = fs.mkdtempSync(
-      path.join(os.tmpdir(), "math-coach-eink-api-")
-    );
-    const databasePath = path.join(directory, "learning.sqlite");
-    const attachmentsDirectory = path.join(directory, "attachments");
-    const port = await freePort();
-    const child = spawn(process.execPath, ["src/server.js"], {
-      cwd: projectRoot,
-      env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        PORT: String(port),
-        DB_PATH: databasePath,
-        ATTACHMENTS_DIR: attachmentsDirectory
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
+    const server = await startServer({ prefix: "math-coach-eink-api-" });
+    const { child, directory, attachmentsDirectory, baseUrl } = server;
 
     try {
-      await waitForServer(child);
-      const baseUrl = `http://127.0.0.1:${port}`;
       const textMistake = await createMistake(baseUrl, {
         question: "一个圆的半径是 3 厘米，求它的面积。",
         studentAnswer: "18.84 平方厘米",
@@ -549,7 +466,7 @@ test(
       assert.match(missing.headers.get("content-type"), /^application\/json/);
       assert.equal((await missing.json()).code, "MISTAKE_NOT_FOUND");
 
-      const persistedLog = `${stdout}\n${stderr}`;
+      const persistedLog = server.logs();
       assert.match(persistedLog, /\[eink\]/);
       assert.match(persistedLog, /warning=EINK_PHOTO_FALLBACK/);
       assert.doesNotMatch(persistedLog, /28\.26|18\.84/);

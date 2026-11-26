@@ -1,61 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import {
+  readCss,
+  parseBlocks,
+  findDeclaration,
+  cssVariables,
+  resolvePixels
+} from "./helpers/ui-css.js";
 
-const css = fs.readFileSync(
-  new URL("../public/styles.css", import.meta.url),
-  "utf8"
-);
-
-function parseBlocks() {
-  const blocks = [];
-  const pattern = /([^{}]+)\{([^{}]*)\}/g;
-  let match;
-  while ((match = pattern.exec(css)) !== null) {
-    const selectors = match[1]
-      .split(",")
-      .map((selector) => selector.trim().replace(/\s+/g, " "))
-      .filter(Boolean);
-    blocks.push({ selectors, declarations: match[2] });
-  }
-  return blocks;
-}
-
-function findDeclaration(selector, property) {
-  for (const block of parseBlocks()) {
-    if (!block.selectors.includes(selector)) continue;
-    const match = block.declarations.match(
-      new RegExp(`${property}\\s*:\\s*([^;]+)`, "i")
-    );
-    if (match) return match[1].trim();
-  }
-  return null;
-}
-
-function cssVariables() {
-  const variables = new Map();
-  for (const block of parseBlocks()) {
-    if (!block.selectors.includes(":root")) continue;
-    for (const match of block.declarations.matchAll(/(--[\w-]+)\s*:\s*([^;]+)/g)) {
-      variables.set(match[1], match[2].trim());
-    }
-  }
-  return variables;
-}
-
-function resolvePixels(value, variables) {
-  const direct = value.match(/^(\d+(?:\.\d+)?)px$/);
-  if (direct) return Number(direct[1]);
-  const variable = value.match(/^var\((--[\w-]+)\)$/);
-  if (variable) return resolvePixels(variables.get(variable[1]), variables);
-  return null;
-}
+const css = readCss(new URL("../public/styles.css", import.meta.url));
 
 test("全站阅读文本字号不低于 16px", () => {
   const violations = [];
-  for (const block of parseBlocks()) {
+  for (const block of parseBlocks(css)) {
     for (const match of block.declarations.matchAll(/font-size\s*:\s*([^;]+)/gi)) {
-      const size = resolvePixels(match[1].trim(), cssVariables());
+      const size = resolvePixels(match[1].trim(), cssVariables(css));
       if (size !== null && size < 16) {
         violations.push(`${block.selectors.join(", ")}: ${match[1].trim()}`);
       }
@@ -65,15 +25,15 @@ test("全站阅读文本字号不低于 16px", () => {
 });
 
 test("正文和辅助文字使用统一可读性基线", () => {
-  const variables = cssVariables();
+  const variables = cssVariables(css);
   assert.equal(resolvePixels(variables.get("--text-body"), variables), 17);
   assert.equal(resolvePixels(variables.get("--text-label"), variables), 16);
   assert.equal(resolvePixels(variables.get("--text-meta"), variables), 16);
-  assert.equal(findDeclaration("body", "font-size"), "var(--text-body)");
+  assert.equal(findDeclaration(css, "body", "font-size"), "var(--text-body)");
 });
 
 test("导航、分页和状态元信息保持 16px 可读字号", () => {
-  const variables = cssVariables();
+  const variables = cssVariables(css);
   for (const selector of [
     ".app-version",
     ".breadcrumb",
@@ -82,7 +42,7 @@ test("导航、分页和状态元信息保持 16px 可读字号", () => {
     ".session-progress span",
     ".pagination-status"
   ]) {
-    const value = findDeclaration(selector, "font-size");
+    const value = findDeclaration(css, selector, "font-size");
     assert.ok(value, `${selector} 缺少显式字号`);
     assert.ok(
       resolvePixels(value, variables) >= 16,
@@ -92,7 +52,7 @@ test("导航、分页和状态元信息保持 16px 可读字号", () => {
 });
 
 test("按钮和输入框字号不低于 16px", () => {
-  const variables = cssVariables();
+  const variables = cssVariables(css);
   const selectors = [
     ".primary-button",
     ".secondary-button",
@@ -110,7 +70,7 @@ test("按钮和输入框字号不低于 16px", () => {
   ];
 
   for (const selector of selectors) {
-    const value = findDeclaration(selector, "font-size");
+    const value = findDeclaration(css, selector, "font-size");
     assert.ok(value, `${selector} 缺少显式字号`);
     assert.ok(
       resolvePixels(value, variables) >= 16,
@@ -132,7 +92,7 @@ test("放大文字后的横向布局具备换行或滚动兜底", () => {
     ".knowledge-search-item-head",
     ".parts-editor-heading"
   ]) {
-    const declarations = parseBlocks()
+    const declarations = parseBlocks(css)
       .filter((block) => block.selectors.includes(selector))
       .map((block) => block.declarations)
       .join(";");
