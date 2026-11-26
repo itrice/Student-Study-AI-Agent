@@ -380,14 +380,13 @@ test(
       const photoEtag = photoPage.headers.get("etag");
       assert.equal((await photoPage.arrayBuffer()).byteLength, 48_000);
 
-      const cropBuffer = await sharp({
-        create: {
-          width: 120,
-          height: 64,
-          channels: 4,
-          background: { r: 255, g: 255, b: 255, alpha: 1 }
-        }
-      }).png().toBuffer();
+      const cropBuffer = await sharp(Buffer.from(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="120" height="64">
+          <rect width="120" height="64" fill="white"/>
+          <rect x="10" y="20" width="100" height="6" fill="black"/>
+          <rect x="10" y="38" width="70" height="6" fill="black"/>
+        </svg>
+      `)).png().toBuffer();
       const cropped = await fetch(
         `${baseUrl}/api/attachments/${attachment.id}/crop`,
         {

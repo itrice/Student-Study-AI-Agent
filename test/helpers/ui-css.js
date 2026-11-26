@@ -43,7 +43,10 @@ export function cssVariables(css) {
 export function resolvePixels(value, variables) {
   const direct = value.match(/^(\d+(?:\.\d+)?)px$/);
   if (direct) return Number(direct[1]);
+  // clamp() 取最小值：字号下限即阅读下限，不得因响应式缩放而低于基线。
+  const clamp = value.match(/^clamp\(\s*(\d+(?:\.\d+)?)px\b/i);
+  if (clamp) return Number(clamp[1]);
   const variable = value.match(/^var\((--[\w-]+)\)$/);
-  if (variable) return resolvePixels(variables.get(variable[1]), variables);
+  if (variable) return resolvePixels(variables.get(variable[1]) || "", variables);
   return null;
 }

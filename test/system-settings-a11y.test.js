@@ -227,7 +227,7 @@ test("系统配置索引页提供教材管理与审计日志两个子页面入�
   );
   assert.match(
     css,
-    /@media \(max-width: 900px\)[\s\S]*?\.settings-index\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/
+    /@media \(max-width: 980px\)[\s\S]*?\.settings-index\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/
   );
   assert.match(css, /\.settings-entry\s*\{[^}]*border-radius:\s*16px/s);
   assert.match(css, /\.settings-entry-icon\s*\{[^}]*width:\s*36px/s);

@@ -3213,7 +3213,7 @@ Object.assign(paths, {
       tags: ["墨水屏"],
       summary: "读取墨水屏到期队列",
       description:
-        "返回全部到期错题数和最多 20 条最小摘要，不返回题干、答案、提示、附件内容或附件 URL。响应不得压缩。",
+        "返回全部到期错题数和最多 20 条最小摘要，不返回题干、答案、提示、附件内容或附件 URL。不适配墨水屏单页（eink_fit_status=unfit）的错题会被排除，count 与 index 均按过滤后的队列计算。响应不得压缩。",
       operationId: "getEinkQueue",
       parameters: [
         {
@@ -3239,7 +3239,7 @@ Object.assign(paths, {
               count: {
                 type: "integer",
                 minimum: 0,
-                description: "全部到期错题数，不是 items.length"
+                description: "排除不适配错题后的到期错题数，不是 items.length"
               },
               updatedAt: { type: "string", format: "date-time" },
               items: {
@@ -3330,7 +3330,7 @@ Object.assign(paths, {
       tags: ["墨水屏"],
       summary: "读取 800×480 1bpp 设备帧",
       description:
-        "固定返回 48000 字节裸帧：每行 100 字节、MSB 在左、0=黑、1=白，不压缩。带 If-None-Match 命中时返回 304。",
+        "固定返回 48000 字节裸帧：每行 100 字节、MSB 在左、0=黑、1=白，不压缩。带 If-None-Match 命中时返回 304。不适配墨水屏单页的错题返回 409 JSON，不返回设备帧。",
       operationId: "getEinkPage",
       parameters: [
         {
@@ -3390,6 +3390,11 @@ Object.assign(paths, {
         404: errorResponse("错题不存在", {
           error: "没有找到这道错题",
           code: "MISTAKE_NOT_FOUND"
+        }),
+        409: errorResponse("错题不适配墨水屏单页（PD-12）", {
+          error: "不适配墨水屏单页",
+          code: "EINK_UNFIT",
+          reasons: ["EINK_UNFIT_TEXT"]
         })
       }
     }
@@ -3399,7 +3404,7 @@ Object.assign(paths, {
       tags: ["墨水屏"],
       summary: "读取设备帧对应的 PNG 预览",
       description:
-        "返回 800×480 PNG，与同参数 page 帧逐像素一致；仅供人工查看和验收。",
+        "返回 800×480 PNG，与同参数 page 帧逐像素一致；仅供人工查看和验收。不适配单页的错题返回标注“不适配墨水屏单页”的提示图，并带 X-Eink-Unfit: 1。",
       operationId: "getEinkPreview",
       parameters: [
         {
@@ -3422,7 +3427,19 @@ Object.assign(paths, {
         }
       ],
       responses: {
-        200: binaryResponse("与设备帧逐像素一致的 PNG 预览", "image/png"),
+        200: {
+          ...binaryResponse(
+            "与设备帧逐像素一致的 PNG 预览；不适配错题为“不适配墨水屏单页”提示图",
+            "image/png"
+          ),
+          headers: {
+            "X-Eink-Unfit": {
+              description:
+                "不适配提示图时为 1；正常预览不返回该响应头",
+              schema: { type: "string", enum: ["1"] }
+            }
+          }
+        },
         400: errorResponse("id 或 mode 非法"),
         404: errorResponse("错题不存在", {
           error: "没有找到这道错题",
@@ -3795,7 +3812,7 @@ const INFO_DESCRIPTION = [
 
 export function buildOpenApiDocument({
   baseUrl = "/",
-  version = "0.21.0"
+  version = "0.22.0"
 } = {}) {
   return {
     openapi: "3.1.0",
