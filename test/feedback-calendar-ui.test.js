@@ -153,7 +153,7 @@ test("月历与弹窗满足 44px 触控、16px 字号与滚动边界", () => {
   assert.match(dayBlock, /font-size: var\(--text-label\)/);
   assert.match(
     css,
-    /@media \(max-width: 389px\) \{[\s\S]*?min-width: 0/
+    /@media \(max-width: 560px\) \{[\s\S]*?\.calendar-day \{[^}]*min-width: 0/
   );
   assert.match(css, /\.calendar-nav-button \{\s*min-height: 44px/);
   assert.match(css, /\.calendar-today-link \{[\s\S]*?min-height: 44px/);

@@ -14,11 +14,14 @@ import {
 } from "./dashboard.js";
 import {
   EINK_LAYOUT_VERSION,
-  renderEinkPage
+  renderEinkPage,
+  renderEinkUnfitNotice
 } from "./render.js";
+import { evaluateEinkFit } from "./fit.js";
 import { prepareEinkPhoto } from "./photo.js";
 
 const CACHE_PAGES = 32;
+const FIT_CACHE_ENTRIES = 256;
 
 function cacheDigest(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -99,21 +102,76 @@ export class EinkPageService {
     renderer = renderEinkPage,
     dashboardRenderer = renderEinkDashboard,
     preparePhoto = prepareEinkPhoto,
-    cache = new LRUCache({ max: CACHE_PAGES })
+    unfitRenderer = renderEinkUnfitNotice,
+    cache = new LRUCache({ max: CACHE_PAGES }),
+    fitCache = new LRUCache({ max: FIT_CACHE_ENTRIES })
   }) {
     this.repository = repository;
     this.attachmentStore = attachmentStore;
     this.renderer = renderer;
     this.dashboardRenderer = dashboardRenderer;
     this.preparePhoto = preparePhoto;
+    this.unfitRenderer = unfitRenderer;
     this.cache = cache;
+    this.fitCache = fitCache;
+  }
+
+  resolveFit(mistake) {
+    const stored = mistake.einkFitStatus;
+    if (stored === "fit") return { status: "fit", reasons: [] };
+    const key = `${mistake.id}:${mistake.revision}:${
+      stored === "unfit" ? "pinned-unfit" : "auto"
+    }`;
+    const cached = this.fitCache.get(key);
+    if (cached) return cached;
+    const computed = evaluateEinkFit(mistake);
+    const result = stored === "unfit"
+      ? { status: "unfit", reasons: computed.reasons }
+      : computed;
+    this.fitCache.set(key, result);
+    return result;
+  }
+
+  getVisibleQueue() {
+    const visible = [];
+    for (const row of this.repository.getDueReviewCandidates()) {
+      if (row.einkFitStatus === "unfit") continue;
+      if (row.einkFitStatus !== "fit") {
+        let fit = this.fitCache.get(`${row.id}:${row.revision}:auto`);
+        if (!fit) {
+          const mistake = this.repository.getMistake(row.id, {
+            includeSolution: true
+          });
+          if (!mistake) continue;
+          fit = this.resolveFit(mistake);
+        }
+        if (fit.status === "unfit") continue;
+      }
+      visible.push(row);
+    }
+    return visible;
   }
 
   getQueue(limit = 20) {
+    const visible = this.getVisibleQueue();
     return {
-      ...this.repository.getDueReviewQueue({ limit }),
+      count: visible.length,
+      items: visible.slice(0, limit).map((row, index) => ({
+        id: row.id,
+        index: index + 1,
+        hasPhoto: Boolean(row.hasPhoto),
+        partCount: row.partCount,
+        ...(row.kp ? { kp: row.kp } : {})
+      })),
       updatedAt: new Date().toISOString()
     };
+  }
+
+  getVisiblePosition(id) {
+    const visible = this.getVisibleQueue();
+    const index = visible.findIndex((row) => row.id === id);
+    if (index < 0) return { index: 1, total: 1 };
+    return { index: index + 1, total: visible.length };
   }
 
   async getDashboard({ now = new Date() } = {}) {
@@ -190,7 +248,12 @@ export class EinkPageService {
     });
     if (!mistake) throw notFound();
 
-    const { index, total } = this.repository.getDueReviewPosition(id);
+    const fit = this.resolveFit(mistake);
+    if (fit.status === "unfit") {
+      return this.getUnfitResult({ mistake, mode, reasons: fit.reasons });
+    }
+
+    const { index, total } = this.getVisiblePosition(id);
     const attachment =
       mode === "question" && mistake.attachments.length
         ? mistake.attachments[0]
@@ -238,6 +301,13 @@ export class EinkPageService {
         photo: null
       });
     }
+    if (rendered.unfit) {
+      return this.getUnfitResult({
+        mistake,
+        mode,
+        reasons: rendered.reasons
+      });
+    }
 
     const etag = `"${cacheDigest(rendered.frame)}"`;
     const result = {
@@ -245,6 +315,24 @@ export class EinkPageService {
       etag,
       layoutVersion: EINK_LAYOUT_VERSION,
       warning
+    };
+    this.cache.set(key, result);
+    return { ...result, cacheHit: false };
+  }
+
+  async getUnfitResult({ mistake, mode, reasons = [] }) {
+    const key = cacheDigest(
+      `unfit:${mistake.id}:${mistake.revision}:${mode}:${reasons.join(",")}`
+    );
+    const cached = this.cache.get(key);
+    if (cached) return { ...cached, cacheHit: true };
+    const png = await this.unfitRenderer({ mistake, mode, reasons });
+    const result = {
+      unfit: true,
+      code: "EINK_UNFIT",
+      reasons,
+      png,
+      layoutVersion: EINK_LAYOUT_VERSION
     };
     this.cache.set(key, result);
     return { ...result, cacheHit: false };

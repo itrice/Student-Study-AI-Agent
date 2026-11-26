@@ -1,6 +1,8 @@
 /**
- * api-docs.css 是开发者文档的独立样式体系，豁免主站 token 色板。
- * 因此主站 §6.2 的色值允许清单不适用于它，这里按独立基线（31 非 token 字号 / 33 色）守护。
+ * api-docs.css 是开发者文档的独立样式体系，**永久豁免**主站 token 色板（UI_DEVELOPMENT_SPEC.md B5，
+ * 2026-11-26 定案）：它不并入主 token 体系，也不移出本测试——独立基线（31 非 token 字号 / 33 色）
+ * 与主站 §6.2 同规则长期保留，只能下降。
+ * 因此主站色值允许清单不适用于它，改它不会让主站门禁变松，反之亦然。
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -21,12 +23,14 @@ const indexHtml = fs.readFileSync(
 
 // 棘轮只能改小：以下基线常量是上限，降低计数时必须在同一 PR 同步下调。
 // 单测无法证明“基线未被偷偷调高”，由 R19 评审核对本文件 diff 执行。
-const STYLES_NON_TOKEN_FONT_SIZE_LIMIT = 33;
+// 1.1（2026-11-26，B1–B7）：非 token 字号 33 → 9；断点集合去掉 389/900；
+// 色值上限维持 209（B2 收编不增减，B4 换 3 值但去重数不变）。
+const STYLES_NON_TOKEN_FONT_SIZE_LIMIT = 9;
 const STYLES_COLOR_LIMIT = 209;
 const API_DOCS_NON_TOKEN_FONT_SIZE_LIMIT = 31;
 const API_DOCS_COLOR_LIMIT = 33;
 
-const BREAKPOINT_ALLOWLIST = new Set([389, 560, 820, 900, 980, 1100]);
+const BREAKPOINT_ALLOWLIST = new Set([560, 820, 980, 1100]);
 
 const STYLES_COLOR_ALLOWLIST = new Set(
   `
@@ -43,7 +47,7 @@ const STYLES_COLOR_ALLOWLIST = new Set(
 #1f7a63
 #2d6a4b
 #2d8267
-#3d78a5
+#2f6389
 #465a4d
 #4c6154
 #4d5f95
@@ -96,6 +100,7 @@ const STYLES_COLOR_ALLOWLIST = new Set(
 #89988f
 #8a5a00
 #8a5d13
+#8a5f1f
 #8a998f
 #8a9a92
 #8b9a91
@@ -129,10 +134,10 @@ const STYLES_COLOR_ALLOWLIST = new Set(
 #a8c3b5
 #a8d0ba
 #a9c5b8
+#b04434
 #b5c1b9
 #b7ccbf
 #b8d8c9
-#b9862f
 #bfd1c4
 #bfd9cb
 #c0cbc4
@@ -152,7 +157,6 @@ const STYLES_COLOR_ALLOWLIST = new Set(
 #d8e7de
 #d8ebdf
 #d9e2db
-#dc6858
 #dce3dd
 #dce6de
 #dfe9e2
@@ -324,7 +328,7 @@ function widthBreakpoints(css) {
   return [...breakpoints].sort((left, right) => left - right);
 }
 
-test("styles.css 非 token 字号不超过 33 个", () => {
+test("styles.css 非 token 字号不超过 9 个", () => {
   const entries = nonTokenFontSizes(stylesCss);
   assert.ok(
     entries.length <= STYLES_NON_TOKEN_FONT_SIZE_LIMIT,

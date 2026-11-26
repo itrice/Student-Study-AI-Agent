@@ -1375,6 +1375,37 @@ async function handleApi(request, response, url) {
       );
     }
 
+    if (page.unfit) {
+      const reasons = page.reasons || [];
+      if (url.pathname === "/api/eink/page") {
+        console.info(
+          `[eink] id=${id} mode=${mode} status=409 ` +
+            `unfit=${reasons.join(",") || "EINK_UNFIT"} ` +
+            `cache=${page.cacheHit ? "hit" : "miss"} ` +
+            `duration=${Date.now() - startedAt}ms`
+        );
+        return sendJson(response, 409, {
+          error: "不适配墨水屏单页",
+          code: "EINK_UNFIT",
+          reasons
+        });
+      }
+      response.writeHead(200, {
+        "Content-Type": "image/png",
+        "Content-Length": page.png.length,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "X-Eink-Unfit": "1"
+      });
+      response.end(page.png);
+      console.info(
+        `[eink] id=${id} mode=${mode} status=200 preview=unfit ` +
+          `cache=${page.cacheHit ? "hit" : "miss"} ` +
+          `duration=${Date.now() - startedAt}ms`
+      );
+      return;
+    }
+
     if (url.pathname === "/api/eink/page") {
       if (etagMatches(request.headers["if-none-match"], page.etag)) {
         response.writeHead(304, {
