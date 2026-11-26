@@ -29,6 +29,7 @@ import {
   searchKnowledgeCards,
   segmentKnowledgeText
 } from "./knowledge/search.js";
+import { evaluateEinkFit } from "./eink/fit.js";
 import {
   defaultAttachmentsDirectory,
   MAX_ATTACHMENTS_PER_MISTAKE,
@@ -1003,6 +1004,12 @@ export class LearningRepository {
       this.db.exec("ROLLBACK");
       throw error;
     }
+    const owner = this.db
+      .prepare("SELECT mistake_id FROM attachments WHERE id = ?")
+      .get(input.attachmentId);
+    if (owner?.mistake_id) {
+      this.refreshEinkFitStatus(owner.mistake_id);
+    }
     return {
       attachment: this.getAttachment(input.attachmentId, {
         includeStorageKey: true
@@ -1025,6 +1032,12 @@ export class LearningRepository {
     this.db
       .prepare("DELETE FROM attachment_crops WHERE attachment_id = ?")
       .run(attachmentId);
+    const owner = this.db
+      .prepare("SELECT mistake_id FROM attachments WHERE id = ?")
+      .get(attachmentId);
+    if (owner?.mistake_id) {
+      this.refreshEinkFitStatus(owner.mistake_id);
+    }
     return { deleted: true, storageKey: row.storage_key };
   }
 
@@ -3546,6 +3559,7 @@ export class LearningRepository {
         timestamp,
         curriculum.knowledgePoint
       );
+      this.refreshEinkFitStatus(mistakeId);
       this.insertDiagnosis(mistakeId, diagnosis, timestamp);
       const reviewScheduleId = this.insertReviewSchedule({
         mistakeId,
@@ -3750,6 +3764,7 @@ export class LearningRepository {
       attachmentIds,
       timestamp
     );
+    this.refreshEinkFitStatus(mistakeId);
     this.insertDiagnosis(mistakeId, diagnosis, timestamp);
     const reviewScheduleId = this.insertReviewSchedule({
       mistakeId,
@@ -3803,6 +3818,16 @@ export class LearningRepository {
       mistake.attachments = this.listMistakeAttachments(id);
     }
     return mistake;
+  }
+
+  refreshEinkFitStatus(mistakeId) {
+    const mistake = this.getMistake(mistakeId, { includeSolution: true });
+    if (!mistake) return null;
+    const { status } = evaluateEinkFit(mistake);
+    this.db
+      .prepare("UPDATE mistakes SET eink_fit_status = ? WHERE id = ?")
+      .run(status, mistakeId);
+    return status;
   }
 
   getMistakeParts(id, { includeSolution = false } = {}) {
@@ -5454,6 +5479,7 @@ export class LearningRepository {
           timestamp
         );
       }
+      this.refreshEinkFitStatus(id);
       this.db
         .prepare(
           `INSERT INTO mistake_edits (
@@ -5589,23 +5615,12 @@ export class LearningRepository {
       );
   }
 
-  getDueReviewQueue({ limit = 20, at = nowIso() } = {}) {
-    const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 20));
-    const total = Number(
-      this.db
-        .prepare(
-          `SELECT COUNT(*) AS count
-           FROM mistakes m
-           LEFT JOIN review_schedule rs
-             ON rs.mistake_id = m.id AND rs.active = 1
-           WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
-             AND ${QUESTION_IS_MISTAKE_SQL}`
-        )
-        .get(at).count
-    );
-    const items = this.db
+  getDueReviewCandidates({ at = nowIso() } = {}) {
+    return this.db
       .prepare(
         `SELECT m.id,
+                m.revision,
+                m.eink_fit_status,
                 COALESCE(k.name, m.knowledge_point) AS kp,
                 EXISTS(
                   SELECT 1 FROM attachments a WHERE a.mistake_id = m.id
@@ -5628,53 +5643,33 @@ export class LearningRepository {
              ELSE 3
            END,
            COALESCE(rs.next_review_at, m.due_at, m.created_at) ASC,
-           m.id ASC
-         LIMIT ?`
+           m.id ASC`
       )
-      .all(at, safeLimit)
-      .map((row, index) => ({
+      .all(at)
+      .map((row) => ({
         id: row.id,
-        index: index + 1,
+        revision: Number(row.revision),
+        einkFitStatus: row.eink_fit_status || "unchecked",
         hasPhoto: Boolean(row.has_photo),
         partCount: Math.max(1, Number(row.part_count) || 0),
         ...(row.kp ? { kp: row.kp } : {})
       }));
-    return { count: total, items };
   }
 
-  getDueReviewPosition(id, { at = nowIso() } = {}) {
-    const row = this.db
-      .prepare(
-        `WITH due AS (
-           SELECT m.id,
-                  CASE m.status
-                    WHEN 'new' THEN 0
-                    WHEN 'relearning' THEN 1
-                    WHEN 'practicing' THEN 2
-                    ELSE 3
-                  END AS status_rank,
-                  COALESCE(rs.next_review_at, m.due_at, m.created_at) AS due_at
-           FROM mistakes m
-           LEFT JOIN review_schedule rs
-             ON rs.mistake_id = m.id AND rs.active = 1
-           WHERE COALESCE(rs.next_review_at, m.due_at, m.created_at) <= ?
-             AND ${QUESTION_IS_MISTAKE_SQL}
-         ),
-         numbered AS (
-           SELECT id,
-                  ROW_NUMBER() OVER (
-                    ORDER BY status_rank ASC, due_at ASC, id ASC
-                  ) AS position,
-                  COUNT(*) OVER () AS total
-           FROM due
-         )
-         SELECT position, total FROM numbered WHERE id = ?`
-      )
-      .get(at, id);
-    if (!row) return { index: 1, total: 1 };
+  getDueReviewQueue({ limit = 20, at = nowIso() } = {}) {
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 20));
+    const visible = this.getDueReviewCandidates({ at }).filter(
+      (row) => row.einkFitStatus !== "unfit"
+    );
     return {
-      index: Number(row.position),
-      total: Number(row.total)
+      count: visible.length,
+      items: visible.slice(0, safeLimit).map((row, index) => ({
+        id: row.id,
+        index: index + 1,
+        hasPhoto: row.hasPhoto,
+        partCount: row.partCount,
+        ...(row.kp ? { kp: row.kp } : {})
+      }))
     };
   }
 
