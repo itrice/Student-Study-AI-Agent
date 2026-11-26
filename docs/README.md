@@ -47,7 +47,7 @@
 | [KNOWLEDGE_REVIEW_CHECKLIST.md](KNOWLEDGE_REVIEW_CHECKLIST.md) | 保留 | L2 | 知识内容审核流程 |
 | [LLM_SETUP.md](LLM_SETUP.md) | 保留 | L1 | LLM 配置、诊断与降级 |
 | [M7_SECURITY_CHECKLIST.md](M7_SECURITY_CHECKLIST.md) | 保留 | L2 | M7 安全测试清单 |
-| [M9_IMAGE_INTAKE.md](M9_IMAGE_INTAKE.md) | 保留 | L1 | 图片录题契约（含 2026-11-26 题框确认口径） |
+| [M9_IMAGE_INTAKE.md](M9_IMAGE_INTAKE.md) | 更新 | L1 | 图片录题契约；新增 2026-11-26 题框确认流程与历史口径边界（:5-12） |
 | [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md) | 保留 | L1 | Docker Compose 手工部署 + K3s CI/CD 手册 |
 | [textbook-switching.md](textbook-switching.md) | 保留 | L1 | 教材切换数据契约与回滚 |
 | [beishida-2024-teacher-review-checklist.md](beishida-2024-teacher-review-checklist.md) | 保留 | L2 | 北师大 2024 教材人工核对清单 |
@@ -56,7 +56,7 @@
 
 | 文件 | 处置 | 权威归属 | 说明 |
 |---|---|---|---|
-| [eink/eink-frame-api.md](eink/eink-frame-api.md) | 保留 | L1 | 四接口实现说明，接口主题唯一权威 |
+| [eink/eink-frame-api.md](eink/eink-frame-api.md) | 更新 | L1 | 四接口实现说明；首页看板已实现、依赖改 sharp、20px 省略号加批注（:8,91,110,135） |
 | [eink/电子墨水屏看板设计.md](eink/电子墨水屏看板设计.md) | 更新 | L1 | 相关文档链接改指归档路径 |
 | [eink/服务端渲染-产品补充说明.md](eink/服务端渲染-产品补充说明.md) | 更新 | L1 | 对《服务端改造需求》的引用改指归档路径 |
 
@@ -64,19 +64,20 @@
 
 | 文件 | 处置 | 权威归属 | 说明 |
 |---|---|---|---|
-| [题库/README.md](题库/README.md) | 保留 | L1 | 题库文档阅读顺序与边界 |
-| [题库/01-产品需求-拍照批量识别与统一题库.md](题库/01-产品需求-拍照批量识别与统一题库.md) | 保留 | L1 | PRD v1.4，需求唯一权威 |
-| [题库/02-题库产品设计.md](题库/02-题库产品设计.md) | 保留 | L2 | 产品设计基线 v1.3 |
+| [题库/README.md](题库/README.md) | 更新 | L1 | 阅读顺序新增统一题库查询兼容说明；e-ink 冲突批注（:24-31,42） |
+| [题库/01-产品需求-拍照批量识别与统一题库.md](题库/01-产品需求-拍照批量识别与统一题库.md) | 更新 | L1 | PRD v1.4，题框确认现行流程；正文已按 v1.4 更新（:3-10） |
+| [题库/02-题库产品设计.md](题库/02-题库产品设计.md) | 更新 | L2 | 产品设计基线 v1.3；题框确认流程已并入（:3-9） |
 | [题库/03-开发计划-拍照批量识别与统一题库.md](题库/03-开发计划-拍照批量识别与统一题库.md) | 更新 | L2 | 头部对应需求版本 v1.3→v1.4 |
 | [题库/04-QA验收计划-拍照批量识别与统一题库.md](题库/04-QA验收计划-拍照批量识别与统一题库.md) | 保留 | L2 | QA 验收计划 v0.5 |
-| [题库/05-产品补充裁决与实施口径.md](题库/05-产品补充裁决与实施口径.md) | 保留 | L1 | 补充裁决，冲突时优先于 01–04（不降 PRD 13 门槛） |
-| [题库/07-拍照选题最终流程.md](题库/07-拍照选题最终流程.md) | 保留 | L1 | 拍照选题现行 UI/OCR 流程唯一说明 |
+| [题库/05-产品补充裁决与实施口径.md](题库/05-产品补充裁决与实施口径.md) | 更新 | L1 | 补充裁决；入口与题框确认口径已更新（:3-11），冲突时优先于 01–04（不降 PRD 13 门槛） |
+| [题库/07-拍照选题最终流程.md](题库/07-拍照选题最终流程.md) | 新建 | L1 | 本轮固化并纳入索引；拍照选题现行 UI/OCR 流程唯一说明 |
 | [题库/07-统一题库查询兼容说明.md](题库/07-统一题库查询兼容说明.md) | 保留 | L1 | 统一题库查询、分类筛选与 `/api/mistakes` 兼容期说明 |
 
 ### 2.4 docs/reports/（历史证据，不删不搬）
 
 | 文件 | 处置 | 权威归属 | 说明 |
 |---|---|---|---|
+| [reports/docs-alignment-nightly-2026-11-26.md](reports/docs-alignment-nightly-2026-11-26.md) | 新建 | L3 | 2026-11-26 夜跑交付报告：三 PR、回滚 SHA、文档处置、批注与 backlog |
 | [reports/ui-readability-2026-11-10.md](reports/ui-readability-2026-11-10.md) | 更新 | L3 | 头部加"历史快照"；14/12px 口径已过时，现行见 UI_DEVELOPMENT_SPEC |
 | [reports/mistake-save-readability-2026-11-15.md](reports/mistake-save-readability-2026-11-15.md) | 保留 | L3 | 错题保存与字号修复记录（现行参考） |
 | [reports/m4-ui-validation-2026-11-09.md](reports/m4-ui-validation-2026-11-09.md) | 保留 | L3 | M4 验收证据 |
