@@ -4,7 +4,7 @@
 > 最终 dev：`11f2fd9e8fcb589045df01dfe3f3b7d826d68858`
 > 状态：Phase 1–5 完成，3 次 dev 部署全部成功；本报告 PR 保持 Open，避免第 4 次 dev 部署
 > 范围：`docs/`、`test/`、`src/` 零引用清理与 `scripts/` 零引用删除；不改 UI 样式、不迁移、不改 e-ink 代码
-> 本报告 PR：待创建（创建后回填编号与 URL）
+> 本报告 PR：[#68](https://github.com/itrice/Student-Study-AI-Agent/pull/68)
 
 ## 1. 一句话结论与回滚
 
@@ -327,6 +327,6 @@ ingress：`http://student-study-ai-agent-dev.home.arpa/api/health` 经本机环�
 | 文档收敛 | #65 | https://github.com/itrice/Student-Study-AI-Agent/pull/65 | 已合并 `619a088` |
 | 测试整理 + UI 棘轮 | #66 | https://github.com/itrice/Student-Study-AI-Agent/pull/66 | 已合并 `2213f79` |
 | 代码清理 | #67 | https://github.com/itrice/Student-Study-AI-Agent/pull/67 | 已合并 `11f2fd9` |
-| 夜跑交付报告 | 待创建 | 待创建 | 保持 Open（避免第 4 次 dev 部署） |
+| 夜跑交付报告 | #68 | https://github.com/itrice/Student-Study-AI-Agent/pull/68 | 保持 Open（避免第 4 次 dev 部署） |
 
 附：QA 发现全文见 `docs/_notes/qa-findings.md`。
