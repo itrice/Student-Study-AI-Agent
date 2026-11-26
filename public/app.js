@@ -358,6 +358,7 @@ async function uploadImageFiles(fileList, { autoCrop = true } = {}) {
   }
 }
 
+// 取值来源：src/question-bank/scanner.js 的 QUESTION_TYPES，前端仅补中文标签。
 const SCAN_QUESTION_TYPES = [
   ["general", "通用题"],
   ["single_choice", "单选题"],
