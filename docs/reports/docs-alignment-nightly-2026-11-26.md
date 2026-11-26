@@ -2,7 +2,7 @@
 
 > 日期：2026-11-26（夜跑批次 nightly-2026-11-26）
 > 最终 dev：`11f2fd9e8fcb589045df01dfe3f3b7d826d68858`
-> 状态：Phase 1–5 完成，3 次 dev 部署全部成功；本报告 PR 保持 Open，避免第 4 次 dev 部署
+> 状态：Phase 1–5 完成，3 次 dev 部署全部成功；本报告经用户授权合并，触发第 4 次 dev 部署
 > 范围：`docs/`、`test/`、`src/` 零引用清理与 `scripts/` 零引用删除；不改 UI 样式、不迁移、不改 e-ink 代码
 > 本报告 PR：[#68](https://github.com/itrice/Student-Study-AI-Agent/pull/68)
 
@@ -292,33 +292,33 @@ ingress：`http://student-study-ai-agent-dev.home.arpa/api/health` 经本机环�
 - **B7**：`app.js` 绘制层色值接入统一常量；参考 `app.js:546,1796`。
 - 修正 `docs/eink/服务端渲染-产品补充说明.md:165` 的“三个只读接口”为四个（代码事实：`src/server.js:1298,1309,1355,1356`）。
 - 消除 2 个 helper 空测试节点对计数的干扰（例如移出 Node 默认发现路径），使 tests 计数与显式用例数一致。
-- 合并本报告 PR（会触发第 4 次 dev 部署，需另行授权）。
+- B1–B7 已由用户裁决在下一轮启动（见 §12）。
 
 ### owner=product
 
-- 统一产品范围口径：根 `README.md:3` 已声明“小学 3～6 年级与初中全学科”，`IMPLEMENTATION_PLAN.md`、`KNOWLEDGE_BASE.md`、`MVP.md`、`TOOL_CONTRACTS.md` 仍为六年级数学；4 条 `待更新` 批注待产品更新。
-- M7 整体验收结论：`IMPLEMENTATION_STATUS.md:9` 为“待验收”，`reports/m7-evaluation-2026-11-10.md:5` 标注“发布门禁：通过”；需产品确认口径。
-- 墨水屏 20px 末行省略与 `题库/04` PD-12/QA-EINK-03“不得截断/省略号”的冲突；3 条 `待确认` 批注（`eink-frame-api.md:135`、`题库/04:314`、`题库/README.md:42`），本轮不改 e-ink，裁决后转 dev-eink。
-- `/api/questions?category=mistake` 返回包装对象 `{questions,total}` 而非裸数组；若验收要求裸数组，需产品/开发确认。
-- B4 对比度修正涉及品牌色取舍，需产品确认是否调整 pale 组合或限定大号文本。
+- 统一产品范围口径（已裁决，下一轮执行）：统一为“小学 3～6 年级全学科”，暂不含初中；需改根 `README.md:3` 与 `IMPLEMENTATION_PLAN.md`、`KNOWLEDGE_BASE.md`、`MVP.md`、`TOOL_CONTRACTS.md` 的范围表述，并清理 4 条 `待更新` 批注；当前知识库数据覆盖（人教版六年级数学）作为现状另行标注，不等于目标范围。
+- M7 整体验收结论（已裁决）：整体验收以 `IMPLEMENTATION_STATUS.md` 的“待验收”为准；`reports/m7-evaluation-2026-11-10.md` 的“发布门禁：通过”仅指 M7 评测/安全门禁，不是整体验收结论；下一轮修正双方措辞。
+- 墨水屏 20px 末行省略与 `题库/04` PD-12/QA-EINK-03“不得截断/省略号”的冲突（已裁决）：以 PD-12 为准，转 dev-eink 修复 3 条 `待确认` 批注涉及的文档与实现。
+- `/api/questions?category=mistake` 返回包装对象 `{questions,total}`（已裁决）：满足验收；`src/openapi.js` 的 `QuestionList` 契约要求 `total`+`questions` 且 `additionalProperties:false`，前端 `app.js:2599-2600` 按 `result.questions` 消费，`/api/mistakes` 保留裸数组兼容。
+- B4 对比度修正涉及品牌色取舍，需在下一轮 B1–B7 内按 UI 规范 §4.1 定稿（默认采用提亮 pale 组合或限定大号文本，如无产品新指令即按规范执行）。
 
 ### owner=ops
 
 - ingress 503 为本机代理链路问题；使用该环境验收时配置 `no_proxy` 或 `curl --noproxy '*'`，不要把 503 记为应用故障。
 - dev ingress 的访问方式与证书/代理配置需在验收环境固化；本轮以 port-forward 作为黑盒证据。
-- 第 4 次 dev 部署预算：合并本报告 PR 会触发 build+deploy，需 ops/用户确认。
+- 第 4 次 dev 部署已由用户授权（合并本报告 PR）。
 - PR #64 已在本轮前合入 main；如需生产发布追踪，请以 merge `9ff569d` 为起点单独核对。
 
-## 10. 需用户裁决项
+## 10. 用户裁决项与状态
 
-1. **e-ink 截断冲突**：是否允许 20px 末行省略，还是按 PD-12/QA-EINK-03 改为“不适配、不截断”？涉及 3 条批注，裁决后由 dev-eink 执行。
-2. **M7 验收口径**：`IMPLEMENTATION_STATUS` 的“待验收”与评测报告的“发布门禁通过”以哪个作为整体结论？
-3. **产品范围**：文档是否统一扩到“小学 3～6 年级与初中全学科”，还是保留六年级数学并修正根 README？
-4. **`/api/questions` 响应形态**：包装对象 `{questions,total}` 是否满足验收，还是需要裸数组兼容？
-5. **本报告 PR 的合并时机**：合并会触发第 4 次 dev 部署；是现在授权，还是留待下一轮合并？
-6. **B1–B7 排期**：是否在下一轮启动 UI token 化/断点收敛/对比度修正；B4 需先定品牌色。
-7. **ingress 环境**：是否为验收环境统一配置 `no_proxy`/直连，或修复本机代理链路？
-8. **PR #64 已合入 main**：确认无需本轮动作；如需发布回滚或生产验证，请给出范围。
+1. **e-ink 截断冲突**：已裁决——按 PD-12/QA-EINK-03 执行“不适配、不截断、不显示省略号”，转 dev-eink 修复。
+2. **M7 验收口径**：已裁决——整体验收以 `IMPLEMENTATION_STATUS` 的“待验收”为准；评测报告的“发布门禁通过”仅为 M7 评测/安全门禁。
+3. **产品范围**：已裁决——统一为“小学 3～6 年级全学科”，暂不含初中。
+4. **`/api/questions` 响应形态**：已裁决——包装对象 `{questions,total}` 满足验收，无需裸数组。
+5. **本报告 PR 的合并时机**：已裁决——合并（用户授权，触发第 4 次 dev 部署）。
+6. **B1–B7 排期**：已裁决——下一轮启动。
+7. **ingress 环境**：待办（owner=ops）——验收环境统一配置 `no_proxy`/直连，或修复本机代理链路。
+8. **PR #64 已合入 main**：无需本轮动作；如需发布回滚或生产验证，请以 merge `9ff569d` 为起点另行给出范围。
 
 ## 11. 交付 PR 记录
 
@@ -327,6 +327,17 @@ ingress：`http://student-study-ai-agent-dev.home.arpa/api/health` 经本机环�
 | 文档收敛 | #65 | https://github.com/itrice/Student-Study-AI-Agent/pull/65 | 已合并 `619a088` |
 | 测试整理 + UI 棘轮 | #66 | https://github.com/itrice/Student-Study-AI-Agent/pull/66 | 已合并 `2213f79` |
 | 代码清理 | #67 | https://github.com/itrice/Student-Study-AI-Agent/pull/67 | 已合并 `11f2fd9` |
-| 夜跑交付报告 | #68 | https://github.com/itrice/Student-Study-AI-Agent/pull/68 | 保持 Open（避免第 4 次 dev 部署） |
+| 夜跑交付报告 | #68 | https://github.com/itrice/Student-Study-AI-Agent/pull/68 | 已合并（用户授权，触发第 4 次 dev 部署） |
 
 附：QA 发现全文见 `docs/_notes/qa-findings.md`。
+
+## 12. 用户裁决记录（2026-11-26）
+
+| # | 事项 | 裁决 | 后续动作 |
+| --- | --- | --- | --- |
+| 1 | 本报告 PR #68 | 合并 | 合并触发第 4 次 dev 部署，按 CI 结果记录 |
+| 2 | e-ink 20px 末行省略与 题库/04 PD-12/QA-EINK-03“不得截断”冲突 | 以 PD-12/QA-EINK-03 为准，转 dev-eink 修正 | dev-eink 实现 `eink_fit_status=unfit`、队列排除、page 409 `EINK_UNFIT`、preview 标注“不适配墨水屏单页”，删除省略号路径；文档同步去掉 3 条 `待确认` 批注 |
+| 3 | M7 整体验收口径 | 以 `IMPLEMENTATION_STATUS` 的“待验收”为准 | 下一轮修正 `reports/m7-evaluation-2026-11-10.md` 措辞，明确“发布门禁通过”仅指 M7 评测/安全门禁 |
+| 4 | 产品范围 | 统一为“小学 3～6 年级全学科”，暂不考虑初中 | 下一轮更新根 `README.md:3` 及 `IMPLEMENTATION_PLAN.md`、`KNOWLEDGE_BASE.md`、`MVP.md`、`TOOL_CONTRACTS.md`，区分目标范围与当前知识库数据覆盖（人教版六年级数学），清理 4 条 `待更新` 批注 |
+| 5 | `/api/questions?category=mistake` 包装对象 | 满足验收 | 契约见 `src/openapi.js` `QuestionList`（`total`+`questions`，`additionalProperties:false`）；前端 `public/app.js:2599-2600` 已按 `result.questions` 消费；`/api/mistakes` 保留裸数组兼容；接口作用为统一题库列表查询并按分类过滤，读取唯一 `mistakes` 事实表 |
+| 6 | B1–B7 | 下一轮启动 | 按 `docs/UI_DEVELOPMENT_SPEC.md` §7 执行；B4 按规范 §4.1 定稿对比度方案 |
