@@ -1,72 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
-import net from "node:net";
-import os from "node:os";
-import path from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-
-const projectRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  ".."
-);
-
-async function freePort() {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const port = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
-
-function waitForServer(child) {
-  return new Promise((resolve, reject) => {
-    let output = "";
-    let errors = "";
-    const timer = setTimeout(() => {
-      reject(new Error(`服务启动超时：${errors || output}`));
-    }, 10_000);
-    child.stdout.on("data", (chunk) => {
-      output += chunk.toString();
-      if (output.includes("已启动")) {
-        clearTimeout(timer);
-        resolve();
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      errors += chunk.toString();
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`服务提前退出（${code}）：${errors || output}`));
-    });
-  });
-}
-
-async function stopServer(child) {
-  if (child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve();
-    }, 3_000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
-}
-
-async function jsonBody(response) {
-  return response.json();
-}
+import {
+  jsonBody,
+  startServer,
+  stopServer
+} from "./helpers/http-fixture.js";
 
 function localDateKey(date = new Date()) {
   return [
@@ -95,25 +36,10 @@ test(
   "HTTP 教材切换预演、执行、幂等、审计与知识地图端到端",
   { timeout: 30_000 },
   async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "math-coach-textbook-http-"));
-    const databasePath = path.join(directory, "learning.sqlite");
-    const attachmentsDirectory = path.join(directory, "attachments");
-    const port = await freePort();
-    const child = spawn(process.execPath, ["src/server.js"], {
-      cwd: projectRoot,
-      env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        PORT: String(port),
-        DB_PATH: databasePath,
-        ATTACHMENTS_DIR: attachmentsDirectory
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
+    const { child, directory, databasePath, baseUrl } = await startServer({
+      prefix: "math-coach-textbook-http-"
     });
     try {
-      await waitForServer(child);
-      const baseUrl = `http://127.0.0.1:${port}`;
       const curriculum = await jsonBody(await fetch(`${baseUrl}/api/curriculum`));
       assert.equal(curriculum.currentTextbook.textbookKey, "renjiao-6-all");
       assert.equal(curriculum.textbooks.length, 5);

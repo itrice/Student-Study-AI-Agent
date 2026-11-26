@@ -5,7 +5,7 @@
 > 范围：`GET /api/eink/queue`、`GET /api/eink/dashboard`、
 > `GET /api/eink/page`、`GET /api/eink/preview`
 
-首页看板尚未实现。其产品、版面和验收设计见
+首页看板服务端接口与自动化测试已实现，真机版面验收仍按下列设计执行：
 [电子墨水屏看板设计](./电子墨水屏看板设计.md)，不得将本文的题目页排版规则
 直接套用到看板。
 
@@ -88,7 +88,7 @@ GET /api/eink/preview?id=19&mode=question
 
 ## 4. 照片处理
 
-1. `@napi-rs/canvas` 的 `loadImage()` 在解码时应用 JPEG EXIF Orientation；代码不再二次旋转。
+1. `sharp` 的 `rotate()` 按 EXIF Orientation 自动旋转；代码不再二次旋转。
 2. 已有人工裁剪时直接读取派生裁剪图，跳过硬裁；随后执行白边和局部阈值。
 3. 原图缩到 120×90，按亮度 ≥195 的白纸区域求包围盒；面积不足 55% 时退回墨迹包围盒。
 4. 裁出的图片四周增加 8px 白边。
@@ -107,7 +107,7 @@ GET /api/eink/preview?id=19&mode=question
 
 | 组件 | 版本 | 许可 | 平台 |
 |---|---|---|---|
-| `@napi-rs/canvas` | 1.1.1 | MIT | Windows x64/arm64；Linux x64/arm64 的 glibc 与 musl；macOS；Android 等 |
+| `sharp` | 0.34.5 | Apache-2.0 | Windows x64/arm64；Linux x64/arm64 的 glibc 与 musl；macOS x64/arm64 |
 | Noto Sans SC Regular | 随仓库打包 | SIL OFL 1.1 | 文本渲染，不依赖容器系统字体 |
 | Noto Sans SC Bold | 随仓库打包 | SIL OFL 1.1 | 页眉粗体 |
 | `lru-cache` | 11.5.3 | Blue Oak 1.0.0 | 纯 JavaScript，进程内页面缓存 |
@@ -131,3 +131,5 @@ node scripts/generate-eink-previews.mjs
 - 多附件时固定显示第一张，不支持终端多图切换。
 - 单页只支持 20px 以上正文；极端长答案会按既定规则在 20px 最后一行的行末省略。
 - 接口沿用产品要求，匿名只读；只适合现有家庭局域网部署，不应直接暴露到公网。
+
+<!-- NOTE type=待确认 ref=src/eink/render.js:115,225 target=docs/eink/eink-frame-api.md:132 owner=product :: 本文“20px 末行省略”与 题库/04 PD-12、QA-EINK-03“不得截断/显示旧版省略号”冲突；本轮不改 e-ink 代码，待产品裁决后转 dev-eink。 -->
