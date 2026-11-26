@@ -7,11 +7,11 @@
   --green: #1f7a63;
   --green-dark: #155b4a;
   --green-pale: #e9f5ef;
-  --coral: #dc6858;
+  --coral: #b04434;
   --coral-pale: #fff0eb;
-  --blue: #3d78a5;
+  --blue: #2f6389;
   --blue-pale: #eaf3f9;
-  --gold: #b9862f;
+  --gold: #8a5f1f;
   --gold-pale: #fbf4e4;
   --purple: #755b9c;
   --purple-pale: #f2eef8;
@@ -20,6 +20,9 @@
   --text-meta: 16px;
   --text-label: 16px;
   --text-body: 17px;
+  --focus-accent: #e11d48;
+  --coral-dark: #a44d42;
+  --gold-bright: #e8c27d;
   --text-display: clamp(34px, 3.6vw, 52px);
   --text-h1: clamp(30px, 3vw, 42px);
   --text-h2: 24px;
@@ -429,7 +432,7 @@ svg {
 }
 
 .hero h1 em {
-  color: #e8c27d;
+  color: var(--gold-bright);
   font-style: normal;
 }
 
@@ -528,7 +531,7 @@ svg {
   padding: 11px 14px;
   border-radius: 12px;
   color: var(--ink);
-  background: #e8c27d;
+  background: var(--gold-bright);
   box-shadow: 0 15px 30px rgba(0, 0, 0, 0.18);
   transform: rotate(-2deg);
 }
@@ -566,7 +569,7 @@ svg {
   left: 49px;
   width: 4px;
   height: 4px;
-  background: #e8c27d;
+  background: var(--gold-bright);
 }
 
 .primary-button,
@@ -846,7 +849,7 @@ svg {
 }
 
 .tag.is-coral {
-  color: #a44d42;
+  color: var(--coral-dark);
   background: var(--coral-pale);
 }
 
@@ -5528,7 +5531,7 @@ body.review-focus-mode #view-review .review-attachments img {
 }
 
 .scan-ocr-box.is-focused {
-  border-color: #e11d48;
+  border-color: var(--focus-accent);
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
   cursor: move;
 }
@@ -5599,7 +5602,7 @@ body.review-focus-mode #view-review .review-attachments img {
   position: absolute;
   width: 14px;
   height: 14px;
-  border: 2px solid #e11d48;
+  border: 2px solid var(--focus-accent);
   border-radius: 3px;
   background: #fff;
   pointer-events: auto;
@@ -5758,7 +5761,7 @@ body.review-focus-mode #view-review .review-attachments img {
 }
 
 .scan-candidate-tag.is-wrong {
-  color: #a44d42;
+  color: var(--coral-dark);
   background: var(--coral-pale);
 }
 
@@ -5801,7 +5804,7 @@ body.review-focus-mode #view-review .review-attachments img {
   margin: 0;
   padding: 8px 10px;
   border-radius: 10px;
-  color: #a44d42;
+  color: var(--coral-dark);
   background: var(--coral-pale);
   font-size: var(--text-meta);
 }

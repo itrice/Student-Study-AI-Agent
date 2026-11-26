@@ -43,7 +43,7 @@ const STYLES_COLOR_ALLOWLIST = new Set(
 #1f7a63
 #2d6a4b
 #2d8267
-#3d78a5
+#2f6389
 #465a4d
 #4c6154
 #4d5f95
@@ -96,6 +96,7 @@ const STYLES_COLOR_ALLOWLIST = new Set(
 #89988f
 #8a5a00
 #8a5d13
+#8a5f1f
 #8a998f
 #8a9a92
 #8b9a91
@@ -129,10 +130,10 @@ const STYLES_COLOR_ALLOWLIST = new Set(
 #a8c3b5
 #a8d0ba
 #a9c5b8
+#b04434
 #b5c1b9
 #b7ccbf
 #b8d8c9
-#b9862f
 #bfd1c4
 #bfd9cb
 #c0cbc4
@@ -152,7 +153,6 @@ const STYLES_COLOR_ALLOWLIST = new Set(
 #d8e7de
 #d8ebdf
 #d9e2db
-#dc6858
 #dce3dd
 #dce6de
 #dfe9e2
