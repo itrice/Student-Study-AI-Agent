@@ -19,12 +19,12 @@
 | 主题 | 唯一权威 | 说明 |
 |---|---|---|
 | UI 字号/字体/颜色/尺寸取值 | [UI_DEVELOPMENT_SPEC.md](UI_DEVELOPMENT_SPEC.md) | **UI 取值唯一权威**；[UI_ACCEPTANCE_CHECKLIST.md](UI_ACCEPTANCE_CHECKLIST.md) 是其下游验收清单，冲突以本规范 + 代码为准 |
-| 测试/验收事实 | `test/`（CI `node --test`） | 含 `test/ui-readability.test.js` 的 16px 下限与 `test/ui-tokens.test.js` 棘轮 |
+| 测试/验收事实 | `test/`（CI `node --test`） | 含 `test/ui-readability.test.js` 的 16px 下限；`test/ui-tokens.test.js` 棘轮本轮新增 |
 | 实施进度 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | 各文档不再内嵌进度；[TOOL_CONTRACTS.md](TOOL_CONTRACTS.md) 已改为链接本表 |
 | 题库产品需求 | [题库/01](题库/01-产品需求-拍照批量识别与统一题库.md)（v1.4）+ [题库/05](题库/05-产品补充裁决与实施口径.md) | 05 为补充裁决；不得降低 PRD 第 13 节发布门槛 |
 | 拍照选题现行 UI | [题库/07](题库/07-拍照选题最终流程.md) | 01/02/03/04 中旧图片列表、裁剪、识别范围按钮均为历史口径 |
 | 工具契约 | [TOOL_CONTRACTS.md](TOOL_CONTRACTS.md) | 进度看 IMPLEMENTATION_STATUS.md |
-| 墨水屏接口 | [eink/eink-frame-api.md](eink/eink-frame-api.md) | 四个接口：queue/dashboard/page/preview；`src/server.js:1279,1290,1336,1359` |
+| 墨水屏接口 | [eink/eink-frame-api.md](eink/eink-frame-api.md) | 四个接口：queue/dashboard/page/preview；`src/server.js:1298,1309,1355,1356` |
 | 墨水屏看板版面 | [eink/电子墨水屏看板设计.md](eink/电子墨水屏看板设计.md) | 题目/答案页仍以 [eink/服务端渲染-产品补充说明.md](eink/服务端渲染-产品补充说明.md) 为准 |
 | 部署 | [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md) | K3s + self-hosted runner 为 CI 实际路线 |
 
@@ -71,6 +71,7 @@
 | [题库/04-QA验收计划-拍照批量识别与统一题库.md](题库/04-QA验收计划-拍照批量识别与统一题库.md) | 保留 | L2 | QA 验收计划 v0.5 |
 | [题库/05-产品补充裁决与实施口径.md](题库/05-产品补充裁决与实施口径.md) | 保留 | L1 | 补充裁决，冲突时优先于 01–04（不降 PRD 13 门槛） |
 | [题库/07-拍照选题最终流程.md](题库/07-拍照选题最终流程.md) | 保留 | L1 | 拍照选题现行 UI/OCR 流程唯一说明 |
+| [题库/07-统一题库查询兼容说明.md](题库/07-统一题库查询兼容说明.md) | 保留 | L1 | 统一题库查询、分类筛选与 `/api/mistakes` 兼容期说明 |
 
 ### 2.4 docs/reports/（历史证据，不删不搬）
 
@@ -94,7 +95,7 @@
 
 | 原路径 | 归档路径 | 原因 | 取代者 |
 |---|---|---|---|
-| `docs/eink/服务端改造需求.md` | `docs/_archive/nightly-2026-11-26/eink/服务端改造需求.md` | 只声明 3 接口，是 eink-frame-api 四接口真子集（实际路由 `src/server.js:1279,1290,1336,1359`） | [eink/eink-frame-api.md](eink/eink-frame-api.md) |
+| `docs/eink/服务端改造需求.md` | `docs/_archive/nightly-2026-11-26/eink/服务端改造需求.md` | 只声明 3 接口，是 eink-frame-api 四接口真子集（实际路由 `src/server.js:1298,1309,1355,1356`） | [eink/eink-frame-api.md](eink/eink-frame-api.md) |
 | `docs/eink/软件安装清单.md` | `docs/_archive/nightly-2026-11-26/eink/软件安装清单.md` | 主体记录另一台机器 `D:\Andy\Projects\esp32` 的工具链 | 无（部署见 [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md)） |
 | `docs/DEPLOYER_AGENT.md` | `docs/_archive/nightly-2026-11-26/DEPLOYER_AGENT.md` | Compose+deployer 手工路线与 CI（kustomize+self-hosted runner）冲突 | [DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md) |
 | `docs/PROD_UPDATE_ROUTE_DIAGNOSIS.md` | `docs/_archive/nightly-2026-11-26/PROD_UPDATE_ROUTE_DIAGNOSIS.md` | 被 11-15 修复报告 §1 超集取代 | [reports/mistake-save-readability-2026-11-15.md](reports/mistake-save-readability-2026-11-15.md) |
@@ -124,7 +125,6 @@ git mv docs/_archive/nightly-2026-11-26/题库/06-统一题库重构夜跑计划
 grep -rho "type=[^ ]*" docs | sort | uniq -c
 ```
 
-本轮批注逐条原文汇总见 [reports/docs-alignment-nightly-2026-11-26.md](reports/docs-alignment-nightly-2026-11-26.md)。
 
 ## 5. 维护约定
 
