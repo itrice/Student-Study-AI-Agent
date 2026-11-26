@@ -31,6 +31,10 @@ import {
   shiftMonthKey
 } from "./feedback-calendar.js";
 
+// 绘制层色值：仅用于遮罩与裁剪画布底色，取值来自 styles.css 既定基线。
+const OVERLAY_SHADE_COLOR = "#111827";
+const CROP_CANVAS_COLOR = "#132019";
+
 const state = {
   student: null,
   knowledgePoints: [],
@@ -544,7 +548,7 @@ function renderScanOcrBoxDim() {
   const shade = document.createElementNS(namespace, "rect");
   shade.setAttribute("width", "100%");
   shade.setAttribute("height", "100%");
-  shade.setAttribute("fill", "#111827");
+  shade.setAttribute("fill", OVERLAY_SHADE_COLOR);
   shade.setAttribute("fill-opacity", "0.22");
   shade.setAttribute("mask", `url(#${maskId})`);
   definitions.append(mask);
@@ -1794,7 +1798,7 @@ function renderCropEditor() {
 
   const context = canvas.getContext("2d");
   context.clearRect(0, 0, displayWidth, displayHeight);
-  context.fillStyle = "#132019";
+  context.fillStyle = CROP_CANVAS_COLOR;
   context.fillRect(0, 0, displayWidth, displayHeight);
   context.save();
   context.translate(displayWidth / 2, displayHeight / 2);
