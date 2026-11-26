@@ -1,6 +1,6 @@
 # 文档索引与权威分级
 
-> 更新日期：2026-11-26（夜跑整理）
+> 更新日期：2026-11-26（夜跑整理 + 第二轮范围/UI 对齐）
 > 用途：docs/ 的唯一导航入口。新文档必须在此登记；冲突按本文分级裁决。
 > 事实优先级：**代码与 CI 测试 > 本索引 L1 现行权威 > L2 计划/验收 > L3 历史快照 > L4 归档**。
 
@@ -37,13 +37,13 @@
 | 文件 | 处置 | 权威归属 | 说明 |
 |---|---|---|---|
 | [README.md](README.md) | 新建 | L0 导航 | 本索引页；替代根 README 中的零散文档列表 |
-| [UI_DEVELOPMENT_SPEC.md](UI_DEVELOPMENT_SPEC.md) | 新建 | L1 | UI 取值唯一权威；R1–R19 + B1–B7 backlog + §6 棘轮基线 |
+| [UI_DEVELOPMENT_SPEC.md](UI_DEVELOPMENT_SPEC.md) | 更新 | L1 | v1.1：B1–B7 已落地；UI 取值唯一权威，R1–R19 + §6 棘轮基线 |
 | [UI_ACCEPTANCE_CHECKLIST.md](UI_ACCEPTANCE_CHECKLIST.md) | 更新 | L2 | 字号口径 15px→16px，对齐 styles.css:20-22 与 ui-readability.test.js:54；头部登记上游规范 |
-| [TOOL_CONTRACTS.md](TOOL_CONTRACTS.md) | 更新 | L1 | 第 4 行内嵌进度改为链接 IMPLEMENTATION_STATUS.md |
-| [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | 保留 | L1 | 实施进度唯一来源；M7 待验收口径见批注 |
-| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | 保留 | L2 | 实施计划基线；范围口径见批注 |
-| [MVP.md](MVP.md) | 保留 | L3 | 首版范围历史基线；范围扩展见批注 |
-| [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md) | 保留 | L1 | M5 知识库与检索说明；范围口径见批注 |
+| [TOOL_CONTRACTS.md](TOOL_CONTRACTS.md) | 更新 | L1 | 第 4 行内嵌进度改为链接 IMPLEMENTATION_STATUS.md；范围说明统一为小学 3～6 年级全学科（当前契约覆盖六年级数学） |
+| [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | 更新 | L1 | 实施进度唯一来源；范围与 M7 口径已写明（整体验收待验收，评测“门禁通过”仅指评测/安全门禁） |
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | 更新 | L2 | 范围统一为小学 3～6 年级全学科（暂不含初中，当前数据覆盖六年级数学） |
+| [MVP.md](MVP.md) | 更新 | L3 | 首版范围历史基线；头部加范围说明（目标 3～6 全学科，已实现六年级数学） |
+| [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md) | 更新 | L1 | M5 知识库与检索说明；头部加范围说明（当前仅人教版六年级数学） |
 | [KNOWLEDGE_REVIEW_CHECKLIST.md](KNOWLEDGE_REVIEW_CHECKLIST.md) | 保留 | L2 | 知识内容审核流程 |
 | [LLM_SETUP.md](LLM_SETUP.md) | 保留 | L1 | LLM 配置、诊断与降级 |
 | [M7_SECURITY_CHECKLIST.md](M7_SECURITY_CHECKLIST.md) | 保留 | L2 | M7 安全测试清单 |
@@ -84,7 +84,7 @@
 | [reports/m5-acceptance-2026-11-10.md](reports/m5-acceptance-2026-11-10.md) | 保留 | L3 | M5 验收记录（条件通过） |
 | [reports/m5-knowledge-evaluation-2026-11-10.md](reports/m5-knowledge-evaluation-2026-11-10.md) | 保留 | L3 | M5 检索评测 |
 | [reports/m6-delivery-2026-11-10.md](reports/m6-delivery-2026-11-10.md) | 保留 | L3 | M6 交付记录 |
-| [reports/m7-evaluation-2026-11-10.md](reports/m7-evaluation-2026-11-10.md) | 保留 | L3 | M7 评测（发布门禁通过）；整体验收状态以 IMPLEMENTATION_STATUS 为准 |
+| [reports/m7-evaluation-2026-11-10.md](reports/m7-evaluation-2026-11-10.md) | 更新 | L3 | M7 评测（评测/安全门禁通过）；头部与 §6 已注明整体验收以 IMPLEMENTATION_STATUS 的“待验收”为准 |
 | [reports/m7-stability-2026-11-10.md](reports/m7-stability-2026-11-10.md) | 保留 | L3 | M7 稳定性 97/97 |
 | [reports/eink-api-2026-11-17.md](reports/eink-api-2026-11-17.md) | 保留 | L3 | 墨水屏接口自测证据 |
 | [reports/qa-photo-quality-crop-reproduction-2026-11-22.md](reports/qa-photo-quality-crop-reproduction-2026-11-22.md) | 保留 | L3 | 照片清晰度/裁剪问题复现 |

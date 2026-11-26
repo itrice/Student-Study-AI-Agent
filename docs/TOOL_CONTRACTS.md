@@ -1,10 +1,9 @@
 # Agent 工具契约 v1
 
-> 更新日期：2026-11-10
+> 更新日期：2026-11-26
 > 实现进度：见 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)（本文件不再内嵌阶段状态）
 > 代码入口：`src/tools/index.js`
-
-<!-- NOTE type=待更新 ref=README.md:3 target=docs/TOOL_CONTRACTS.md:1 owner=product :: 契约按六年级数学工具集编写，尚未覆盖根 README 声明的“小学 3～6 年级与初中全学科”范围；待产品与架构确认扩展口径。 -->
+> 范围说明：产品目标范围为小学 3～6 年级全学科（暂不含初中）；当前契约按已实现的人教版六年级数学工具集编写，学科扩展时按同一模式增补。
 
 ## 1. 设计原则
 
