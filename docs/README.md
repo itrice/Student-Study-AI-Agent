@@ -19,7 +19,7 @@
 | 主题 | 唯一权威 | 说明 |
 |---|---|---|
 | UI 字号/字体/颜色/尺寸取值 | [UI_DEVELOPMENT_SPEC.md](UI_DEVELOPMENT_SPEC.md) | **UI 取值唯一权威**；[UI_ACCEPTANCE_CHECKLIST.md](UI_ACCEPTANCE_CHECKLIST.md) 是其下游验收清单，冲突以本规范 + 代码为准 |
-| 测试/验收事实 | `test/`（CI `node --test`） | 含 `test/ui-readability.test.js` 的 16px 下限；`test/ui-tokens.test.js` 棘轮本轮新增 |
+| 测试/验收事实 | `test/`（CI `node --test`） | 含 `test/ui-readability.test.js` 的 16px 下限；`test/ui-tokens.test.js` 棘轮已生效（非 token 字号 ≤9、断点 ⊆ `{560,820,980,1100}`、颜色字面量 209、内联 0、`--text-*` ≥16px） |
 | 实施进度 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | 各文档不再内嵌进度；[TOOL_CONTRACTS.md](TOOL_CONTRACTS.md) 已改为链接本表 |
 | 题库产品需求 | [题库/01](题库/01-产品需求-拍照批量识别与统一题库.md)（v1.4）+ [题库/05](题库/05-产品补充裁决与实施口径.md) | 05 为补充裁决；不得降低 PRD 第 13 节发布门槛 |
 | 拍照选题现行 UI | [题库/07](题库/07-拍照选题最终流程.md) | 01/02/03/04 中旧图片列表、裁剪、识别范围按钮均为历史口径 |
@@ -38,7 +38,7 @@
 |---|---|---|---|
 | [README.md](README.md) | 新建 | L0 导航 | 本索引页；替代根 README 中的零散文档列表 |
 | [UI_DEVELOPMENT_SPEC.md](UI_DEVELOPMENT_SPEC.md) | 更新 | L1 | v1.1：B1–B7 已落地；UI 取值唯一权威，R1–R19 + §6 棘轮基线 |
-| [UI_ACCEPTANCE_CHECKLIST.md](UI_ACCEPTANCE_CHECKLIST.md) | 更新 | L2 | 字号口径 15px→16px，对齐 styles.css:20-22 与 ui-readability.test.js:54；头部登记上游规范 |
+| [UI_ACCEPTANCE_CHECKLIST.md](UI_ACCEPTANCE_CHECKLIST.md) | 更新 | L2 | 字号口径 15px→16px，对齐 styles.css:20-22 与 ui-readability.test.js:54；补 44px 触控与 ui-tokens 棘轮基线；头部登记上游规范 |
 | [TOOL_CONTRACTS.md](TOOL_CONTRACTS.md) | 更新 | L1 | 第 4 行内嵌进度改为链接 IMPLEMENTATION_STATUS.md；范围说明统一为小学 3～6 年级全学科（当前契约覆盖六年级数学） |
 | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) | 更新 | L1 | 实施进度唯一来源；范围与 M7 口径已写明（整体验收待验收，评测“门禁通过”仅指评测/安全门禁） |
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | 更新 | L2 | 范围统一为小学 3～6 年级全学科（暂不含初中，当前数据覆盖六年级数学） |
@@ -56,7 +56,7 @@
 
 | 文件 | 处置 | 权威归属 | 说明 |
 |---|---|---|---|
-| [eink/eink-frame-api.md](eink/eink-frame-api.md) | 更新 | L1 | 四接口实现说明；首页看板已实现、依赖改 sharp、20px 省略号加批注（:8,91,110,135） |
+| [eink/eink-frame-api.md](eink/eink-frame-api.md) | 更新 | L1 | 四接口实现说明；首页看板已实现、依赖改 sharp；PD-12 不适配口径已落地（`:21,63,84`：队列排除、页 409 `EINK_UNFIT`、不截断不省略） |
 | [eink/电子墨水屏看板设计.md](eink/电子墨水屏看板设计.md) | 更新 | L1 | 相关文档链接改指归档路径 |
 | [eink/服务端渲染-产品补充说明.md](eink/服务端渲染-产品补充说明.md) | 更新 | L1 | 对《服务端改造需求》的引用改指归档路径 |
 

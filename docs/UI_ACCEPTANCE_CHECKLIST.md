@@ -6,8 +6,6 @@
 
 ## 1. 字号与可读性
 
-<!-- NOTE type=后续优化 ref=docs/UI_DEVELOPMENT_SPEC.md:174 target=docs/UI_ACCEPTANCE_CHECKLIST.md:6 owner=next-round :: 字号 token 化、越界色收编、断点收敛、对比度修正等 B1–B7 属后续排期，不纳入本轮验收门禁。 -->
-
 - [ ] 正文、题目、解析、知识片段和提示内容不小于 `16px`。
 - [ ] 按钮、输入框、下拉框和主要辅助文字不小于 `16px`。
 - [ ] 标签、徽章、时间、来源、引用和其他需要阅读或操作的元信息不小于 `16px`。
@@ -65,4 +63,4 @@ node --test test/feedback-calendar.test.js
 node --test test/feedback-calendar-ui.test.js
 ```
 
-`test/ui-readability.test.js` 会检查字号基线、控件最小字号，以及放大文字后关键容器的换行或滚动兜底。`test/ui-tokens.test.js` 守护非 token 字号、颜色字面量、断点、内联样式与 `--text-*` 下限的棘轮基线。浏览器检查还需按第 1～4 节在 `1440px`、`1152px`、`960px` 和 `375px` 宽度逐页确认。
+`test/ui-readability.test.js` 会检查字号基线、控件最小字号，以及放大文字后关键容器的换行或滚动兜底。`test/ui-tokens.test.js` 守护非 token 字号（当前上限 9）、颜色字面量（209）、断点集合（⊆ `{560,820,980,1100}`）、内联样式（0）与 `--text-*` 下限（≥16px）的棘轮基线；B1–B7 已于 v1.1 落地，基线只允许下调。浏览器检查还需按第 1～4 节在 `1440px`、`1152px`、`960px` 和 `375px` 宽度逐页确认。
