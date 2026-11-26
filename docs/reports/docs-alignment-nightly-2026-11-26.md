@@ -61,7 +61,7 @@ git diff --name-only 4171773..11f2fd9 | grep -E '^(docker-compose\.yml|public/st
 
 ## 3. 文档处置总表
 
-统计口径：夜跑前 `docs/**/*.md` 共 39 份；本轮新增 3 份（`docs/README.md`、`docs/UI_DEVELOPMENT_SPEC.md`、`题库/07-拍照选题最终流程.md`），归档 5 份，最终现行 37 份 + 归档 5 份 = 42 份 Markdown。
+统计口径：夜跑前 `docs/**/*.md` 共 39 份；本轮新增 3 份（`docs/README.md`、`docs/UI_DEVELOPMENT_SPEC.md`、`题库/07-拍照选题最终流程.md`），归档 5 份，最终现行 37 份 + 归档 5 份 = 42 份 Markdown；另有本报告与 `docs/_notes/qa-findings.md` 两份交付记录，合并后 `docs/` 共 44 份 Markdown。
 
 处置含义：保留 = 正文不改或仅加批注；更新 = 正文口径/结构有改动；归档 = `git mv` 到 `_archive/nightly-2026-11-26/`；新建 = 本轮新增。
 
