@@ -15,6 +15,7 @@ import { saveAttachmentCrop } from "../src/attachment-crop.js";
 import { migrateDatabase, SCHEMA_MIGRATIONS } from "../src/migrations.js";
 import {
   analyzeQuestionScan,
+  confirmQuestionScanBoxes,
   createQuestionScan,
   importQuestionScan
 } from "../src/question-bank/scan-service.js";
@@ -1533,6 +1534,19 @@ test("HTTP 多题扫描先定位，勾选后逐题分析", async () => {
       assert.equal(upload.status, 201);
       const attachment = await upload.json();
 
+      const boxesResponse = await fetch(
+        `${baseUrl}/api/attachments/${attachment.id}/ocr-boxes`,
+        { method: "POST" }
+      );
+      assert.equal(boxesResponse.status, 200);
+      const boxes = await boxesResponse.json();
+      assert.equal(boxes.blocks.length, 2);
+      assert.equal(boxes.questions.length, 2);
+      assert.deepEqual(
+        boxes.questions.map((question) => question.sourceBlockIds),
+        [["i1b1"], ["i1b2"]]
+      );
+
       const scanResponse = await fetch(`${baseUrl}/api/questions/scans`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1601,13 +1615,14 @@ test("HTTP 多题扫描先定位，勾选后逐题分析", async () => {
       const llmRequests = fake.requests.filter(
         (request) => request.url === "/chat/completions"
       );
-      assert.equal(llmRequests.length, 2);
+      assert.equal(llmRequests.length, 3);
       assert.match(llmRequests[0].body.toString("utf8"), /题目边界整理助手/);
-      assert.match(llmRequests[1].body.toString("utf8"), /小问/);
+      assert.match(llmRequests[1].body.toString("utf8"), /题目边界整理助手/);
+      assert.match(llmRequests[2].body.toString("utf8"), /小问/);
       assert.equal(
         fake.requests.filter((request) => request.url === "/v1/ocr/raw")
           .length,
-        2
+        3
       );
     } finally {
       await stopServer(child);
@@ -2024,16 +2039,157 @@ test("扫描 UI 展示题型与答案候选并只在选中后允许导入", () =
   assert.match(app, /importSelectedScanCandidates/);
   assert.match(app, /candidate\.importedQuestionId/);
   assert.match(app, /pendingReasons\.map\(scanPendingLabel\)/);
-  assert.match(app, /crop\.dataset\.cropContext = "scan"/);
-  assert.match(
-    app,
-    /openCropEditor\(\s*Number\(crop\.dataset\.cropAttachment\),\s*crop\.dataset\.cropContext/
-  );
   assert.match(html, /导入所选题目/);
   assert.doesNotMatch(html, /name="scan-mode"/);
   assert.doesNotMatch(html, /<strong>单题<\/strong>/);
   assert.doesNotMatch(html, /<strong>多题<\/strong>/);
-  assert.match(app, /scanMode: "multi"/);
+  assert.doesNotMatch(html, /id="scan-choose-button"/);
+  assert.doesNotMatch(html, /id="scan-start-button"/);
+  assert.doesNotMatch(html, /id="scan-image-list"/);
+  assert.doesNotMatch(app, /uploadScanFiles/);
+  assert.doesNotMatch(app, /startQuestionScan/);
+  assert.match(app, /confirmScanOcrBoxes/);
+  assert.match(app, /state\.scanOcrBoxesSelection\.has/);
+  assert.match(app, /ocr-boxes\/confirm/);
+  assert.match(app, /result\.questions/);
   assert.match(html, /分析所选题目/);
+  assert.match(html, /id="scan-ocr-boxes-confirm"/);
+  assert.match(html, /题目框确认/);
+  assert.match(
+    app,
+    /Number\(result\.successCount\) > 0 && Number\(result\.failedCount\) === 0/
+  );
+  assert.match(app, /resetQuestionScan\(\)/);
+  assert.match(app, /image\.removeAttribute\("src"\)/);
   assert.doesNotMatch(html, /M3 开放/);
+});
+
+test("题框确认未修改时复用 OCR，修改或低置信时回退重新识别", async () => {
+  await withTemporaryDirectory(async (directory) => {
+    const { repository, store } = createFixture(directory);
+    const original = await makeScanPng(100, 100);
+    const attachment = saveAttachment(
+      repository,
+      store,
+      "scan-box-confirm.png",
+      original
+    );
+    const calls = [];
+    const scanner = {
+      isConfigured: () => true,
+      provider: "fixture",
+      model: "fixture-model",
+      ocrClient: { lowConfidence: 0.8 },
+      scan: async ({ images, ocrResults, mode }) => {
+        calls.push({ images, ocrResults, mode });
+        return {
+          provider: "fixture",
+          model: "fixture-model",
+          promptVersion: "scan-box-confirm",
+          candidates: [
+            {
+              text: "7. 人民公园人工湖",
+              questionType: "composite",
+              completenessStatus: "complete",
+              confidence: 0.96,
+              region: { x: 0, y: 0, width: 1, height: 1 },
+              parts: [
+                {
+                  label: "（1）",
+                  prompt: "至少需要多少米护栏？",
+                  suggestedAnswer: "125.6米",
+                  answerType: "number"
+                }
+              ],
+              sourceBlocks: []
+            }
+          ]
+        };
+      }
+    };
+    const cachedBlocks = [
+      {
+        id: "i1b1",
+        order: 1,
+        text: "7. 人民公园人工湖",
+        bbox: [10, 10, 90, 30],
+        confidence: 0.96,
+        region: { x: 0.1, y: 0.1, width: 0.8, height: 0.2 }
+      },
+      {
+        id: "i1b2",
+        order: 2,
+        text: "至少需要多少米护栏？",
+        bbox: [10, 40, 90, 60],
+        confidence: 0.12,
+        region: { x: 0.1, y: 0.4, width: 0.8, height: 0.2 }
+      },
+      {
+        id: "i1b3",
+        order: 3,
+        text: "人工湖的占地面积是多少平方米？",
+        bbox: [10, 65, 70, 80],
+        confidence: 0.95,
+        region: { x: 0.1, y: 0.65, width: 0.6, height: 0.15 }
+      }
+    ];
+    const ocr = {
+      provider: "internal-ocr",
+      model: "fixture-ocr",
+      width: 100,
+      height: 100,
+      blocks: cachedBlocks
+    };
+
+    const cached = await confirmQuestionScanBoxes({
+      repository,
+      attachmentStore: store,
+      scanner,
+      attachmentId: attachment.id,
+      scanMode: "single",
+      selections: [
+        {
+          groupId: "q1",
+          sourceBlockIds: ["i1b1", "i1b3"],
+          region: { x: 0.1, y: 0.1, width: 0.8, height: 0.7 }
+        }
+      ],
+      ocr
+    });
+    assert.equal(cached.cachedCount, 1);
+    assert.equal(cached.reOcrCount, 0);
+    assert.equal(calls[0].mode, "single");
+    assert.equal(calls[0].ocrResults.length, 1);
+    assert.equal(calls[0].ocrResults[0].blocks.length, 2);
+    assert.equal(calls[0].images, undefined);
+    assert.equal(cached.scan.candidates[0].analysisStage, "analyzed");
+
+    const modified = await confirmQuestionScanBoxes({
+      repository,
+      attachmentStore: store,
+      scanner,
+      attachmentId: attachment.id,
+      scanMode: "multi",
+      selections: [
+        {
+          groupId: "q1",
+          sourceBlockIds: ["i1b1", "i1b3"],
+          region: { x: 0.05, y: 0.1, width: 0.85, height: 0.72 }
+        },
+        {
+          groupId: "q2",
+          sourceBlockIds: ["i1b2"],
+          region: { x: 0.1, y: 0.4, width: 0.8, height: 0.2 }
+        }
+      ],
+      ocr
+    });
+    assert.equal(modified.cachedCount, 0);
+    assert.equal(modified.reOcrCount, 2);
+    assert.ok(calls[1].images?.[0]?.buffer?.length);
+    assert.ok(calls[2].images?.[0]?.buffer?.length);
+    assert.equal(modified.scan.scanMode, "multi");
+    assert.equal(modified.scan.candidates.length, 2);
+    repository.close();
+  });
 });

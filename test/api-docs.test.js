@@ -29,6 +29,8 @@ const DOCUMENTED_PATHS = [
   "/api/attachments",
   "/api/attachments/{id}",
   "/api/attachments/{id}/extract",
+  "/api/attachments/{id}/ocr-boxes",
+  "/api/attachments/{id}/ocr-boxes/confirm",
   "/api/attachments/{id}/crop",
   "/api/dashboard",
   "/api/eink/queue",
@@ -214,7 +216,7 @@ test(
       assert.equal(Object.keys(document.paths).length, DOCUMENTED_PATHS.length);
 
       const operations = collectOperations(document);
-      assert.equal(operations.length, 60);
+      assert.equal(operations.length, 62);
       const operationIds = operations.map(
         ({ operation }) => operation.operationId
       );
@@ -455,7 +457,7 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   );
   assert.equal(
     collectOperations(document).length,
-    60
+    62
   );
 });
 

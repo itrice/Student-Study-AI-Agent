@@ -1956,6 +1956,151 @@ const analyzeQuestionScanInputSchema = {
   additionalProperties: false
 };
 
+const questionScanOcrBlockSchema = {
+  type: "object",
+  required: ["id", "text", "bbox", "confidence", "region"],
+  properties: {
+    id: { type: "string" },
+    order: { type: "integer", minimum: 1 },
+    text: { type: "string" },
+    bbox: {
+      type: "array",
+      minItems: 4,
+      maxItems: 4,
+      items: { type: "number" }
+    },
+    confidence: anyOfNullable({
+      type: "number",
+      minimum: 0,
+      maximum: 1
+    }),
+    region: ref("QuestionScanRegion")
+  },
+  additionalProperties: false
+};
+
+const questionScanOcrQuestionSchema = {
+  type: "object",
+  required: [
+    "id",
+    "questionNo",
+    "text",
+    "confidence",
+    "region",
+    "pendingReasons",
+    "sourceBlockIds"
+  ],
+  properties: {
+    id: { type: "string" },
+    questionNo: { type: "integer", minimum: 1 },
+    text: { type: "string" },
+    confidence: anyOfNullable({
+      type: "number",
+      minimum: 0,
+      maximum: 1
+    }),
+    region: ref("QuestionScanRegion"),
+    pendingReasons: { type: "array", items: { type: "string" } },
+    sourceBlockIds: {
+      type: "array",
+      minItems: 1,
+      items: { type: "string" }
+    }
+  },
+  additionalProperties: false
+};
+
+const questionScanOcrSchema = {
+  type: "object",
+  required: ["provider", "engine", "model", "version", "width", "height", "blocks"],
+  properties: {
+    provider: { type: "string" },
+    engine: { type: "string" },
+    model: { type: "string" },
+    version: { type: "string" },
+    width: { type: "integer", minimum: 1 },
+    height: { type: "integer", minimum: 1 },
+    processingTimeMs: anyOfNullable({ type: "integer", minimum: 0 }),
+    blocks: {
+      type: "array",
+      maxItems: 120,
+      items: ref("QuestionScanOcrBlock")
+    },
+    questions: {
+      type: "array",
+      maxItems: 20,
+      items: ref("QuestionScanOcrQuestion"),
+      description: "按题目边界分组后的整题区域，前端只展示这些题框。"
+    }
+  },
+  additionalProperties: false
+};
+
+const confirmQuestionScanBoxesInputSchema = {
+  type: "object",
+  required: ["scanMode", "selections", "ocr"],
+  properties: {
+    scanMode: { type: "string", enum: ["single", "multi"] },
+    selections: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: {
+        type: "object",
+        required: ["groupId", "sourceBlockIds", "region"],
+        properties: {
+          groupId: { type: "string" },
+          questionNo: { type: "integer", minimum: 1 },
+          sourceBlockIds: {
+            type: "array",
+            minItems: 1,
+            maxItems: 80,
+            items: { type: "string" }
+          },
+          region: ref("QuestionScanRegion")
+        },
+        additionalProperties: false
+      }
+    },
+    ocr: ref("QuestionScanOcr")
+  },
+  additionalProperties: false
+};
+
+const confirmQuestionScanBoxesResultSchema = {
+  type: "object",
+  required: [
+    "scan",
+    "analyzedCount",
+    "failedCount",
+    "cachedCount",
+    "reOcrCount",
+    "results"
+  ],
+  properties: {
+    scan: ref("QuestionScan"),
+    analyzedCount: { type: "integer", minimum: 0 },
+    failedCount: { type: "integer", minimum: 0 },
+    cachedCount: { type: "integer", minimum: 0 },
+    reOcrCount: { type: "integer", minimum: 0 },
+    results: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["groupId", "status", "source"],
+        properties: {
+          groupId: { type: "string" },
+          status: { type: "string", enum: ["analyzed", "failed"] },
+          source: { type: "string", enum: ["cache", "re_ocr", "cache_or_retry"] },
+          error: { type: "string" }
+        },
+        additionalProperties: false
+      }
+    }
+  },
+  additionalProperties: false
+};
+
 const TAGS = [
   { name: "系统", description: "健康检查、运行状态与启动引导数据。" },
   { name: "教材", description: "教材目录、切换预演/执行和不可篡改的切换审计日志。" },
@@ -1980,6 +2125,9 @@ const components = {
     QuestionScanPartInput: questionScanPartInputSchema,
     QuestionScanCandidate: questionScanCandidateSchema,
     QuestionScan: questionScanSchema,
+    QuestionScanOcrBlock: questionScanOcrBlockSchema,
+    QuestionScanOcrQuestion: questionScanOcrQuestionSchema,
+    QuestionScanOcr: questionScanOcrSchema,
     QuestionList: questionListSchema,
     Mistake: mistakeSchema,
     MistakePart: mistakePartSchema,
@@ -2002,6 +2150,8 @@ const components = {
     UpdateResult: updateResultSchema,
     ImportQuestionScanInput: importQuestionScanInputSchema,
     AnalyzeQuestionScanInput: analyzeQuestionScanInputSchema,
+    ConfirmQuestionScanBoxesInput: confirmQuestionScanBoxesInputSchema,
+    ConfirmQuestionScanBoxesResult: confirmQuestionScanBoxesResultSchema,
     MasteryEvidence: masteryEvidenceSchema,
     KnowledgePointSummary: knowledgePointSummarySchema,
     KnowledgeCard: knowledgeCardSchema,
@@ -2424,6 +2574,42 @@ const paths = {
       responses: {
         200: jsonResponse("识别或降级结果", ref("ExtractionResult")),
         404: errorResponse("没有找到这张题目图片")
+      }
+    }
+  },
+  "/api/attachments/{id}/ocr-boxes": {
+    post: {
+      tags: ["附件"],
+      summary: "识别并分组题目框",
+      description:
+        "内部 OCR 返回原始文字字块后，纯文本模型复用现有题目边界逻辑生成整题区域。响应同时保留原始字块供缓存分析，但前端只展示 questions 中的整题框。接口不创建正式候选题。",
+      operationId: "getAttachmentOcrBoxes",
+      parameters: [idParameter("附件编号")],
+      responses: {
+        200: jsonResponse("OCR 字块结果", ref("QuestionScanOcr")),
+        404: errorResponse("没有找到这张验证图片"),
+        503: errorResponse("内部 OCR 未配置")
+      }
+    }
+  },
+  "/api/attachments/{id}/ocr-boxes/confirm": {
+    post: {
+      tags: ["附件"],
+      summary: "确认题框并开始题目分析",
+      description:
+        "单题只提交一个题框，多题提交全部已勾选题框。区域未变化时复用首次 OCR；区域移动、缩放、缓存缺失或置信度过低时按新区域重新 OCR。分析结果进入现有扫描候选页，仍须用户确认后导入题库。",
+      operationId: "confirmQuestionScanBoxes",
+      parameters: [idParameter("附件编号")],
+      requestBody: requestBody(ref("ConfirmQuestionScanBoxesInput")),
+      responses: {
+        200: jsonResponse(
+          "题框分析完成",
+          ref("ConfirmQuestionScanBoxesResult")
+        ),
+        400: errorResponse("题框选择或区域无效"),
+        404: errorResponse("没有找到这张验证图片"),
+        422: errorResponse("缓存 OCR 或题框区域无效"),
+        502: errorResponse("题框识别或题目分析失败")
       }
     }
   },
