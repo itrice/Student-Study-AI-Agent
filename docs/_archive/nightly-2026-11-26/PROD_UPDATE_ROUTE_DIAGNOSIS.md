@@ -1,5 +1,12 @@
 # 正式环境“接口不存在”诊断与安全升级
 
+> **归档（batch=nightly-2026-11-26）**
+> 原因：结论与复现步骤已被 `docs/reports/mistake-save-readability-2026-11-15.md` §1 的超集记录取代。
+> 取代者：`docs/reports/mistake-save-readability-2026-11-15.md`
+> 还原：`git mv docs/_archive/nightly-2026-11-26/PROD_UPDATE_ROUTE_DIAGNOSIS.md docs/PROD_UPDATE_ROUTE_DIAGNOSIS.md`
+>
+> 以下为归档前原文。
+
 ## 现象
 
 正式环境修改题目后保存提示“接口不存在”，而 localhost 同一提交下复习页、错题列表、文本题和图片题保存均成功。该提示来自应用服务 `HttpError(404, "接口不存在", { code: "ROUTE_NOT_FOUND" })`，说明请求到达了错误版本的应用服务或错误路由，而不是普通前端拼写错误。
