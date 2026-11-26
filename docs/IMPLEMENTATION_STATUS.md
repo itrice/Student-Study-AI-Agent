@@ -6,6 +6,8 @@
 > 电子墨水屏只读接口已实现待验收
 > 详细方案：[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 
+<!-- NOTE type=待确认 ref=docs/reports/m7-evaluation-2026-11-10.md:5 target=docs/IMPLEMENTATION_STATUS.md:4 owner=product :: M7 在本表为“待验收”，评测报告标注“发布门禁：通过”；两者不矛盾但易误读，需产品确认 M7 整体验收结论。 -->
+
 本表是项目进度的日常维护入口。每完成一个阶段、子阶段或计划内修复，都必须更新：
 
 - 状态
