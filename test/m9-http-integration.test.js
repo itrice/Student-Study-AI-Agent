@@ -1,17 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
-
-const projectRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  ".."
-);
+import {
+  jsonBody,
+  projectRoot,
+  startServer,
+  stopServer
+} from "./helpers/http-fixture.js";
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2fXkAAAAASUVORK5CYII=",
   "base64"
@@ -68,93 +66,14 @@ function makePng(width, height, [red, green, blue, alpha = 255]) {
   ]);
 }
 
-async function freePort() {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const port = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
-
-function waitForServer(child) {
-  return new Promise((resolve, reject) => {
-    let output = "";
-    let errors = "";
-    const timer = setTimeout(() => {
-      reject(new Error(`服务启动超时：${errors || output}`));
-    }, 10_000);
-    child.stdout.on("data", (chunk) => {
-      output += chunk.toString();
-      if (output.includes("已启动")) {
-        clearTimeout(timer);
-        resolve();
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      errors += chunk.toString();
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`服务提前退出（${code}）：${errors || output}`));
-    });
-  });
-}
-
-async function stopServer(child) {
-  if (child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve();
-    }, 3_000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
-}
-
-async function jsonBody(response) {
-  return response.json();
-}
-
 test(
   "HTTP 图片上传、纯图片错题、修改与删除在非安全上下文可用",
   { timeout: 30_000 },
   async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "math-coach-m9-http-"));
-    const databasePath = path.join(directory, "learning.sqlite");
-    const attachmentsDirectory = path.join(directory, "attachments");
-    const port = await freePort();
-    const child = spawn(process.execPath, ["src/server.js"], {
-      cwd: projectRoot,
-      env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        PORT: String(port),
-        DB_PATH: databasePath,
-        ATTACHMENTS_DIR: attachmentsDirectory
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
+    const server = await startServer({ prefix: "math-coach-m9-http-" });
+    const { child, directory, attachmentsDirectory, baseUrl } = server;
 
     try {
-      await waitForServer(child);
-      const baseUrl = `http://127.0.0.1:${port}`;
-
       const health = await jsonBody(await fetch(`${baseUrl}/api/health`));
       assert.equal(health.ok, true);
       assert.match(health.startedAt, /^\d{4}-\d{2}-\d{2}T/);
@@ -369,7 +288,7 @@ test(
       assert.equal(remove.status, 200);
       assert.equal(fs.readdirSync(attachmentsDirectory).length, 0);
 
-      const persistedLog = `${stdout}\n${stderr}`;
+      const persistedLog = server.logs();
       assert.doesNotMatch(persistedLog, /private-name\.png/);
       assert.equal(fs.existsSync(path.join(attachmentsDirectory, filesAfterReplace[0])), false);
     } finally {
@@ -383,30 +302,8 @@ test(
   "HTTP 裁剪默认展示派生图、保留原图、支持恢复和删除清理",
   { timeout: 30_000 },
   async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "math-coach-crop-http-"));
-    const databasePath = path.join(directory, "learning.sqlite");
-    const attachmentsDirectory = path.join(directory, "attachments");
-    const port = await freePort();
-    const child = spawn(process.execPath, ["src/server.js"], {
-      cwd: projectRoot,
-      env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        PORT: String(port),
-        DB_PATH: databasePath,
-        ATTACHMENTS_DIR: attachmentsDirectory
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
+    const server = await startServer({ prefix: "math-coach-crop-http-" });
+    const { child, directory, attachmentsDirectory, baseUrl } = server;
 
     const original = makePng(8, 6, [20, 90, 140]);
     const cropped = makePng(4, 3, [200, 60, 30]);
@@ -421,8 +318,6 @@ test(
     };
 
     try {
-      await waitForServer(child);
-      const baseUrl = `http://127.0.0.1:${port}`;
       const upload = await fetch(`${baseUrl}/api/attachments?kind=question`, {
         method: "POST",
         headers: { "Content-Type": "image/png" },
@@ -500,7 +395,7 @@ test(
       assert.equal(remove.status, 200);
       assert.equal(fs.readdirSync(attachmentsDirectory).length, 0);
 
-      const persistedLog = `${stdout}\n${stderr}`;
+      const persistedLog = server.logs();
       assert.doesNotMatch(persistedLog, /storage_key|x-crop-source/i);
     } finally {
       await stopServer(child);

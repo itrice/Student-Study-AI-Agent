@@ -361,7 +361,7 @@ test("只看提示后切题返回也会恢复提示等级与提示面板", () =>
 test("移动端与平板的复习操作按钮触控高度至少 44px", () => {
   assert.match(
     css,
-    /@media \(max-width: 900px\), \(pointer: coarse\) \{[\s\S]*?\.review-focus-button[\s\S]*?\.review-nav-button[\s\S]*?\.review-edit-button[\s\S]*?min-height: 44px;/
+    /@media \(max-width: 980px\), \(pointer: coarse\) \{[\s\S]*?\.review-focus-button[\s\S]*?\.review-nav-button[\s\S]*?\.review-edit-button[\s\S]*?min-height: 44px;/
   );
 });
 

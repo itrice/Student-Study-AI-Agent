@@ -1,11 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { LearningRepository } from "../src/database.js";
 import { AttachmentStore } from "../src/attachments.js";
@@ -20,11 +17,7 @@ import {
 } from "../src/eink/render.js";
 import { EinkPageService } from "../src/eink/service.js";
 import { PHOTO_AREA, prepareEinkPhoto } from "../src/eink/photo.js";
-
-const projectRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  ".."
-);
+import { startServer, stopServer } from "./helpers/http-fixture.js";
 
 async function makePhoto() {
   const svg = `
@@ -65,56 +58,6 @@ async function makeOrientedJpeg() {
     exif,
     jpeg.subarray(2)
   ]);
-}
-
-async function freePort() {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const port = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
-
-function waitForServer(child) {
-  return new Promise((resolve, reject) => {
-    let output = "";
-    let errors = "";
-    const timer = setTimeout(() => {
-      reject(new Error(`服务启动超时：${errors || output}`));
-    }, 10_000);
-    child.stdout.on("data", (chunk) => {
-      output += chunk.toString();
-      if (output.includes("已启动")) {
-        clearTimeout(timer);
-        resolve();
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      errors += chunk.toString();
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`服务提前退出（${code}）：${errors || output}`));
-    });
-  });
-}
-
-async function stopServer(child) {
-  if (child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve();
-    }, 3_000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
 }
 
 async function createMistake(baseUrl, input) {
@@ -270,36 +213,10 @@ test(
   "电子墨水屏 HTTP 接口满足帧格式、缓存和照片回退契约",
   { timeout: 60_000 },
   async () => {
-    const directory = fs.mkdtempSync(
-      path.join(os.tmpdir(), "math-coach-eink-api-")
-    );
-    const databasePath = path.join(directory, "learning.sqlite");
-    const attachmentsDirectory = path.join(directory, "attachments");
-    const port = await freePort();
-    const child = spawn(process.execPath, ["src/server.js"], {
-      cwd: projectRoot,
-      env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        PORT: String(port),
-        DB_PATH: databasePath,
-        ATTACHMENTS_DIR: attachmentsDirectory
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
+    const server = await startServer({ prefix: "math-coach-eink-api-" });
+    const { child, directory, attachmentsDirectory, baseUrl } = server;
 
     try {
-      await waitForServer(child);
-      const baseUrl = `http://127.0.0.1:${port}`;
       const textMistake = await createMistake(baseUrl, {
         question: "一个圆的半径是 3 厘米，求它的面积。",
         studentAnswer: "18.84 平方厘米",
@@ -463,14 +380,13 @@ test(
       const photoEtag = photoPage.headers.get("etag");
       assert.equal((await photoPage.arrayBuffer()).byteLength, 48_000);
 
-      const cropBuffer = await sharp({
-        create: {
-          width: 120,
-          height: 64,
-          channels: 4,
-          background: { r: 255, g: 255, b: 255, alpha: 1 }
-        }
-      }).png().toBuffer();
+      const cropBuffer = await sharp(Buffer.from(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="120" height="64">
+          <rect width="120" height="64" fill="white"/>
+          <rect x="10" y="20" width="100" height="6" fill="black"/>
+          <rect x="10" y="38" width="70" height="6" fill="black"/>
+        </svg>
+      `)).png().toBuffer();
       const cropped = await fetch(
         `${baseUrl}/api/attachments/${attachment.id}/crop`,
         {
@@ -549,7 +465,7 @@ test(
       assert.match(missing.headers.get("content-type"), /^application\/json/);
       assert.equal((await missing.json()).code, "MISTAKE_NOT_FOUND");
 
-      const persistedLog = `${stdout}\n${stderr}`;
+      const persistedLog = server.logs();
       assert.match(persistedLog, /\[eink\]/);
       assert.match(persistedLog, /warning=EINK_PHOTO_FALLBACK/);
       assert.doesNotMatch(persistedLog, /28\.26|18\.84/);

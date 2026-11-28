@@ -1,16 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import net from "node:net";
-import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-
-const projectRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  ".."
-);
+import { projectRoot, startServer, stopServer } from "./helpers/http-fixture.js";
 
 const DOCUMENTED_PATHS = [
   "/api/health",
@@ -29,12 +21,16 @@ const DOCUMENTED_PATHS = [
   "/api/attachments",
   "/api/attachments/{id}",
   "/api/attachments/{id}/extract",
+  "/api/attachments/{id}/ocr-boxes",
+  "/api/attachments/{id}/ocr-boxes/confirm",
   "/api/attachments/{id}/crop",
   "/api/dashboard",
   "/api/eink/queue",
   "/api/eink/dashboard",
   "/api/eink/page",
   "/api/eink/preview",
+  "/api/eink/vocab/page",
+  "/api/eink/vocab/preview",
   "/api/operations/metrics",
   "/api/learning-data",
   "/api/feedback/daily",
@@ -49,6 +45,14 @@ const DOCUMENTED_PATHS = [
   "/api/diagnose",
   "/api/review/next",
   "/api/review/queue",
+  "/api/vocab/items",
+  "/api/vocab/items/{id}",
+  "/api/vocab/catalog",
+  "/api/vocab/occurrences",
+  "/api/vocab/review/today",
+  "/api/vocab/reviews",
+  "/api/vocab/settings",
+  "/api/vocab/dictation",
   "/api/demo",
   "/api/mistakes/{id}",
   "/api/mistakes/{id}/evidence",
@@ -70,55 +74,6 @@ const DOCUMENTED_PATHS = [
   "/api/questions/scans/{id}/candidates/{candidateId}/image"
 ];
 
-async function freePort() {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const port = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
-}
-
-function waitForServer(child) {
-  return new Promise((resolve, reject) => {
-    let output = "";
-    let errors = "";
-    const timer = setTimeout(() => {
-      reject(new Error(`服务启动超时：${errors || output}`));
-    }, 10_000);
-    child.stdout.on("data", (chunk) => {
-      output += chunk.toString();
-      if (output.includes("已启动")) {
-        clearTimeout(timer);
-        resolve();
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      errors += chunk.toString();
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`服务提前退出（${code}）：${errors || output}`));
-    });
-  });
-}
-
-async function stopServer(child) {
-  if (child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve();
-    }, 3_000);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
-}
 
 function collectOperations(document) {
   const operations = [];
@@ -169,29 +124,11 @@ test(
   "OpenAPI 契约和交互式 API 文档可离线使用",
   { timeout: 30_000 },
   async () => {
-    const directory = fs.mkdtempSync(
-      path.join(os.tmpdir(), "math-coach-api-docs-")
-    );
-    const databasePath = path.join(directory, "learning.sqlite");
-    const attachmentsDirectory = path.join(directory, "attachments");
-    const port = await freePort();
-    const child = spawn(process.execPath, ["src/server.js"], {
-      cwd: projectRoot,
-      env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        PORT: String(port),
-        DB_PATH: databasePath,
-        ATTACHMENTS_DIR: attachmentsDirectory
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
+    const { child, directory, baseUrl } = await startServer({
+      prefix: "math-coach-api-docs-"
     });
 
     try {
-      await waitForServer(child);
-      const baseUrl = `http://127.0.0.1:${port}`;
-
       const response = await fetch(`${baseUrl}/api/openapi.json`);
       assert.equal(response.status, 200);
       assert.match(
@@ -214,7 +151,7 @@ test(
       assert.equal(Object.keys(document.paths).length, DOCUMENTED_PATHS.length);
 
       const operations = collectOperations(document);
-      assert.equal(operations.length, 60);
+      assert.equal(operations.length, 75);
       const operationIds = operations.map(
         ({ operation }) => operation.operationId
       );
@@ -417,7 +354,7 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   assert.match(document.info.description, /Idempotency-Key/);
   assert.match(document.info.description, /未内置账号体系|无内置鉴权|鉴权/);
   assert.match(document.info.description, /尾斜杠/);
-  assert.equal(document.info.version, "0.21.0");
+  assert.equal(document.info.version, "0.23.0");
   assert.deepEqual(
     document.components.schemas.QuestionScanCandidate.properties.parts.items.$ref,
     "#/components/schemas/QuestionScanPart"
@@ -446,7 +383,8 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
       "知识库",
       "反馈",
       "墨水屏",
-      "运维"
+      "运维",
+      "字词"
     ]
   );
   assert.equal(
@@ -455,7 +393,7 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   );
   assert.equal(
     collectOperations(document).length,
-    60
+    75
   );
 });
 

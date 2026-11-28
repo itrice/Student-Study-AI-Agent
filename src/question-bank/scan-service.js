@@ -353,6 +353,389 @@ export async function analyzeQuestionScan({
   };
 }
 
+const SCAN_BOX_REGION_EPSILON = 0.00025;
+
+function normalizeScanBoxRegion(value, label = "题框区域") {
+  const region = {
+    x: Number(value?.x),
+    y: Number(value?.y),
+    width: Number(value?.width),
+    height: Number(value?.height)
+  };
+  if (
+    !Object.values(region).every(Number.isFinite) ||
+    region.x < 0 ||
+    region.y < 0 ||
+    region.width <= 0 ||
+    region.height <= 0 ||
+    region.x + region.width > 1.000001 ||
+    region.y + region.height > 1.000001
+  ) {
+    throw analysisError("SCAN_BOX_REGION_INVALID", `${label}无效`);
+  }
+  return region;
+}
+
+function scanBoxRegionsEqual(left, right) {
+  return (
+    Math.abs(left.x - right.x) <= SCAN_BOX_REGION_EPSILON &&
+    Math.abs(left.y - right.y) <= SCAN_BOX_REGION_EPSILON &&
+    Math.abs(left.width - right.width) <= SCAN_BOX_REGION_EPSILON &&
+    Math.abs(left.height - right.height) <= SCAN_BOX_REGION_EPSILON
+  );
+}
+
+function normalizeCachedOcrBoxes(ocr) {
+  const width = Number(ocr?.width);
+  const height = Number(ocr?.height);
+  if (!(width > 0) || !(height > 0)) return null;
+  const blocks = (Array.isArray(ocr?.blocks) ? ocr.blocks : [])
+    .map((block, index) => {
+      const region = {
+        x: Number(block?.region?.x),
+        y: Number(block?.region?.y),
+        width: Number(block?.region?.width),
+        height: Number(block?.region?.height)
+      };
+      if (
+        !String(block?.id || "").trim() ||
+        !String(block?.text || "").trim() ||
+        !Object.values(region).every(Number.isFinite) ||
+        region.width <= 0 ||
+        region.height <= 0
+      ) {
+        return null;
+      }
+      const bbox = Array.isArray(block.bbox)
+        ? block.bbox.map(Number)
+        : [
+            region.x * width,
+            region.y * height,
+            (region.x + region.width) * width,
+            (region.y + region.height) * height
+          ];
+      if (bbox.length !== 4 || !bbox.every(Number.isFinite)) return null;
+      return {
+        id: String(block.id),
+        imageIndex: 0,
+        order: Number(block.order) || index + 1,
+        text: String(block.text).trim(),
+        bbox,
+        confidence: Number.isFinite(Number(block.confidence))
+          ? Number(block.confidence)
+          : null,
+        region
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 120);
+  return {
+    provider: String(ocr?.provider || "internal-ocr"),
+    model: String(ocr?.model || ocr?.engine || "ocr"),
+    version: String(ocr?.version || ""),
+    width,
+    height,
+    blocks
+  };
+}
+
+function cachedOcrForScanBox(
+  cachedOcr,
+  sourceBlockIds,
+  region,
+  lowConfidence
+) {
+  if (!cachedOcr?.blocks?.length) return null;
+  const byId = new Map(cachedOcr.blocks.map((block) => [block.id, block]));
+  const selectedBlocks = sourceBlockIds.map((id) => byId.get(id)).filter(Boolean);
+  if (
+    selectedBlocks.length !== sourceBlockIds.length ||
+    selectedBlocks.some(
+      (block) =>
+        !block.text ||
+        !Number.isFinite(block.confidence) ||
+        block.confidence < lowConfidence
+    )
+  ) {
+    return null;
+  }
+
+  const left = Math.max(
+    0,
+    Math.min(cachedOcr.width - 1, Math.round(region.x * cachedOcr.width))
+  );
+  const top = Math.max(
+    0,
+    Math.min(cachedOcr.height - 1, Math.round(region.y * cachedOcr.height))
+  );
+  const cropWidth = Math.max(
+    1,
+    Math.min(
+      cachedOcr.width - left,
+      Math.round(region.width * cachedOcr.width)
+    )
+  );
+  const cropHeight = Math.max(
+    1,
+    Math.min(
+      cachedOcr.height - top,
+      Math.round(region.height * cachedOcr.height)
+    )
+  );
+  const blocks = selectedBlocks.map((block) => {
+    const bbox = [
+      Math.max(0, Math.min(cropWidth, block.bbox[0] - left)),
+      Math.max(0, Math.min(cropHeight, block.bbox[1] - top)),
+      Math.max(0, Math.min(cropWidth, block.bbox[2] - left)),
+      Math.max(0, Math.min(cropHeight, block.bbox[3] - top))
+    ];
+    return {
+      ...block,
+      imageIndex: 0,
+      bbox,
+      region: {
+        x: bbox[0] / cropWidth,
+        y: bbox[1] / cropHeight,
+        width: Math.max(0, bbox[2] - bbox[0]) / cropWidth,
+        height: Math.max(0, bbox[3] - bbox[1]) / cropHeight
+      }
+    };
+  });
+  if (
+    blocks.some(
+      (block) =>
+        block.bbox[2] <= block.bbox[0] ||
+        block.bbox[3] <= block.bbox[1] ||
+        block.region.width <= 0 ||
+        block.region.height <= 0
+    )
+  ) {
+    return null;
+  }
+  return {
+    provider: cachedOcr.provider,
+    model: cachedOcr.model,
+    version: cachedOcr.version,
+    width: cropWidth,
+    height: cropHeight,
+    processingTimeMs: null,
+    blocks
+  };
+}
+
+function unionCachedBlockRegion(blocks) {
+  if (!blocks.length) return null;
+  const left = Math.min(...blocks.map((block) => block.region.x));
+  const top = Math.min(...blocks.map((block) => block.region.y));
+  const right = Math.max(
+    ...blocks.map((block) => block.region.x + block.region.width)
+  );
+  const bottom = Math.max(
+    ...blocks.map((block) => block.region.y + block.region.height)
+  );
+  return {
+    x: Math.max(0, left),
+    y: Math.max(0, top),
+    width: Math.min(1, right) - Math.max(0, left),
+    height: Math.min(1, bottom) - Math.max(0, top)
+  };
+}
+
+export async function confirmQuestionScanBoxes({
+  repository,
+  attachmentStore,
+  scanner,
+  attachmentId,
+  scanMode = "single",
+  selections = [],
+  ocr = {}
+}) {
+  const normalizedMode = scanMode === "multi" ? "multi" : "single";
+  const attachment = repository.getAttachment(Number(attachmentId), {
+    includeStorageKey: true
+  });
+  if (!attachment) {
+    throw analysisError("ATTACHMENT_NOT_FOUND", "验证图片不存在或已被清理", 404);
+  }
+  const seen = new Set();
+  const normalizedSelections = (Array.isArray(selections) ? selections : [])
+    .slice(0, 20)
+    .map((selection, index) => {
+      const groupId = String(selection?.groupId || selection?.blockId || "").trim();
+      const sourceBlockIds = [
+        ...new Set(
+          (Array.isArray(selection?.sourceBlockIds)
+            ? selection.sourceBlockIds
+            : [selection?.blockId]
+          )
+            .map((id) => String(id || "").trim())
+            .filter(Boolean)
+        )
+      ].slice(0, 80);
+      if (!groupId || !sourceBlockIds.length || seen.has(groupId)) return null;
+      seen.add(groupId);
+      return {
+        groupId,
+        sourceBlockIds,
+        questionNo:
+          Number.isInteger(Number(selection?.questionNo)) &&
+          Number(selection.questionNo) > 0
+            ? Number(selection.questionNo)
+            : index + 1,
+        region: normalizeScanBoxRegion(selection?.region)
+      };
+    })
+    .filter(Boolean);
+  if (
+    !normalizedSelections.length ||
+    (normalizedMode === "single" && normalizedSelections.length !== 1)
+  ) {
+    throw analysisError(
+      "SCAN_BOX_SELECTION_REQUIRED",
+      normalizedMode === "single"
+        ? "单题模式必须确认一个题框"
+        : "多题模式请至少勾选一个题框"
+    );
+  }
+
+  const cachedOcr = normalizeCachedOcrBoxes(ocr);
+  if (!cachedOcr?.blocks.length) {
+    throw analysisError("SCAN_OCR_CACHE_INVALID", "OCR 结果已失效，请重新选择图片");
+  }
+  const lowConfidence = Number(scanner?.ocrClient?.lowConfidence) || 0.8;
+  const sourceContext = {
+    attachmentId: attachment.id,
+    storageKey: attachment.storageKey,
+    mimeType: attachment.originalMimeType,
+    width: Number(attachment.width) || cachedOcr.width,
+    height: Number(attachment.height) || cachedOcr.height
+  };
+
+  const taskCandidates = [];
+  const results = [];
+  let lastScanner = {};
+  for (const selection of normalizedSelections) {
+    const byId = new Map(cachedOcr.blocks.map((block) => [block.id, block]));
+    const originalBlocks = selection.sourceBlockIds
+      .map((id) => byId.get(id))
+      .filter(Boolean);
+    const originalRegion = unionCachedBlockRegion(originalBlocks);
+    const regionChanged =
+      !originalRegion ||
+      originalBlocks.length !== selection.sourceBlockIds.length ||
+      !scanBoxRegionsEqual(originalRegion, selection.region);
+    try {
+      let analysis;
+      let source = "re_ocr";
+      const cachedResult = regionChanged
+        ? null
+        : cachedOcrForScanBox(
+            cachedOcr,
+            selection.sourceBlockIds,
+            selection.region,
+            lowConfidence
+          );
+      if (cachedResult) {
+        source = "cache";
+        analysis = await scanner.scan({
+          mode: "single",
+          ocrResults: [cachedResult]
+        });
+      } else {
+        const cropped = await cropScanContext(attachmentStore, {
+          ...sourceContext,
+          region: selection.region
+        });
+        analysis = await scanner.scan({
+          mode: "single",
+          images: [{ mimeType: "image/png", buffer: cropped }]
+        });
+      }
+      const candidate = largestAnalyzedCandidate(analysis.candidates || []);
+      if (!candidate) throw new Error("没有识别到题目内容");
+      lastScanner = {
+        provider: analysis.provider,
+        model: analysis.model,
+        promptVersion: analysis.promptVersion
+      };
+      taskCandidates.push({
+        status: "ready",
+        analysisStage: "analyzed",
+        questionNo: selection.questionNo,
+        text: candidate.text,
+        questionType: candidate.questionType,
+        options: candidate.options,
+        studentAnswer: candidate.studentAnswer,
+        suggestedAnswer: candidate.suggestedAnswer,
+        parts: candidate.parts,
+        completenessStatus: candidate.completenessStatus,
+        suspectedWrong: candidate.suspectedWrong,
+        answerPending: candidate.answerPending,
+        confidence: candidate.confidence,
+        pendingReasons: candidate.pendingReasons,
+        sourceBlocks: translateAnalysisBlocks(
+          candidate.sourceBlocks,
+          selection.region,
+          sourceContext
+        ),
+        region: selection.region,
+        recognitionError: ""
+      });
+      results.push({
+        groupId: selection.groupId,
+        status: "analyzed",
+        source
+      });
+    } catch (error) {
+      taskCandidates.push({
+        status: "failed",
+        analysisStage: "discovered",
+        questionNo: selection.questionNo,
+        text: "",
+        region: selection.region,
+        recognitionError:
+          error?.message || "题框识别失败，请调整题框后重试"
+      });
+      results.push({
+        groupId: selection.groupId,
+        status: "failed",
+        source: regionChanged ? "re_ocr" : "cache_or_retry",
+        error: error?.message || "题框识别失败"
+      });
+    }
+  }
+
+  const analyzedCount = results.filter(
+    (result) => result.status === "analyzed"
+  ).length;
+  if (!analyzedCount) {
+    throw analysisError(
+      "SCAN_BOX_ANALYSIS_FAILED",
+      results[0]?.error || "题框识别失败，请调整题框后重试",
+      502
+    );
+  }
+  const scan = repository.createQuestionScanTask({
+    attachmentIds: [attachment.id],
+    scanMode: normalizedMode,
+    candidates: taskCandidates,
+    scanner: lastScanner,
+    ocr: {
+      provider: cachedOcr.provider,
+      model: cachedOcr.model,
+      blocks: cachedOcr.blocks
+    }
+  });
+  return {
+    scan,
+    analyzedCount,
+    failedCount: results.length - analyzedCount,
+    cachedCount: results.filter((result) => result.source === "cache").length,
+    reOcrCount: results.filter((result) => result.source === "re_ocr").length,
+    results
+  };
+}
+
 export async function importQuestionScan({
   repository,
   attachmentStore,

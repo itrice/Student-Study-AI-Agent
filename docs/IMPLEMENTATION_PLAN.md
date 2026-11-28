@@ -1,5 +1,7 @@
 # 六年级数学学习 Agent 实施计划
 
+<!-- NOTE type=待更新 ref=README.md:3 target=docs/IMPLEMENTATION_PLAN.md:1 owner=product :: 根 README 已声明“小学 3～6 年级与初中全学科”，本文范围仍为六年级数学；保留原文待产品更新。 -->
+
 > 文档版本：3.7
 > 更新日期：2026-11-17
 > 文档状态：项目实施基线

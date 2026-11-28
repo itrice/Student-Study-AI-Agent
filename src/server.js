@@ -43,9 +43,15 @@ import {
 } from "./question-bank/scanner.js";
 import {
   analyzeQuestionScan,
+  confirmQuestionScanBoxes,
   createQuestionScan,
   importQuestionScan
 } from "./question-bank/scan-service.js";
+import { createVocabStore } from "./vocab/store.js";
+import {
+  parseDateKey as parseVocabDateKey,
+  toDateKey
+} from "./vocab/schedule.js";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, "..");
@@ -62,6 +68,7 @@ const attachmentsDirectory = process.env.ATTACHMENTS_DIR
 const repository = createRepository(databasePath, {
   attachmentDirectory: attachmentsDirectory
 });
+const vocabStore = createVocabStore(repository.db);
 const learningTools = createLearningTools(repository);
 const llmGateway = createGatewayFromEnvironment(process.env);
 const attachmentStore = new AttachmentStore({
@@ -69,7 +76,8 @@ const attachmentStore = new AttachmentStore({
 });
 const einkPageService = new EinkPageService({
   repository,
-  attachmentStore
+  attachmentStore,
+  vocabStore
 });
 const internalOcrTextExtractor =
   createInternalOcrTextExtractorFromEnvironment(process.env);
@@ -325,6 +333,165 @@ function parseEinkMode(value) {
   if (value === null) return "question";
   if (value === "question" || value === "answer") return value;
   throw new HttpError(400, "mode 只能是 question 或 answer");
+}
+
+function parseEinkVocabIndex(value) {
+  if (value === null) return 1;
+  const text = String(value).trim();
+  const index = Number(text);
+  if (!/^[1-9]\d*$/.test(text) || !Number.isSafeInteger(index)) {
+    throw new HttpError(400, "index 必须是从 1 开始的整数");
+  }
+  return index;
+}
+
+function parseEinkVocabMode(subject, value) {
+  if (value === null) return null;
+  if (subject === "chinese") {
+    throw new HttpError(400, "语文听写不支持 mode 参数");
+  }
+  const mode = String(value).trim();
+  if (!VOCAB_ENGLISH_MODES.has(mode)) {
+    throw new HttpError(400, "mode 只能是 zh_to_en 或 en_to_zh");
+  }
+  return mode;
+}
+
+const VOCAB_SUBJECTS = new Set(["chinese", "english"]);
+const VOCAB_ITEM_STATUSES = new Set(["active", "mastered"]);
+const VOCAB_ENGLISH_MODES = new Set(["zh_to_en", "en_to_zh"]);
+const VOCAB_LIST_TYPES = {
+  chinese: new Set(["会认", "会写", "词语"]),
+  english: new Set(["单词", "短语"])
+};
+
+function currentVocabStudentId() {
+  const student = repository.getStudent();
+  if (!student) throw new HttpError(400, "缺少默认学生，无法使用字词模块");
+  return student.id;
+}
+
+function parseVocabSubject(value) {
+  const subject = String(value ?? "").trim();
+  if (!VOCAB_SUBJECTS.has(subject)) {
+    throw new HttpError(400, "subject 只能是 chinese 或 english");
+  }
+  return subject;
+}
+
+function parseVocabStatus(value) {
+  const status = String(value ?? "").trim();
+  if (!VOCAB_ITEM_STATUSES.has(status)) {
+    throw new HttpError(400, "status 只能是 active 或 mastered");
+  }
+  return status;
+}
+
+function parseVocabEnglishMode(value) {
+  const mode = String(value ?? "").trim();
+  if (!VOCAB_ENGLISH_MODES.has(mode)) {
+    throw new HttpError(400, "english_mode 只能是 zh_to_en 或 en_to_zh");
+  }
+  return mode;
+}
+
+function parseVocabListType(subject, value) {
+  const listType =
+    String(value ?? "").trim() || (subject === "chinese" ? "会写" : "单词");
+  if (!VOCAB_LIST_TYPES[subject].has(listType)) {
+    throw new HttpError(
+      400,
+      subject === "chinese"
+        ? "list_type 只能是 会认、会写 或 词语"
+        : "list_type 只能是 单词 或 短语"
+    );
+  }
+  return listType;
+}
+
+function parseVocabItemId(value, field = "条目编号") {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new HttpError(400, `${field}无效`);
+  }
+  return id;
+}
+
+function parseVocabOptionalId(value) {
+  if (value === undefined || value === null || value === "") return null;
+  return parseVocabItemId(value, "编号");
+}
+
+function parseVocabDueAt(value) {
+  const dueAt = parseVocabDateKey(value);
+  if (!dueAt) throw new HttpError(400, "到期日期格式应为 YYYY-MM-DD");
+  return dueAt;
+}
+
+function parseVocabDailyLimit(value) {
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 5 || limit > 100) {
+    throw new HttpError(400, "每日复习上限必须是 5～100 的整数");
+  }
+  return limit;
+}
+
+function parseVocabPastedText(subject, text) {
+  const entries = [];
+  for (const rawLine of String(text).split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const tokens = line.split(/\s+/);
+    if (subject === "chinese") {
+      entries.push({
+        term: tokens[0],
+        pinyin: tokens[1] || "",
+        meaning: tokens.slice(2).join(" ")
+      });
+    } else {
+      entries.push({
+        term: tokens[0],
+        meaning: tokens.slice(1).join(" ")
+      });
+    }
+  }
+  if (!entries.length) throw new HttpError(400, "没有可导入的词条");
+  return entries;
+}
+
+function parseVocabEntry(subject, raw) {
+  if (!raw || typeof raw !== "object") {
+    throw new HttpError(400, "词条格式无效");
+  }
+  const term = requireText(raw.term ?? raw.word, "词条", 50);
+  const kind =
+    subject === "chinese"
+      ? raw.kind === "char" || raw.kind === "word"
+        ? raw.kind
+        : [...term].length === 1
+          ? "char"
+          : "word"
+      : null;
+  return {
+    term,
+    kind,
+    pinyin: optionalText(raw.pinyin, 100),
+    meaning: optionalText(raw.meaning, 200),
+    phonetic: optionalText(raw.phonetic, 100),
+    pos: optionalText(raw.pos, 20),
+    pinyinInBook: optionalText(raw.pinyinInBook, 100),
+    unitId: parseVocabOptionalId(raw.unitId),
+    lessonId: parseVocabOptionalId(raw.lessonId),
+    listType:
+      raw.listType === undefined || raw.listType === null
+        ? null
+        : parseVocabListType(subject, raw.listType),
+    position: Number.isInteger(raw.position) ? raw.position : null,
+    dueAt:
+      raw.dueAt === undefined || raw.dueAt === null
+        ? null
+        : parseVocabDueAt(raw.dueAt)
+  };
 }
 
 function issueEditSession(mistakeId, context) {
@@ -1102,6 +1269,82 @@ async function handleApi(request, response, url) {
     }
   }
 
+  const attachmentOcrBoxesMatch = url.pathname.match(
+    /^\/api\/attachments\/(\d+)\/ocr-boxes$/
+  );
+  if (attachmentOcrBoxesMatch && request.method === "POST") {
+    const attachment = repository.getAttachment(
+      parseId(attachmentOcrBoxesMatch[1]),
+      { includeStorageKey: true }
+    );
+    if (!attachment) {
+      throw new HttpError(404, "没有找到这张验证图片");
+    }
+    if (!questionScanner.ocrClient?.isConfigured()) {
+      throw new HttpError(503, "内部 OCR 未配置");
+    }
+    const content = readAttachmentContent(attachment, attachmentStore, {
+      variant: "original"
+    });
+    const result = await questionScanner.ocrClient.recognize({
+      buffer: content.buffer,
+      mimeType: content.mimeType
+    });
+    const grouped = await questionScanner.scan({
+      mode: "multi",
+      ocrResults: [result]
+    });
+    return sendJson(response, 200, {
+      provider: result.provider,
+      engine: result.engine,
+      model: result.model,
+      version: result.version,
+      width: result.width,
+      height: result.height,
+      processingTimeMs: result.processingTimeMs,
+      groupingProvider: grouped.provider,
+      groupingModel: grouped.model,
+      groupingPromptVersion: grouped.promptVersion,
+      blocks: result.blocks.map((block) => ({
+        id: block.id,
+        order: block.order,
+        text: block.text,
+        bbox: block.bbox,
+        confidence: block.confidence,
+        region: block.region
+      })),
+      questions: grouped.candidates.map((candidate, index) => ({
+        id: `q${index + 1}`,
+        questionNo: candidate.questionNo || index + 1,
+        text: candidate.text,
+        confidence: candidate.confidence,
+        region: candidate.region,
+        pendingReasons: candidate.pendingReasons || [],
+        sourceBlockIds: (candidate.sourceBlocks || []).map((block) => block.id)
+      }))
+    });
+  }
+
+  const attachmentOcrBoxesConfirmMatch = url.pathname.match(
+    /^\/api\/attachments\/(\d+)\/ocr-boxes\/confirm$/
+  );
+  if (attachmentOcrBoxesConfirmMatch && request.method === "POST") {
+    const body = await readJson(request);
+    return sendJson(
+      response,
+      200,
+      await confirmQuestionScanBoxes({
+        repository,
+        attachmentStore,
+        scanner: questionScanner,
+        attachmentId: parseId(attachmentOcrBoxesConfirmMatch[1]),
+        scanMode: body.scanMode,
+        selections: body.selections,
+        ocr: body.ocr
+      })
+    );
+  }
+
   const attachmentExtractMatch = url.pathname.match(
     /^\/api\/attachments\/(\d+)\/extract$/
   );
@@ -1298,6 +1541,37 @@ async function handleApi(request, response, url) {
       );
     }
 
+    if (page.unfit) {
+      const reasons = page.reasons || [];
+      if (url.pathname === "/api/eink/page") {
+        console.info(
+          `[eink] id=${id} mode=${mode} status=409 ` +
+            `unfit=${reasons.join(",") || "EINK_UNFIT"} ` +
+            `cache=${page.cacheHit ? "hit" : "miss"} ` +
+            `duration=${Date.now() - startedAt}ms`
+        );
+        return sendJson(response, 409, {
+          error: "不适配墨水屏单页",
+          code: "EINK_UNFIT",
+          reasons
+        });
+      }
+      response.writeHead(200, {
+        "Content-Type": "image/png",
+        "Content-Length": page.png.length,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "X-Eink-Unfit": "1"
+      });
+      response.end(page.png);
+      console.info(
+        `[eink] id=${id} mode=${mode} status=200 preview=unfit ` +
+          `cache=${page.cacheHit ? "hit" : "miss"} ` +
+          `duration=${Date.now() - startedAt}ms`
+      );
+      return;
+    }
+
     if (url.pathname === "/api/eink/page") {
       if (etagMatches(request.headers["if-none-match"], page.etag)) {
         response.writeHead(304, {
@@ -1339,6 +1613,86 @@ async function handleApi(request, response, url) {
     console.info(
       `[eink] id=${id} mode=${mode} status=200 ` +
         `cache=${page.cacheHit ? "hit" : "miss"} ` +
+        `duration=${Date.now() - startedAt}ms`
+    );
+    return;
+  }
+
+  if (
+    request.method === "GET" &&
+    (url.pathname === "/api/eink/vocab/page" ||
+      url.pathname === "/api/eink/vocab/preview")
+  ) {
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    const startedAt = Date.now();
+    const subject = parseVocabSubject(url.searchParams.get("subject"));
+    const index = parseEinkVocabIndex(url.searchParams.get("index"));
+    const mode = parseEinkVocabMode(
+      subject,
+      url.searchParams.get("mode")
+    );
+    const studentId = currentVocabStudentId();
+    let vocab;
+    try {
+      vocab = await einkPageService.getVocabFrame({
+        studentId,
+        subject,
+        index,
+        mode
+      });
+    } catch (error) {
+      console.info(
+        `[eink-vocab] subject=${subject} mode=${mode || "default"} ` +
+          `index=${index} status=${error.status || 500} cache=miss ` +
+          `duration=${Date.now() - startedAt}ms`
+      );
+      throw error;
+    }
+
+    if (url.pathname === "/api/eink/vocab/page") {
+      const notModified = etagMatches(
+        request.headers["if-none-match"],
+        vocab.etag
+      );
+      if (notModified) {
+        response.writeHead(304, {
+          ETag: vocab.etag,
+          "X-Etag": vocab.etag,
+          "Cache-Control": "no-transform",
+          "X-Content-Type-Options": "nosniff"
+        });
+        response.end();
+      } else {
+        response.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": vocab.frame.length,
+          ETag: vocab.etag,
+          "X-Etag": vocab.etag,
+          "Cache-Control": "no-transform",
+          "X-Content-Type-Options": "nosniff"
+        });
+        response.end(vocab.frame);
+      }
+      console.info(
+        `[eink-vocab] subject=${subject} mode=${mode || "default"} ` +
+          `index=${index} status=${notModified ? 304 : 200} ` +
+          `cache=${vocab.cacheHit ? "hit" : "miss"} ` +
+          `duration=${Date.now() - startedAt}ms`
+      );
+      return;
+    }
+
+    response.writeHead(200, {
+      "Content-Type": "image/png",
+      "Content-Length": vocab.png.length,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    });
+    response.end(vocab.png);
+    console.info(
+      `[eink-vocab] subject=${subject} mode=${mode || "default"} ` +
+        `index=${index} status=200 preview=1 ` +
+        `cache=${vocab.cacheHit ? "hit" : "miss"} ` +
         `duration=${Date.now() - startedAt}ms`
     );
     return;
@@ -1599,6 +1953,321 @@ async function handleApi(request, response, url) {
     );
     const items = repository.listDueReviews({ limit });
     return sendJson(response, 200, { items, count: items.length });
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/vocab/items") {
+    const studentId = currentVocabStudentId();
+    const subjectParam = url.searchParams.get("subject");
+    const statusParam = url.searchParams.get("status");
+    const items = vocabStore.listItems({
+      studentId,
+      subject: subjectParam ? parseVocabSubject(subjectParam) : null,
+      status:
+        statusParam && statusParam !== "all"
+          ? parseVocabStatus(statusParam)
+          : null
+    });
+    return sendJson(response, 200, { items, count: items.length });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/vocab/items") {
+    const body = await readJson(request);
+    const studentId = currentVocabStudentId();
+    const subject = parseVocabSubject(body.subject);
+    const hasTermRef = body.termId !== undefined && body.termId !== null;
+    if (hasTermRef) {
+      if (
+        Array.isArray(body.entries) ||
+        (typeof body.text === "string" && body.text.trim()) ||
+        body.term !== undefined ||
+        body.word !== undefined
+      ) {
+        throw new HttpError(400, "termId 录入不能与词条内容同时提供");
+      }
+      const termId = parseVocabItemId(body.termId, "词条编号");
+      vocabStore.requireTerm(subject, termId);
+      const occurrenceId = parseVocabOptionalId(body.sourceOccurrenceId);
+      if (occurrenceId) {
+        vocabStore.requireSourceOccurrence(subject, occurrenceId, termId);
+      }
+      const dueAt =
+        body.dueAt === undefined || body.dueAt === null
+          ? null
+          : parseVocabDueAt(body.dueAt);
+      const result = vocabStore.createItem({
+        studentId,
+        subject,
+        termId,
+        sourceOccurrenceId: occurrenceId,
+        dueAt
+      });
+      return sendJson(response, 201, {
+        created: result.created ? 1 : 0,
+        existing: result.created ? 0 : 1,
+        items: [result.item]
+      });
+    }
+    let rawEntries = [];
+    if (Array.isArray(body.entries)) {
+      rawEntries = body.entries;
+    } else if (typeof body.text === "string" && body.text.trim()) {
+      rawEntries = parseVocabPastedText(subject, body.text);
+    } else if (body.term !== undefined || body.word !== undefined) {
+      rawEntries = [body];
+    }
+    if (!rawEntries.length) {
+      throw new HttpError(400, "请提供要录入的词条");
+    }
+
+    const defaultListType = parseVocabListType(subject, body.listType);
+    const defaultUnitId = parseVocabOptionalId(body.unitId);
+    const defaultLessonId = parseVocabOptionalId(body.lessonId);
+    const defaultDueAt =
+      body.dueAt === undefined || body.dueAt === null
+        ? null
+        : parseVocabDueAt(body.dueAt);
+    const unitCache = new Map();
+    const lessonCache = new Map();
+    const items = [];
+    let created = 0;
+    let existing = 0;
+
+    const importEntry = (raw, index) => {
+      const entry = parseVocabEntry(subject, raw);
+      let unitId =
+        entry.unitId === null ? defaultUnitId : entry.unitId;
+      let lessonId =
+        entry.lessonId === null ? defaultLessonId : entry.lessonId;
+      let textbookId = null;
+
+      if (lessonId) {
+        let lesson = lessonCache.get(lessonId);
+        if (!lesson) {
+          lesson = vocabStore.requireLesson(subject, lessonId, unitId);
+          lessonCache.set(lessonId, lesson);
+        }
+        unitId = lesson.unit_id;
+        textbookId = lesson.textbook_id;
+      } else if (unitId) {
+        let unit = unitCache.get(unitId);
+        if (!unit) {
+          unit = vocabStore.requireUnit(subject, unitId);
+          unitCache.set(unitId, unit);
+        }
+        textbookId = unit.textbook_id;
+      }
+
+      const listType = entry.listType || defaultListType;
+      const position = entry.position ?? index + 1;
+      let termId;
+      let occurrenceId = null;
+      if (subject === "chinese") {
+        termId = vocabStore.findOrCreateZhTerm({
+          word: entry.term,
+          kind: entry.kind,
+          pinyin: entry.pinyin,
+          meaning: entry.meaning
+        });
+        if (unitId) {
+          occurrenceId = vocabStore.upsertZhOccurrence({
+            termId,
+            textbookId,
+            unitId,
+            lessonId,
+            listType,
+            pinyinInBook: entry.pinyinInBook || entry.pinyin,
+            position
+          });
+        }
+      } else {
+        termId = vocabStore.findOrCreateEnTerm({
+          term: entry.term,
+          phonetic: entry.phonetic,
+          pos: entry.pos,
+          meaning: entry.meaning
+        });
+        if (unitId) {
+          occurrenceId = vocabStore.upsertEnOccurrence({
+            termId,
+            textbookId,
+            unitId,
+            lessonId,
+            listType,
+            position
+          });
+        }
+      }
+
+      const result = vocabStore.createItem({
+        studentId,
+        subject,
+        termId,
+        sourceOccurrenceId: occurrenceId,
+        dueAt: entry.dueAt || defaultDueAt
+      });
+      if (result.created) created += 1;
+      else existing += 1;
+      items.push(result.item);
+    };
+
+    repository.db.exec("BEGIN IMMEDIATE");
+    try {
+      rawEntries.forEach(importEntry);
+      repository.db.exec("COMMIT");
+    } catch (error) {
+      repository.db.exec("ROLLBACK");
+      throw error;
+    }
+
+    return sendJson(response, 201, { created, existing, items });
+  }
+
+  const vocabItemMatch = url.pathname.match(/^\/api\/vocab\/items\/(\d+)$/);
+  if (vocabItemMatch && request.method === "PATCH") {
+    const body = await readJson(request);
+    const studentId = currentVocabStudentId();
+    const hasStatus = Object.hasOwn(body, "status");
+    const hasDueAt = Object.hasOwn(body, "dueAt");
+    if (!hasStatus && !hasDueAt) {
+      throw new HttpError(400, "请提供 status 或 dueAt");
+    }
+    const patch = {
+      studentId,
+      itemId: parseVocabItemId(vocabItemMatch[1])
+    };
+    if (hasStatus) patch.status = parseVocabStatus(body.status);
+    if (hasDueAt) {
+      patch.dueAt = body.dueAt === null ? null : parseVocabDueAt(body.dueAt);
+    }
+    return sendJson(response, 200, vocabStore.updateItem(patch));
+  }
+
+  if (vocabItemMatch && request.method === "DELETE") {
+    const studentId = currentVocabStudentId();
+    vocabStore.deleteItem(studentId, parseVocabItemId(vocabItemMatch[1]));
+    return sendJson(response, 200, { deleted: true });
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/vocab/catalog") {
+    const subject = parseVocabSubject(url.searchParams.get("subject"));
+    return sendJson(response, 200, vocabStore.catalog(subject));
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/vocab/occurrences") {
+    const studentId = currentVocabStudentId();
+    const subject = parseVocabSubject(url.searchParams.get("subject"));
+    const unitId = parseVocabOptionalId(url.searchParams.get("unitId"));
+    const lessonId = parseVocabOptionalId(url.searchParams.get("lessonId"));
+    if (!unitId && !lessonId) {
+      throw new HttpError(400, "请提供 unitId 或 lessonId");
+    }
+    if (lessonId) {
+      vocabStore.requireLesson(subject, lessonId, unitId);
+    } else {
+      vocabStore.requireUnit(subject, unitId);
+    }
+    return sendJson(
+      response,
+      200,
+      vocabStore.listOccurrences({ studentId, subject, unitId, lessonId })
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/vocab/review/today") {
+    const studentId = currentVocabStudentId();
+    const dateParam = url.searchParams.get("date");
+    const subjectParam = url.searchParams.get("subject");
+    const subject = subjectParam ? parseVocabSubject(subjectParam) : null;
+    const todayKey = dateParam
+      ? parseVocabDueAt(dateParam)
+      : toDateKey(new Date());
+    return sendJson(
+      response,
+      200,
+      vocabStore.reviewToday({ studentId, todayKey, subject })
+    );
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/vocab/reviews") {
+    const body = await readJson(request);
+    const studentId = currentVocabStudentId();
+    if (!Array.isArray(body.reviews) || !body.reviews.length) {
+      throw new HttpError(400, "请提供要提交的复习结果");
+    }
+    if (body.reviews.length > 200) {
+      throw new HttpError(400, "单次提交不能超过 200 条");
+    }
+    const reviews = body.reviews.map((raw) => {
+      if (!raw || typeof raw !== "object") {
+        throw new HttpError(400, "复习结果格式无效");
+      }
+      const result = String(raw.result ?? "");
+      if (result !== "correct" && result !== "incorrect") {
+        throw new HttpError(400, "result 只能是 correct 或 incorrect");
+      }
+      const surface = String(raw.surface ?? "web");
+      if (surface !== "web" && surface !== "eink") {
+        throw new HttpError(400, "surface 只能是 web 或 eink");
+      }
+      return {
+        itemId: parseVocabItemId(raw.itemId),
+        result,
+        surface
+      };
+    });
+    return sendJson(
+      response,
+      200,
+      vocabStore.submitReviews({ studentId, reviews, now: new Date() })
+    );
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/vocab/settings") {
+    return sendJson(
+      response,
+      200,
+      vocabStore.getSettings(currentVocabStudentId())
+    );
+  }
+
+  if (request.method === "PUT" && url.pathname === "/api/vocab/settings") {
+    const body = await readJson(request);
+    const studentId = currentVocabStudentId();
+    const hasLimit = Object.hasOwn(body, "dailyLimit");
+    const hasMode = Object.hasOwn(body, "englishMode");
+    if (!hasLimit && !hasMode) {
+      throw new HttpError(400, "请提供 dailyLimit 或 englishMode");
+    }
+    const patch = {};
+    if (hasLimit) patch.dailyLimit = parseVocabDailyLimit(body.dailyLimit);
+    if (hasMode) patch.englishMode = parseVocabEnglishMode(body.englishMode);
+    return sendJson(response, 200, vocabStore.updateSettings(studentId, patch));
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/vocab/dictation") {
+    const studentId = currentVocabStudentId();
+    const subject = parseVocabSubject(url.searchParams.get("subject"));
+    const unitId = parseVocabOptionalId(url.searchParams.get("unitId"));
+    const lessonId = parseVocabOptionalId(url.searchParams.get("lessonId"));
+    const modeParam = url.searchParams.get("mode");
+    const mode = modeParam ? parseVocabEnglishMode(modeParam) : null;
+    if (lessonId) {
+      vocabStore.requireLesson(subject, lessonId, unitId);
+    } else if (unitId) {
+      vocabStore.requireUnit(subject, unitId);
+    }
+    return sendJson(
+      response,
+      200,
+      vocabStore.dictation({
+        studentId,
+        subject,
+        mode,
+        unitId,
+        lessonId,
+        todayKey: toDateKey(new Date())
+      })
+    );
   }
 
   if (request.method === "POST" && url.pathname === "/api/demo") {

@@ -1,5 +1,7 @@
 # M5 知识库与检索说明
 
+<!-- NOTE type=待更新 ref=README.md:3 target=docs/KNOWLEDGE_BASE.md:4 owner=product :: 知识库当前仅覆盖人教版六年级数学，未覆盖根 README 声明的其他年级与学科；待产品排期扩容。 -->
+
 > 版本：2026.11.3
 > 教材基线：人教版六年级（上册/下册）
 > 验收状态：验收者-ark 复验通过（2026-11-10）

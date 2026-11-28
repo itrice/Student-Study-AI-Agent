@@ -31,6 +31,10 @@ import {
   shiftMonthKey
 } from "./feedback-calendar.js";
 
+// 绘制层色值：仅用于遮罩与裁剪画布底色，取值来自 styles.css 既定基线。
+const OVERLAY_SHADE_COLOR = "#111827";
+const CROP_CANVAS_COLOR = "#132019";
+
 const state = {
   student: null,
   knowledgePoints: [],
@@ -55,11 +59,31 @@ const state = {
   dayDetailTrigger: null,
   knowledgeSearch: null,
   knowledgeSearchRequest: 0,
-  scanAttachments: [],
+  vocab: {
+    subject: "chinese",
+    request: 0,
+    catalog: null,
+    selection: { bookId: null, unitId: null, lessonId: null },
+    occurrences: [],
+    itemsById: new Map(),
+    today: null,
+    settings: null,
+    dictation: null,
+    dictationPhase: "idle",
+    gradingIndex: 0,
+    grading: [],
+    result: null
+  },
   scanTask: null,
   scanId: null,
-  scanBusy: false,
-  questionCategory: "all",
+  scanOcrBoxesBlocks: [],
+  scanOcrBoxesSelection: new Set(),
+  scanOcrBoxesMode: "single",
+  scanOcrBoxesFocusedId: null,
+  scanOcrBoxesDrag: null,
+  scanOcrBoxesAttachmentId: null,
+  scanOcrBoxesOcr: null,
+  scanOcrBoxesBusy: false,
   filter: "all",
   mistakeQuery: "",
   mistakeSearchTimer: null,
@@ -104,6 +128,7 @@ const viewLabels = {
   mistakes: "题库",
   feedback: "学习反馈",
   knowledge: "知识点地图",
+  vocab: "字词",
   settings: "系统配置"
 };
 
@@ -349,11 +374,11 @@ async function uploadImageFiles(fileList, { autoCrop = true } = {}) {
     );
   }
   if (autoCrop && lastUploaded) {
-    openCropEditor(lastUploaded.id, "dialog");
+    openCropEditor(lastUploaded.id);
   }
 }
 
-const MAX_SCAN_IMAGES = 3;
+// 取值来源：src/question-bank/scanner.js 的 QUESTION_TYPES，前端仅补中文标签。
 const SCAN_QUESTION_TYPES = [
   ["general", "通用题"],
   ["single_choice", "单选题"],
@@ -396,172 +421,458 @@ function scanCompletenessLabel(candidate) {
 }
 
 function renderScanIntake() {
-  const list = $("#scan-image-list");
-  if (!list) return;
-  list.replaceChildren();
-  state.scanAttachments.forEach((attachment, index) => {
-    const item = createElement("div", "scan-image-item");
-    const image = createAttachmentImage(attachment, "scan-image-thumb");
-    image.alt = `待识别图片 ${index + 1}`;
-    const copy = createElement("span", "scan-image-copy");
-    copy.append(
-      createElement("strong", "", index === 0 ? "主图" : `补充图 ${index}`),
-      createElement(
-        "small",
-        "",
-        `${attachment.width} × ${attachment.height}${
-          attachment.hasCrop ? " · 已裁剪" : ""
-        }`
-      )
-    );
-    const actions = createElement("div", "scan-image-item-actions");
-    const crop = createElement(
-      "button",
-      "text-button",
-      attachment.hasCrop ? "重新裁剪" : "裁剪原图"
-    );
-    crop.type = "button";
-    crop.dataset.cropAttachment = String(attachment.id);
-    crop.dataset.cropContext = "scan";
-    const remove = createElement("button", "text-button", "移除");
-    remove.type = "button";
-    remove.dataset.removeScanImage = String(attachment.id);
-    actions.append(crop, remove);
-    item.append(image, copy, actions);
-    list.append(item);
-  });
   const intake = $("#scan-intake");
   const task = $("#scan-task");
   if (intake) intake.hidden = Boolean(state.scanTask);
   if (task) task.hidden = !state.scanTask;
-  const clear = $("#scan-clear-images");
-  if (clear) clear.hidden = !state.scanAttachments.length;
-  const start = $("#scan-start-button");
-  if (start) {
-    start.disabled =
-      state.scanBusy ||
-      !state.scanAttachments.length;
-    start.textContent = state.scanBusy ? "正在定位题目…" : "识别题目范围";
+}
+
+function setScanOcrBoxesStatus(message, isError = false) {
+  const status = $("#scan-ocr-boxes-status");
+  status.textContent = message;
+  status.classList.toggle("is-error", isError);
+}
+
+function updateScanOcrBoxesConfirmButton() {
+  const button = $("#scan-ocr-boxes-confirm");
+  if (!button) return;
+  const blocks = sortedScanOcrBoxes(state.scanOcrBoxesBlocks);
+  const hasSelection =
+    state.scanOcrBoxesMode === "single"
+      ? Boolean(centralScanOcrBox(blocks))
+      : blocks.some((block) =>
+          state.scanOcrBoxesSelection.has(String(block.id))
+        );
+  button.disabled =
+    state.scanOcrBoxesBusy ||
+    !state.scanOcrBoxesAttachmentId ||
+    !hasSelection;
+  button.textContent = state.scanOcrBoxesBusy ? "正在分析…" : "确认分析";
+}
+
+function resetScanOcrBoxesState() {
+  state.scanOcrBoxesBlocks = [];
+  state.scanOcrBoxesSelection = new Set();
+  state.scanOcrBoxesFocusedId = null;
+  state.scanOcrBoxesDrag = null;
+  state.scanOcrBoxesAttachmentId = null;
+  state.scanOcrBoxesOcr = null;
+  state.scanOcrBoxesBusy = false;
+  state.scanOcrBoxesMode = "single";
+  const singleMode = $(
+    'input[name="scan-ocr-boxes-mode"][value="single"]'
+  );
+  if (singleMode) singleMode.checked = true;
+  $("#scan-ocr-boxes-overlay").replaceChildren();
+  updateScanOcrBoxesConfirmButton();
+}
+
+function sortedScanOcrBoxes(blocks) {
+  return (Array.isArray(blocks) ? blocks : [])
+    .filter((block) => {
+      const region = block?.region;
+      return (
+        region &&
+        Number(region.width) > 0 &&
+        Number(region.height) > 0
+      );
+    })
+    .sort(
+      (left, right) =>
+        Number(left.region.y) - Number(right.region.y) ||
+        Number(left.region.x) - Number(right.region.x)
+    );
+}
+
+function centralScanOcrBox(blocks) {
+  return sortedScanOcrBoxes(blocks).reduce((closest, block) => {
+    const centerX = Number(block.region.x) + Number(block.region.width) / 2;
+    const centerY = Number(block.region.y) + Number(block.region.height) / 2;
+    const distance =
+      (centerX - 0.5) * (centerX - 0.5) +
+      (centerY - 0.5) * (centerY - 0.5);
+    if (!closest || distance < closest.distance) {
+      return { block, distance };
+    }
+    return closest;
+  }, null)?.block || null;
+}
+
+function appendScanOcrBoxHandles(box, blockId) {
+  for (const handle of ["nw", "ne", "sw", "se"]) {
+    const resize = createElement("span", "scan-ocr-box-handle");
+    resize.dataset.ocrResize = handle;
+    resize.dataset.ocrBoxId = blockId;
+    box.append(resize);
   }
 }
 
-async function uploadScanFiles(fileList, { returnToEntryChoice = false } = {}) {
-  const files = [...(fileList || [])].filter(
-    (file) => !file.type || file.type.startsWith("image/")
-  );
-  if (!files.length) {
-    showToast("没有找到可用的图片", true);
+function renderScanOcrBoxDim() {
+  const overlay = $("#scan-ocr-boxes-overlay");
+  overlay.querySelector(".scan-ocr-box-dim")?.remove();
+  const image = $("#scan-ocr-boxes-image");
+  if (!image?.getAttribute("src")) return;
+  const block =
+    state.scanOcrBoxesFocusedId === null
+      ? null
+      : state.scanOcrBoxesBlocks.find(
+          (item) => String(item.id) === String(state.scanOcrBoxesFocusedId)
+        );
+
+  const namespace = "http://www.w3.org/2000/svg";
+  const maskId = "scan-ocr-box-focus-mask";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.classList.add("scan-ocr-box-dim");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+
+  const definitions = document.createElementNS(namespace, "defs");
+  const mask = document.createElementNS(namespace, "mask");
+  mask.id = maskId;
+  mask.setAttribute("maskUnits", "userSpaceOnUse");
+  mask.setAttribute("x", "0");
+  mask.setAttribute("y", "0");
+  mask.setAttribute("width", "100%");
+  mask.setAttribute("height", "100%");
+
+  const maskBackground = document.createElementNS(namespace, "rect");
+  maskBackground.setAttribute("width", "100%");
+  maskBackground.setAttribute("height", "100%");
+  maskBackground.setAttribute("fill", "#fff");
+  mask.append(maskBackground);
+  if (block?.region) {
+    const aperture = document.createElementNS(namespace, "rect");
+    aperture.setAttribute("x", `${clampNumber(block.region.x, 0, 1) * 100}%`);
+    aperture.setAttribute(
+      "y",
+      `${clampNumber(block.region.y, 0, 1) * 100}%`
+    );
+    aperture.setAttribute(
+      "width",
+      `${clampNumber(block.region.width, 0, 1) * 100}%`
+    );
+    aperture.setAttribute(
+      "height",
+      `${clampNumber(block.region.height, 0, 1) * 100}%`
+    );
+    aperture.setAttribute("rx", "8");
+    aperture.setAttribute("ry", "8");
+    aperture.setAttribute("fill", "#000");
+    mask.append(aperture);
+  }
+
+  const shade = document.createElementNS(namespace, "rect");
+  shade.setAttribute("width", "100%");
+  shade.setAttribute("height", "100%");
+  shade.setAttribute("fill", OVERLAY_SHADE_COLOR);
+  shade.setAttribute("fill-opacity", "0.22");
+  shade.setAttribute("mask", `url(#${maskId})`);
+  definitions.append(mask);
+  svg.append(definitions, shade);
+  overlay.prepend(svg);
+}
+
+function paintScanOcrBoxFocus() {
+  const overlay = $("#scan-ocr-boxes-overlay");
+  const focusedId =
+    state.scanOcrBoxesFocusedId === null
+      ? null
+      : String(state.scanOcrBoxesFocusedId);
+  $$(".scan-ocr-box", overlay).forEach((box) => {
+    const isFocused = box.dataset.ocrBoxId === focusedId;
+    box.classList.toggle("is-focused", isFocused);
+    box.querySelectorAll(".scan-ocr-box-handle").forEach((handle) => {
+      handle.remove();
+    });
+    if (isFocused) appendScanOcrBoxHandles(box, box.dataset.ocrBoxId);
+  });
+  renderScanOcrBoxDim();
+}
+
+function setScanOcrBoxFocus(blockId) {
+  state.scanOcrBoxesFocusedId =
+    blockId === null || blockId === undefined ? null : String(blockId);
+  if (state.scanOcrBoxesFocusedId === null) {
+    state.scanOcrBoxesDrag = null;
+  }
+  paintScanOcrBoxFocus();
+}
+
+function renderScanOcrBoxes() {
+  const overlay = $("#scan-ocr-boxes-overlay");
+  overlay.replaceChildren();
+  const blocks = sortedScanOcrBoxes(state.scanOcrBoxesBlocks);
+  const visible =
+    state.scanOcrBoxesMode === "single"
+      ? [centralScanOcrBox(blocks)].filter(Boolean)
+      : blocks;
+  visible.forEach((block, index) => {
+    const region = block.region;
+    const selected =
+      state.scanOcrBoxesMode === "single" ||
+      state.scanOcrBoxesSelection.has(block.id);
+    const focused = String(state.scanOcrBoxesFocusedId) === String(block.id);
+    const box = createElement("div", "scan-ocr-box");
+    box.dataset.ocrBoxId = block.id;
+    box.tabIndex = 0;
+    box.classList.toggle("is-selected", selected);
+    box.classList.toggle("is-focused", focused);
+    box.setAttribute(
+      "aria-label",
+      `第 ${index + 1} 题${block.text ? `：${block.text.slice(0, 80)}` : ""}`
+    );
+    box.style.left = `${clampNumber(Number(region.x) || 0, 0, 1) * 100}%`;
+    box.style.top = `${clampNumber(Number(region.y) || 0, 0, 1) * 100}%`;
+    box.style.width = `${
+      clampNumber(Number(region.width) || 0, 0, 1) * 100
+    }%`;
+    box.style.height = `${
+      clampNumber(Number(region.height) || 0, 0, 1) * 100
+    }%`;
+    if (state.scanOcrBoxesMode === "multi") {
+      const marker = document.createElement("label");
+      marker.className = "scan-ocr-box-marker";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = state.scanOcrBoxesSelection.has(block.id);
+      checkbox.dataset.ocrBoxId = block.id;
+      marker.append(checkbox, createElement("span", "", String(index + 1)));
+      box.append(marker);
+    }
+    if (focused) appendScanOcrBoxHandles(box, block.id);
+    overlay.append(box);
+  });
+  renderScanOcrBoxDim();
+  updateScanOcrBoxesConfirmButton();
+}
+
+function moveScanOcrBox(event) {
+  const drag = state.scanOcrBoxesDrag;
+  if (
+    !drag ||
+    state.scanOcrBoxesFocusedId !== drag.blockId ||
+    !document.hasFocus()
+  ) {
+    if (drag) state.scanOcrBoxesDrag = null;
     return;
   }
-  let lastUploaded = null;
-  for (const file of files) {
-    if (state.scanAttachments.length >= MAX_SCAN_IMAGES) {
-      showToast(`一次扫描最多 ${MAX_SCAN_IMAGES} 张图片`, true);
-      break;
+  const image = $("#scan-ocr-boxes-image");
+  const block = state.scanOcrBoxesBlocks.find(
+    (item) => String(item.id) === String(drag.blockId)
+  );
+  if (!block || !image) return;
+  event.preventDefault();
+  const bounds = image.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return;
+  const dx = (event.clientX - drag.startX) / bounds.width;
+  const dy = (event.clientY - drag.startY) / bounds.height;
+  const start = drag.region;
+  if (drag.type === "move") {
+    block.region = {
+      x: clampNumber(start.x + dx, 0, 1 - start.width),
+      y: clampNumber(start.y + dy, 0, 1 - start.height),
+      width: start.width,
+      height: start.height
+    };
+  } else {
+    const minWidth = Math.min(0.25, 24 / bounds.width);
+    const minHeight = Math.min(0.25, 24 / bounds.height);
+    let left = start.x;
+    let top = start.y;
+    let right = start.x + start.width;
+    let bottom = start.y + start.height;
+    if (drag.handle.includes("w")) {
+      left = clampNumber(start.x + dx, 0, right - minWidth);
     }
-    if (file.size > MAX_IMAGE_BYTES) {
-      showToast("单张图片不能超过 8 MB", true);
-      continue;
+    if (drag.handle.includes("e")) {
+      right = clampNumber(start.x + start.width + dx, left + minWidth, 1);
     }
-    if (file.type && !ALLOWED_IMAGE_TYPES.has(file.type)) {
-      showToast("仅支持 JPG、PNG 或 WebP 图片", true);
-      continue;
+    if (drag.handle.includes("n")) {
+      top = clampNumber(start.y + dy, 0, bottom - minHeight);
     }
+    if (drag.handle.includes("s")) {
+      bottom = clampNumber(start.y + start.height + dy, top + minHeight, 1);
+    }
+    block.region = {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top
+    };
+  }
+  const box = $$(".scan-ocr-box", $("#scan-ocr-boxes-overlay")).find(
+    (item) => item.dataset.ocrBoxId === String(block.id)
+  );
+  if (box) {
+    box.style.left = `${block.region.x * 100}%`;
+    box.style.top = `${block.region.y * 100}%`;
+    box.style.width = `${block.region.width * 100}%`;
+    box.style.height = `${block.region.height * 100}%`;
+  }
+  renderScanOcrBoxDim();
+}
+
+function endScanOcrBoxDrag() {
+  state.scanOcrBoxesDrag = null;
+}
+
+async function runScanOcrBoxesValidation(file) {
+  const panel = $("#scan-ocr-boxes-panel");
+  const imageElement = $("#scan-ocr-boxes-image");
+  const previousAttachmentId = state.scanOcrBoxesAttachmentId;
+  resetScanOcrBoxesState();
+  if (previousAttachmentId) {
+    api(`/api/attachments/${previousAttachmentId}`, {
+      method: "DELETE"
+    }).catch(() => {});
+  }
+  panel.hidden = false;
+  setScanOcrBoxesStatus("正在加载图片…");
+  if (file.size > MAX_IMAGE_BYTES) {
+    setScanOcrBoxesStatus("单张图片不能超过 8 MB", true);
+    return;
+  }
+  if (file.type && !ALLOWED_IMAGE_TYPES.has(file.type)) {
+    setScanOcrBoxesStatus("仅支持 JPG、PNG 或 WebP 图片", true);
+    return;
+  }
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    await new Promise((resolve, reject) => {
+      imageElement.onload = resolve;
+      imageElement.onerror = () => reject(new Error("图片加载失败"));
+      imageElement.src = objectUrl;
+    });
+    renderScanOcrBoxDim();
+    setScanOcrBoxesStatus("图片已加载，正在识别文字和题目边界…");
+
+    let attachmentId = null;
     try {
       const attachment = await uploadAttachment(file);
-      state.scanAttachments.push(attachment);
-      lastUploaded = attachment;
-      $("#scan-status").textContent = `已添加 ${state.scanAttachments.length} 张图片；识别结果只进入候选页。`;
+      attachmentId = attachment.id;
+      state.scanOcrBoxesAttachmentId = attachment.id;
+      const result = await api(`/api/attachments/${attachment.id}/ocr-boxes`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      state.scanOcrBoxesBlocks = Array.isArray(result.questions)
+        ? result.questions
+        : [];
+      state.scanOcrBoxesFocusedId = null;
+      state.scanOcrBoxesSelection = new Set(
+        state.scanOcrBoxesBlocks.map((block) => block.id)
+      );
+      state.scanOcrBoxesOcr = result;
+      renderScanOcrBoxes();
+      updateScanOcrBoxesConfirmButton();
+      const model = result.model || result.engine || "OCR";
+      setScanOcrBoxesStatus(
+        result.questions?.length
+          ? `识别完成 · ${result.questions.length} 道题 · ${result.blocks?.length || 0} 个字块 · ${result.groupingModel || model}`
+          : `识别完成，但没有定位到题目 · ${model}`,
+        !result.questions?.length
+      );
     } catch (error) {
-      $("#scan-status").textContent = error.message;
-      showToast(error.message, true);
-    }
-  }
-  renderScanIntake();
-  if (lastUploaded && returnToEntryChoice) {
-    openCropEditor(lastUploaded.id, "scan", {
-      returnToEntryChoice: true
-    });
-  } else if (lastUploaded) {
-    openCropEditor(lastUploaded.id, "scan");
-  }
-}
-
-async function removeScanAttachment(id) {
-  if (
-    state.cropEditor?.attachmentId === id &&
-    state.cropEditor.scope === "scan"
-  ) {
-    closeCropEditor();
-  }
-  state.scanAttachments = state.scanAttachments.filter(
-    (attachment) => attachment.id !== id
-  );
-  try {
-    await api(`/api/attachments/${id}`, { method: "DELETE" });
-  } catch {
-    // Startup cleanup removes a failed unbound attachment.
-  }
-  renderScanIntake();
-}
-
-async function clearScanAttachments() {
-  if (state.cropEditor?.scope === "scan") closeCropEditor();
-  const ids = state.scanAttachments.map((attachment) => attachment.id);
-  state.scanAttachments = [];
-  renderScanIntake();
-  await Promise.all(
-    ids.map((id) => api(`/api/attachments/${id}`, { method: "DELETE" }).catch(() => {}))
-  );
-}
-
-async function startQuestionScan({ revealWhenReady = false } = {}) {
-  if (!state.scanAttachments.length) {
-    showToast("请先选择扫描图片", true);
-    return;
-  }
-  const revealResult =
-    revealWhenReady || isEntryChoiceOpen();
-  if (revealResult && !isEntryChoiceOpen()) {
-    openEntryChoice(null, { preserveTrigger: true });
-  }
-  state.scanBusy = true;
-  $("#scan-loading").hidden = false;
-  renderScanIntake();
-  try {
-    const task = await api("/api/questions/scans", {
-      method: "POST",
-      body: JSON.stringify({
-        attachmentIds: state.scanAttachments.map((attachment) => attachment.id),
-        scanMode: "multi"
-      })
-    });
-    state.scanTask = task;
-    state.scanId = task.id;
-    state.scanAttachments = [];
-    if (isEntryChoiceOpen()) {
-      closeEntryChoice({ restoreFocus: false });
-    }
-    history.pushState(null, "", `#scan/${task.id}`);
-    if (revealResult) {
-      showView("scan", { updateHash: false });
-    }
-    renderQuestionScan(task);
-    if (revealResult) {
-      window.setTimeout(() => {
-        $("#scan-task").focus({ preventScroll: true });
-      }, 40);
+      resetScanOcrBoxesState();
+      $("#scan-ocr-boxes-overlay").replaceChildren();
+      renderScanOcrBoxDim();
+      setScanOcrBoxesStatus(
+        error.message || "OCR 识别失败，请重新选择图片",
+        true
+      );
+      if (attachmentId) {
+        api(`/api/attachments/${attachmentId}`, { method: "DELETE" }).catch(
+          () => {}
+        );
+      }
     }
   } catch (error) {
-    if (revealResult && !isEntryChoiceOpen()) {
-      openEntryChoice(null, { preserveTrigger: true });
-    }
-    showToast(error.message, true);
-    $("#scan-status").textContent = error.message;
+    setScanOcrBoxesStatus(error.message || "图片加载失败", true);
   } finally {
-    state.scanBusy = false;
-    $("#scan-loading").hidden = true;
-    renderScanIntake();
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function confirmScanOcrBoxes() {
+  const attachmentId = state.scanOcrBoxesAttachmentId;
+  const blocks = sortedScanOcrBoxes(state.scanOcrBoxesBlocks);
+  const selected =
+    state.scanOcrBoxesMode === "single"
+      ? [centralScanOcrBox(blocks)].filter(Boolean)
+      : blocks.filter((block) =>
+          state.scanOcrBoxesSelection.has(String(block.id))
+        );
+  if (!attachmentId || !selected.length || state.scanOcrBoxesBusy) return;
+  const ocr = state.scanOcrBoxesOcr;
+  if (!ocr) {
+    setScanOcrBoxesStatus("OCR 结果已失效，请重新选择图片", true);
+    return;
+  }
+
+  state.scanOcrBoxesBusy = true;
+  updateScanOcrBoxesConfirmButton();
+  setScanOcrBoxesStatus(
+    `正在分析 ${selected.length} 个题框${state.scanOcrBoxesMode === "multi" ? "，未修改题框将复用 OCR" : ""}…`
+  );
+  try {
+    const result = await api(
+      `/api/attachments/${attachmentId}/ocr-boxes/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          scanMode: state.scanOcrBoxesMode,
+          selections: selected.map((question, index) => ({
+            groupId: String(question.id),
+            questionNo: question.questionNo || index + 1,
+            sourceBlockIds: Array.isArray(question.sourceBlockIds)
+              ? question.sourceBlockIds
+              : [],
+            region: { ...question.region }
+          })),
+          ocr: {
+            provider: ocr.provider,
+            engine: ocr.engine,
+            model: ocr.model,
+            version: ocr.version,
+            width: ocr.width,
+            height: ocr.height,
+            blocks: (ocr.blocks || []).map((block) => ({
+              id: String(block.id),
+              order: block.order,
+              text: block.text,
+              bbox: block.bbox,
+              confidence: block.confidence,
+              region: { ...block.region }
+            }))
+          }
+        })
+      }
+    );
+    state.scanTask = result.scan;
+    state.scanId = result.scan.id;
+    state.scanOcrBoxesAttachmentId = null;
+    history.pushState(null, "", `#scan/${result.scan.id}`);
+    showView("scan", { updateHash: false });
+    renderQuestionScan(result.scan);
+    window.setTimeout(() => {
+      $("#scan-task").focus({ preventScroll: true });
+    }, 40);
+    const sourceMessage =
+      result.reOcrCount || result.cachedCount
+        ? `，复用 ${result.cachedCount || 0} 个，重识别 ${result.reOcrCount || 0} 个`
+        : "";
+    showToast(
+      result.failedCount
+        ? `分析完成：成功 ${result.analyzedCount} 道，失败 ${result.failedCount} 道${sourceMessage}`
+        : `已分析 ${result.analyzedCount} 道题${sourceMessage}`,
+      result.failedCount > 0
+    );
+  } catch (error) {
+    setScanOcrBoxesStatus(error.message, true);
+    showToast(error.message, true);
+  } finally {
+    state.scanOcrBoxesBusy = false;
+    updateScanOcrBoxesConfirmButton();
   }
 }
 
@@ -1237,7 +1548,13 @@ async function importSelectedScanCandidates() {
         })
       }
     );
-    renderQuestionScan(result.scan);
+    const importedAll =
+      Number(result.successCount) > 0 && Number(result.failedCount) === 0;
+    if (importedAll) {
+      resetQuestionScan();
+    } else {
+      renderQuestionScan(result.scan);
+    }
     showToast(
       result.failedCount
         ? `导入完成：成功 ${result.successCount} 道，失败 ${result.failedCount} 道`
@@ -1275,13 +1592,27 @@ async function toggleScanCandidateExcluded(candidateId) {
 }
 
 function resetQuestionScan() {
+  resetScanOcrBoxesState();
   state.scanTask = null;
   state.scanId = null;
   history.replaceState(null, "", "#scan");
+  const image = $("#scan-ocr-boxes-image");
+  if (image) image.removeAttribute("src");
+  const panel = $("#scan-ocr-boxes-panel");
+  if (panel) panel.hidden = true;
+  setScanOcrBoxesStatus("");
+  const status = $("#scan-status");
+  if (status) {
+    status.textContent =
+      "请选择或拍摄一张作业图片；内部 OCR 不可用时仍可改用手动录入。";
+  }
   $("#scan-task").hidden = true;
   $("#scan-intake").hidden = false;
   $("#scan-task-empty").hidden = true;
   renderScanIntake();
+  window.requestAnimationFrame(() => {
+    $("#scan-intake").scrollIntoView({ block: "start" });
+  });
 }
 
 async function removeDialogAttachment(id) {
@@ -1374,10 +1705,10 @@ function findDialogAttachment(id) {
   return state.dialogAttachments.find((attachment) => attachment.id === id) || null;
 }
 
-function findCropAttachment(id, scope) {
-  const attachments =
-    scope === "scan" ? state.scanAttachments : state.dialogAttachments;
-  return attachments.find((attachment) => attachment.id === id) || null;
+function findCropAttachment(id) {
+  return (
+    state.dialogAttachments.find((attachment) => attachment.id === id) || null
+  );
 }
 
 function openAttachmentPreview(attachmentId) {
@@ -1389,21 +1720,15 @@ function openAttachmentPreview(attachmentId) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-function replaceCropAttachment(updated, scope) {
-  const attachments =
-    scope === "scan" ? state.scanAttachments : state.dialogAttachments;
-  const index = attachments.findIndex(
+function replaceCropAttachment(updated) {
+  const index = state.dialogAttachments.findIndex(
     (attachment) => attachment.id === updated.id
   );
-  if (index >= 0) attachments[index] = updated;
+  if (index >= 0) state.dialogAttachments[index] = updated;
 }
 
-function renderCropAttachmentList(scope) {
-  if (scope === "scan") {
-    renderScanIntake();
-  } else {
-    renderDialogAttachments();
-  }
+function renderCropAttachmentList() {
+  renderDialogAttachments();
 }
 
 function clampNumber(value, min, max) {
@@ -1489,7 +1814,7 @@ function renderCropEditor() {
 
   const context = canvas.getContext("2d");
   context.clearRect(0, 0, displayWidth, displayHeight);
-  context.fillStyle = "#132019";
+  context.fillStyle = CROP_CANVAS_COLOR;
   context.fillRect(0, 0, displayWidth, displayHeight);
   context.save();
   context.translate(displayWidth / 2, displayHeight / 2);
@@ -1615,20 +1940,14 @@ function resetCropEditor() {
   renderCropEditor();
 }
 
-function openCropEditor(
-  attachmentId,
-  scope = "dialog",
-  { returnToEntryChoice = false } = {}
-) {
-  const attachment = findCropAttachment(attachmentId, scope);
+function openCropEditor(attachmentId) {
+  const attachment = findCropAttachment(attachmentId);
   if (!attachment) return;
   closeCropEditor();
   const rotation = Number(attachment.crop?.rotation || 0);
   const editor = {
     attachmentId,
     attachment,
-    scope,
-    returnToEntryChoice,
     image: null,
     rotation,
     selection: selectionForAttachment(attachment, rotation),
@@ -1672,12 +1991,7 @@ function closeCropEditor() {
 }
 
 function cancelCropEditor() {
-  const returnToEntryChoice =
-    state.cropEditor?.returnToEntryChoice === true;
   closeCropEditor();
-  if (returnToEntryChoice) {
-    openEntryChoice(null, { preserveTrigger: true });
-  }
 }
 
 function toggleOriginalPreview(attachmentId) {
@@ -1793,20 +2107,11 @@ async function applyCropEditor() {
     if (!response.ok) {
       throw new Error(updated.error || "裁剪图片保存失败");
     }
-    replaceCropAttachment(updated, editor.scope);
+    replaceCropAttachment(updated);
     state.originalPreviewIds.delete(updated.id);
     closeCropEditor();
-    renderCropAttachmentList(editor.scope);
-    showToast(
-      editor.scope === "scan"
-        ? "裁剪已应用，OCR 将只使用裁剪区域，原图已保留"
-        : "裁剪已应用，识别文字将只使用裁剪区域"
-    );
-    if (editor.scope === "scan") {
-      await startQuestionScan({
-        revealWhenReady: editor.returnToEntryChoice === true
-      });
-    }
+    renderCropAttachmentList();
+    showToast("裁剪已应用，识别文字将只使用裁剪区域");
   } catch (error) {
     setCropStatus(error.message || "裁剪图片保存失败，原图未改变。", true);
   } finally {
@@ -1817,26 +2122,20 @@ async function applyCropEditor() {
 async function restoreOriginalImage() {
   const editor = state.cropEditor;
   const attachment = editor
-    ? findCropAttachment(editor.attachmentId, editor.scope)
+    ? findCropAttachment(editor.attachmentId)
     : null;
   if (!attachment?.hasCrop) return;
   const button = $("#restore-original-button");
-  const returnToEntryChoice = editor.returnToEntryChoice === true;
   setBusy(button, true, "正在恢复…");
   try {
     const updated = await api(`/api/attachments/${attachment.id}/crop`, {
       method: "DELETE"
     });
-    replaceCropAttachment(updated, editor.scope);
+    replaceCropAttachment(updated);
     state.originalPreviewIds.delete(updated.id);
     closeCropEditor();
-    renderCropAttachmentList(editor.scope);
-    showToast(
-      editor.scope === "scan" ? "已恢复原图，OCR 将使用完整原图" : "已恢复原图"
-    );
-    if (returnToEntryChoice) {
-      openEntryChoice(null, { preserveTrigger: true });
-    }
+    renderCropAttachmentList();
+    showToast("已恢复原图");
   } catch (error) {
     setCropStatus(error.message || "恢复原图失败，请稍后重试。", true);
   } finally {
@@ -2118,6 +2417,8 @@ function navigateTo(name) {
     }
   } else if (name === "feedback") {
     loadFeedback();
+  } else if (name === "vocab") {
+    loadVocab().catch((error) => showToast(error.message, true));
   } else if (name === "settings") {
     showSettingsSubpage(null, { updateHash: false });
     loadSettings().catch((error) => showToast(error.message, true));
@@ -2817,15 +3118,21 @@ async function loadSettings() {
   const historyInput = $("#curriculum-history-mistake");
   if (historyInput) historyInput.value = "";
   state.curriculumHistoryMistake = null;
-  const [curriculumResult, historyResult] = await Promise.allSettled([
-    api("/api/curriculum"),
-    api("/api/curriculum/switches?limit=10")
-  ]);
+  const [curriculumResult, historyResult, vocabSettingsResult] =
+    await Promise.allSettled([
+      api("/api/curriculum"),
+      api("/api/curriculum/switches?limit=10"),
+      api("/api/vocab/settings")
+    ]);
   if (curriculumResult.status === "fulfilled") {
     applyCurriculumData(curriculumResult.value);
   }
   if (historyResult.status === "fulfilled") {
     state.curriculumHistory = historyResult.value;
+  }
+  if (vocabSettingsResult.status === "fulfilled") {
+    state.vocab.settings = vocabSettingsResult.value;
+    renderVocabSettings();
   }
   renderSettings();
   renderCurriculumHistory();
@@ -2835,6 +3142,9 @@ async function loadSettings() {
       : null,
     historyResult.status === "rejected"
       ? `切换审计：${historyResult.reason?.message || "加载失败"}`
+      : null,
+    vocabSettingsResult.status === "rejected"
+      ? `字词设置：${vocabSettingsResult.reason?.message || "加载失败"}`
       : null
   ].filter(Boolean);
   if (failures.length) {
@@ -5672,9 +5982,731 @@ async function loadDemo() {
   }
 }
 
+const VOCAB_SUBJECT_LABELS = { chinese: "语文", english: "英语" };
+const VOCAB_SUBJECT_HINTS = {
+  chinese: "生字、词语与课本拼音",
+  english: "单词、短语与中文释义"
+};
+const VOCAB_PROMPT_HINTS = {
+  pinyin_to_hanzi: "看拼音，写出对应的字或词。",
+  zh_to_en: "看中文，写出英文单词。",
+  en_to_zh: "看英文，写出中文意思。"
+};
+
+function renderVocabSubjectTabs() {
+  const subject = state.vocab.subject;
+  $$("[data-vocab-subject]").forEach((button) => {
+    const active = button.dataset.vocabSubject === subject;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  const hint = $("#vocab-subject-hint");
+  if (hint) hint.textContent = VOCAB_SUBJECT_HINTS[subject] || "";
+}
+
+function syncVocabSelection() {
+  const vocab = state.vocab;
+  const books = vocab.catalog?.textbooks || [];
+  let book = books.find((entry) => entry.id === vocab.selection.bookId);
+  if (!book) book = books[0] || null;
+  vocab.selection.bookId = book ? book.id : null;
+  const units = book?.units || [];
+  let unit = units.find((entry) => entry.id === vocab.selection.unitId);
+  if (!unit) unit = units[0] || null;
+  vocab.selection.unitId = unit ? unit.id : null;
+  const lessons = unit?.lessons || [];
+  const lesson = lessons.find((entry) => entry.id === vocab.selection.lessonId);
+  vocab.selection.lessonId = lesson ? lesson.id : null;
+}
+
+function updateVocabDictationButtons() {
+  const vocab = state.vocab;
+  const hasDue = Boolean(vocab.today?.items?.length);
+  const start = $("#vocab-today-start");
+  if (start) start.disabled = !hasDue;
+  const todayButton = $("#vocab-dictation-today");
+  if (todayButton) todayButton.disabled = !hasDue;
+  const currentButton = $("#vocab-dictation-current");
+  if (currentButton) currentButton.disabled = !vocab.selection.unitId;
+}
+
+function renderVocabToday() {
+  const vocab = state.vocab;
+  const today = vocab.today;
+  $("#vocab-today-date").textContent = today?.date || "今天";
+  $("#vocab-today-due").textContent = today?.dueCount ?? 0;
+  $("#vocab-today-deferred").textContent = today?.deferredCount ?? 0;
+  $("#vocab-today-reviewed").textContent = today?.reviewedToday ?? 0;
+  const note = $("#vocab-today-note");
+  if (!today) {
+    note.textContent = "正在加载今日清单…";
+  } else if (!today.items.length && !today.reviewedToday) {
+    note.textContent = "今天没有到期字词；可先去字词库选择课文并加入复习。";
+  } else if (!today.items.length) {
+    note.textContent = "今日复习已完成，明天见。";
+  } else if (today.deferredCount > 0) {
+    note.textContent = `今日清单 ${today.items.length} 条；超过每日上限 ${today.dailyLimit} 条的 ${today.deferredCount} 条已顺延。`;
+  } else {
+    note.textContent = `今日清单 ${today.items.length} 条，每日上限 ${today.dailyLimit} 条。`;
+  }
+  updateVocabDictationButtons();
+}
+
+function renderVocabCatalog() {
+  const vocab = state.vocab;
+  const books = vocab.catalog?.textbooks || [];
+  const bookSelect = $("#vocab-book-select");
+  const unitSelect = $("#vocab-unit-select");
+  const lessonSelect = $("#vocab-lesson-select");
+  bookSelect.replaceChildren();
+  for (const book of books) {
+    const option = createElement("option", "", book.name);
+    option.value = String(book.id);
+    bookSelect.append(option);
+  }
+  const book = books.find((entry) => entry.id === vocab.selection.bookId);
+  bookSelect.disabled = books.length === 0;
+  if (book) bookSelect.value = String(book.id);
+
+  unitSelect.replaceChildren();
+  const units = book?.units || [];
+  for (const unit of units) {
+    const option = createElement("option", "", unit.name);
+    option.value = String(unit.id);
+    unitSelect.append(option);
+  }
+  const unit = units.find((entry) => entry.id === vocab.selection.unitId);
+  unitSelect.disabled = units.length === 0;
+  if (unit) unitSelect.value = String(unit.id);
+
+  lessonSelect.replaceChildren();
+  const wholeUnit = createElement("option", "", "整个单元");
+  wholeUnit.value = "";
+  lessonSelect.append(wholeUnit);
+  for (const lesson of unit?.lessons || []) {
+    const option = createElement("option", "", lesson.name);
+    option.value = String(lesson.id);
+    lessonSelect.append(option);
+  }
+  lessonSelect.value = vocab.selection.lessonId
+    ? String(vocab.selection.lessonId)
+    : "";
+  lessonSelect.disabled = !unit;
+
+  const empty = $("#vocab-empty");
+  if (empty) empty.hidden = !vocab.catalog || books.length > 0;
+  updateVocabDictationButtons();
+}
+
+function renderVocabOccurrences() {
+  const vocab = state.vocab;
+  const rows = vocab.occurrences;
+  const count = $("#vocab-library-count");
+  if (count) count.textContent = `${rows.length} 条`;
+  const list = $("#vocab-word-list");
+  list.replaceChildren();
+  if (!rows.length) {
+    const message = !vocab.catalog
+      ? "正在加载教材目录…"
+      : vocab.catalog.textbooks?.length
+        ? "这个单元/课还没有词条，可在下方批量粘贴录入。"
+        : "尚未导入教材，可先批量粘贴录入。";
+    list.append(createElement("p", "vocab-note", message));
+    return;
+  }
+  for (const occurrence of rows) {
+    const item = occurrence.itemId
+      ? vocab.itemsById.get(occurrence.itemId)
+      : null;
+    const row = createElement("article", "vocab-word");
+    const main = createElement("div", "vocab-word-main");
+    const head = createElement("div", "vocab-word-head");
+    head.append(createElement("strong", "vocab-word-term", occurrence.word));
+    if (occurrence.listType) {
+      head.append(createElement("span", "tag", occurrence.listType));
+    }
+    main.append(head);
+    const meta = [occurrence.pinyin, occurrence.meaning]
+      .filter(Boolean)
+      .join(" · ");
+    if (meta) main.append(createElement("span", "vocab-word-meta", meta));
+    const actions = createElement("div", "vocab-word-actions");
+    if (item) {
+      actions.append(
+        createElement(
+          "span",
+          `tag ${item.status === "mastered" ? "is-mastered" : "is-pending"}`,
+          item.status === "mastered" ? "已掌握" : "待复习"
+        )
+      );
+      if (item.status !== "mastered") {
+        const archive = createElement("button", "small-action", "归档");
+        archive.type = "button";
+        archive.dataset.vocabArchive = String(item.id);
+        actions.append(archive);
+      }
+      const remove = createElement("button", "small-action", "删除");
+      remove.type = "button";
+      remove.dataset.vocabDelete = String(item.id);
+      actions.append(remove);
+    } else {
+      const enroll = createElement("button", "small-action", "加入复习");
+      enroll.type = "button";
+      enroll.dataset.vocabEnroll = String(occurrence.termId);
+      enroll.dataset.occurrenceId = String(occurrence.occurrenceId);
+      actions.append(enroll);
+    }
+    row.append(main, actions);
+    list.append(row);
+  }
+}
+
+async function loadVocabOccurrences() {
+  const vocab = state.vocab;
+  const subject = vocab.subject;
+  const { unitId, lessonId } = vocab.selection;
+  if (!unitId && !lessonId) {
+    vocab.occurrences = [];
+    renderVocabOccurrences();
+    return;
+  }
+  const params = new URLSearchParams({ subject });
+  if (lessonId) params.set("lessonId", String(lessonId));
+  else params.set("unitId", String(unitId));
+  const data = await api(`/api/vocab/occurrences?${params}`);
+  if (
+    subject !== state.vocab.subject ||
+    unitId !== state.vocab.selection.unitId ||
+    lessonId !== state.vocab.selection.lessonId
+  ) {
+    return;
+  }
+  vocab.occurrences = data.items;
+  renderVocabOccurrences();
+}
+
+async function loadVocab() {
+  const vocab = state.vocab;
+  const requestId = ++vocab.request;
+  const subject = vocab.subject;
+  renderVocabSubjectTabs();
+  const [today, items, settings, catalog] = await Promise.all([
+    api(`/api/vocab/review/today?subject=${subject}`),
+    api(`/api/vocab/items?subject=${subject}`),
+    api("/api/vocab/settings"),
+    api(`/api/vocab/catalog?subject=${subject}`)
+  ]);
+  if (requestId !== vocab.request || subject !== vocab.subject) return;
+  vocab.today = today;
+  vocab.itemsById = new Map(items.items.map((item) => [item.id, item]));
+  vocab.settings = settings;
+  vocab.catalog = catalog;
+  syncVocabSelection();
+  renderVocabSubjectTabs();
+  renderVocabToday();
+  renderVocabCatalog();
+  renderVocabSettings();
+  await loadVocabOccurrences();
+}
+
+function renderVocabSettings() {
+  const settings = state.vocab.settings;
+  const limit = $("#vocab-settings-limit");
+  const mode = $("#vocab-settings-mode");
+  if (limit && settings && document.activeElement !== limit) {
+    limit.value = String(settings.dailyLimit);
+  }
+  if (mode && settings && document.activeElement !== mode) {
+    mode.value = settings.englishMode;
+  }
+  const status = $("#settings-vocab-status");
+  if (status && settings) {
+    status.textContent = `每日 ${settings.dailyLimit} 条 · ${
+      settings.englishMode === "zh_to_en" ? "中→英" : "英→中"
+    }`;
+  }
+}
+
+function setVocabSubject(subject) {
+  if (!VOCAB_SUBJECT_LABELS[subject] || subject === state.vocab.subject) return;
+  state.vocab.subject = subject;
+  state.vocab.catalog = null;
+  state.vocab.occurrences = [];
+  state.vocab.selection = { bookId: null, unitId: null, lessonId: null };
+  resetVocabDictation();
+  const pasteStatus = $("#vocab-paste-status");
+  if (pasteStatus) pasteStatus.textContent = "";
+  renderVocabSubjectTabs();
+  renderVocabOccurrences();
+  loadVocab().catch((error) => showToast(error.message, true));
+}
+
+async function enrollVocabTerm(termId, occurrenceId, gradeIndex = null) {
+  const body = { subject: state.vocab.subject, termId };
+  if (occurrenceId) body.sourceOccurrenceId = occurrenceId;
+  const data = await api("/api/vocab/items", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  const item = data.items?.[0] || null;
+  if (gradeIndex !== null && item) {
+    const entry = state.vocab.grading[gradeIndex];
+    if (entry) entry.itemId = item.id;
+  }
+  showToast(data.created ? "已加入复习" : "该词已在复习中");
+  await loadVocab();
+  if (gradeIndex !== null) renderVocabGrading();
+}
+
+function vocabAnswerFor(item) {
+  const vocab = state.vocab;
+  if (item.itemId) {
+    const entry = vocab.itemsById.get(item.itemId);
+    if (entry) {
+      return {
+        word: entry.term,
+        pinyin: entry.pinyin || entry.occurrencePinyin || "",
+        meaning: entry.meaning || ""
+      };
+    }
+  }
+  const occurrence = vocab.occurrences.find(
+    (row) => row.occurrenceId === item.occurrenceId
+  );
+  if (occurrence) {
+    return {
+      word: occurrence.word,
+      pinyin: occurrence.pinyin,
+      meaning: occurrence.meaning
+    };
+  }
+  return { word: item.prompt || "", pinyin: "", meaning: "" };
+}
+
+function vocabDictationModeLabel(dictation) {
+  if (!dictation) return "未开始";
+  if (dictation.mode === "pinyin_to_hanzi") return "语文 · 看拼音写词";
+  if (dictation.mode === "zh_to_en") return "英语 · 中→英";
+  if (dictation.mode === "en_to_zh") return "英语 · 英→中";
+  return dictation.mode;
+}
+
+function renderVocabPrompt() {
+  const vocab = state.vocab;
+  const items = vocab.dictation?.items || [];
+  const item = items[vocab.gradingIndex];
+  $("#vocab-dictation-progress").textContent = items.length
+    ? `第 ${vocab.gradingIndex + 1} / ${items.length} 个`
+    : "";
+  $("#vocab-dictation-prompt").textContent = item?.prompt || "";
+  $("#vocab-dictation-sub").textContent =
+    VOCAB_PROMPT_HINTS[vocab.dictation?.mode] || "";
+  $("#vocab-dictation-prev").disabled = vocab.gradingIndex <= 0;
+  $("#vocab-dictation-next").disabled =
+    vocab.gradingIndex >= items.length - 1;
+}
+
+function renderVocabGrading() {
+  const vocab = state.vocab;
+  const list = $("#vocab-grading-list");
+  list.replaceChildren();
+  vocab.grading.forEach((entry, index) => {
+    const row = createElement("article", "vocab-grade-row");
+    const main = createElement("div", "vocab-grade-main");
+    const head = createElement("div", "vocab-word-head");
+    head.append(
+      createElement("strong", "vocab-grade-word", entry.word || "（未命名词条）")
+    );
+    if (entry.listType) {
+      head.append(createElement("span", "tag", entry.listType));
+    }
+    if (!entry.itemId) {
+      head.append(createElement("span", "tag", "未入册"));
+    }
+    main.append(head);
+    const meta = [entry.pinyin, entry.meaning].filter(Boolean).join(" · ");
+    if (meta) main.append(createElement("span", "vocab-grade-meta", meta));
+
+    const actions = createElement("div", "vocab-grade-actions");
+    if (entry.itemId) {
+      const correct = createElement(
+        "button",
+        `small-action vocab-grade-mark${entry.correct === true ? " is-correct" : ""}`,
+        "✓ 对"
+      );
+      correct.type = "button";
+      correct.dataset.gradeIndex = String(index);
+      correct.dataset.gradeResult = "correct";
+      const wrong = createElement(
+        "button",
+        `small-action vocab-grade-mark${entry.correct === false ? " is-wrong" : ""}`,
+        "✗ 错"
+      );
+      wrong.type = "button";
+      wrong.dataset.gradeIndex = String(index);
+      wrong.dataset.gradeResult = "incorrect";
+      actions.append(correct, wrong);
+    } else {
+      const enroll = createElement("button", "small-action", "加入复习");
+      enroll.type = "button";
+      enroll.dataset.vocabEnroll = String(entry.termId);
+      enroll.dataset.occurrenceId = entry.occurrenceId
+        ? String(entry.occurrenceId)
+        : "";
+      enroll.dataset.gradeIndex = String(index);
+      actions.append(enroll);
+    }
+    row.append(main, actions);
+    list.append(row);
+  });
+}
+
+function renderVocabResult() {
+  const result = state.vocab.result;
+  const box = $("#vocab-dictation-result");
+  box.replaceChildren();
+  if (!result) return;
+  box.append(createElement("h3", "vocab-result-title", "本次听写结果"));
+  box.append(
+    createElement(
+      "p",
+      "vocab-note",
+      `共 ${result.total} 个词，提交 ${result.submitted} 个：✓ ${result.correctCount}，✗ ${result.incorrectCount}。`
+    )
+  );
+  if (result.total > result.submitted) {
+    box.append(
+      createElement(
+        "p",
+        "vocab-note",
+        `另有 ${result.total - result.submitted} 个词未入册，未计入复习。`
+      )
+    );
+  }
+  if (result.mastered > 0) {
+    box.append(
+      createElement(
+        "p",
+        "vocab-note",
+        `${result.mastered} 个词已掌握，退出后续排期。`
+      )
+    );
+  }
+  box.append(
+    createElement(
+      "p",
+      "vocab-note",
+      result.nextDue
+        ? `下次到期：${result.nextDue}。`
+        : "本次没有新的到期安排。"
+    )
+  );
+  const done = createElement("button", "primary-button", "完成");
+  done.type = "button";
+  done.id = "vocab-result-done";
+  box.append(done);
+}
+
+function renderVocabDictationPanel() {
+  const vocab = state.vocab;
+  const phase = vocab.dictationPhase;
+  $("#vocab-dictation-setup").hidden = phase !== "idle";
+  $("#vocab-dictation-run").hidden = phase !== "run";
+  $("#vocab-grading").hidden = phase !== "grading";
+  $("#vocab-dictation-result").hidden = phase !== "result";
+  const mode = $("#vocab-dictation-mode");
+  if (phase === "idle") mode.textContent = "未开始";
+  else if (phase === "result") mode.textContent = "已完成";
+  else mode.textContent = vocabDictationModeLabel(vocab.dictation);
+  if (phase === "run") renderVocabPrompt();
+  if (phase === "grading") renderVocabGrading();
+  if (phase === "result") renderVocabResult();
+  updateVocabDictationButtons();
+}
+
+function resetVocabDictation() {
+  const vocab = state.vocab;
+  vocab.dictation = null;
+  vocab.dictationPhase = "idle";
+  vocab.gradingIndex = 0;
+  vocab.grading = [];
+  vocab.result = null;
+  renderVocabDictationPanel();
+}
+
+async function startVocabDictation(source) {
+  const vocab = state.vocab;
+  const subject = vocab.subject;
+  const { unitId, lessonId } = vocab.selection;
+  const params = new URLSearchParams({ subject });
+  if (source === "current") {
+    if (!unitId) {
+      showToast("请先在字词库选择单元或课文", true);
+      return;
+    }
+    if (lessonId) {
+      params.set("lessonId", String(lessonId));
+    } else {
+      params.set("unitId", String(unitId));
+    }
+  }
+  const data = await api(`/api/vocab/dictation?${params}`);
+  if (subject !== state.vocab.subject) return;
+  if (!data.items.length) {
+    showToast(
+      source === "current" ? "当前单元/课还没有词条" : "今天没有到期字词",
+      true
+    );
+    return;
+  }
+  vocab.dictation = { ...data, source };
+  vocab.grading = data.items.map((item) => {
+    const answer = vocabAnswerFor(item);
+    return {
+      itemId: item.itemId ?? null,
+      termId: item.termId,
+      occurrenceId: item.occurrenceId ?? null,
+      listType: item.listType || "",
+      correct: null,
+      word: answer.word,
+      pinyin: answer.pinyin,
+      meaning: answer.meaning
+    };
+  });
+  vocab.gradingIndex = 0;
+  vocab.result = null;
+  vocab.dictationPhase = "run";
+  renderVocabDictationPanel();
+}
+
+function markAllVocabCorrect() {
+  for (const entry of state.vocab.grading) {
+    if (entry.itemId) entry.correct = true;
+  }
+  renderVocabGrading();
+}
+
+async function submitVocabReviews() {
+  const vocab = state.vocab;
+  const enrolled = vocab.grading.filter((entry) => entry.itemId);
+  if (!enrolled.length) {
+    showToast("没有已入册的词条可提交，请先把词加入复习。", true);
+    return;
+  }
+  if (enrolled.some((entry) => entry.correct === null)) {
+    showToast("请先为每个已入册词条勾选 ✓ 或 ✗。", true);
+    return;
+  }
+  const data = await api("/api/vocab/reviews", {
+    method: "POST",
+    body: JSON.stringify({
+      reviews: enrolled.map((entry) => ({
+        itemId: entry.itemId,
+        result: entry.correct ? "correct" : "incorrect",
+        surface: "web"
+      }))
+    })
+  });
+  const updated = Array.isArray(data.updated) ? data.updated : [];
+  const correctCount = enrolled.filter((entry) => entry.correct).length;
+  vocab.result = {
+    total: vocab.grading.length,
+    submitted: enrolled.length,
+    correctCount,
+    incorrectCount: enrolled.length - correctCount,
+    mastered: updated.filter((row) => row.status === "mastered").length,
+    nextDue:
+      updated
+        .filter((row) => row.status === "active" && row.dueAt)
+        .map((row) => row.dueAt)
+        .sort()[0] || null
+  };
+  vocab.dictationPhase = "result";
+  renderVocabDictationPanel();
+  try {
+    await loadVocab();
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
 function bindEvents() {
   $$(".nav-item").forEach((button) => {
     button.addEventListener("click", () => navigateTo(button.dataset.view));
+  });
+
+  $$("[data-vocab-subject]").forEach((button) => {
+    button.addEventListener("click", () =>
+      setVocabSubject(button.dataset.vocabSubject)
+    );
+  });
+  $("#vocab-book-select").addEventListener("change", (event) => {
+    state.vocab.selection.bookId = Number(event.target.value) || null;
+    state.vocab.selection.unitId = null;
+    state.vocab.selection.lessonId = null;
+    syncVocabSelection();
+    renderVocabCatalog();
+    loadVocabOccurrences().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-unit-select").addEventListener("change", (event) => {
+    state.vocab.selection.unitId = Number(event.target.value) || null;
+    state.vocab.selection.lessonId = null;
+    syncVocabSelection();
+    renderVocabCatalog();
+    loadVocabOccurrences().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-lesson-select").addEventListener("change", (event) => {
+    state.vocab.selection.lessonId = event.target.value
+      ? Number(event.target.value)
+      : null;
+    loadVocabOccurrences().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-paste-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const input = $("#vocab-paste-text");
+    const text = input.value.trim();
+    if (!text) {
+      showToast("请先粘贴词条", true);
+      return;
+    }
+    const vocab = state.vocab;
+    const body = { subject: vocab.subject, text };
+    if (vocab.selection.unitId) body.unitId = vocab.selection.unitId;
+    if (vocab.selection.lessonId) body.lessonId = vocab.selection.lessonId;
+    const status = $("#vocab-paste-status");
+    if (status) status.textContent = "正在导入…";
+    try {
+      const result = await api("/api/vocab/items", {
+        method: "POST",
+        body: JSON.stringify(body)
+      });
+      input.value = "";
+      if (status) {
+        status.textContent = `新增 ${result.created} 条，已存在 ${result.existing} 条`;
+      }
+      await loadVocab();
+    } catch (error) {
+      if (status) status.textContent = "";
+      showToast(error.message, true);
+    }
+  });
+  $("#vocab-word-list").addEventListener("click", (event) => {
+    const enroll = event.target.closest("[data-vocab-enroll]");
+    if (enroll) {
+      const occurrenceRaw = enroll.dataset.occurrenceId;
+      enrollVocabTerm(
+        Number(enroll.dataset.vocabEnroll),
+        occurrenceRaw ? Number(occurrenceRaw) : null
+      ).catch((error) => showToast(error.message, true));
+      return;
+    }
+    const archive = event.target.closest("[data-vocab-archive]");
+    if (archive) {
+      api(`/api/vocab/items/${Number(archive.dataset.vocabArchive)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "mastered" })
+      })
+        .then(() => {
+          showToast("已归档为掌握");
+          return loadVocab();
+        })
+        .catch((error) => showToast(error.message, true));
+      return;
+    }
+    const remove = event.target.closest("[data-vocab-delete]");
+    if (remove) {
+      if (!window.confirm("删除后该词条退出复习并清除复习记录，确定删除？")) {
+        return;
+      }
+      api(`/api/vocab/items/${Number(remove.dataset.vocabDelete)}`, {
+        method: "DELETE"
+      })
+        .then(() => {
+          showToast("已删除");
+          return loadVocab();
+        })
+        .catch((error) => showToast(error.message, true));
+    }
+  });
+  $("#vocab-today-refresh").addEventListener("click", () => {
+    loadVocab().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-today-start").addEventListener("click", () => {
+    startVocabDictation("today").catch((error) =>
+      showToast(error.message, true)
+    );
+  });
+  $("#vocab-dictation-today").addEventListener("click", () => {
+    startVocabDictation("today").catch((error) =>
+      showToast(error.message, true)
+    );
+  });
+  $("#vocab-dictation-current").addEventListener("click", () => {
+    startVocabDictation("current").catch((error) =>
+      showToast(error.message, true)
+    );
+  });
+  $("#vocab-dictation-prev").addEventListener("click", () => {
+    state.vocab.gradingIndex = Math.max(0, state.vocab.gradingIndex - 1);
+    renderVocabPrompt();
+  });
+  $("#vocab-dictation-next").addEventListener("click", () => {
+    const total = state.vocab.dictation?.items?.length || 0;
+    state.vocab.gradingIndex = Math.min(
+      total - 1,
+      state.vocab.gradingIndex + 1
+    );
+    renderVocabPrompt();
+  });
+  $("#vocab-dictation-finish").addEventListener("click", () => {
+    state.vocab.dictationPhase = "grading";
+    renderVocabDictationPanel();
+  });
+  $("#vocab-grading-list").addEventListener("click", (event) => {
+    const enroll = event.target.closest("[data-vocab-enroll]");
+    if (enroll) {
+      const occurrenceRaw = enroll.dataset.occurrenceId;
+      enrollVocabTerm(
+        Number(enroll.dataset.vocabEnroll),
+        occurrenceRaw ? Number(occurrenceRaw) : null,
+        Number(enroll.dataset.gradeIndex)
+      ).catch((error) => showToast(error.message, true));
+      return;
+    }
+    const mark = event.target.closest("[data-grade-index]");
+    if (!mark) return;
+    const entry = state.vocab.grading[Number(mark.dataset.gradeIndex)];
+    if (!entry) return;
+    entry.correct = mark.dataset.gradeResult === "correct";
+    renderVocabGrading();
+  });
+  $("#vocab-grade-all-correct").addEventListener("click", () => {
+    markAllVocabCorrect();
+  });
+  $("#vocab-grade-submit").addEventListener("click", () => {
+    submitVocabReviews().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-dictation-result").addEventListener("click", (event) => {
+    if (!event.target.closest("#vocab-result-done")) return;
+    resetVocabDictation();
+    loadVocab().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-settings-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const settings = await api("/api/vocab/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          dailyLimit: Number($("#vocab-settings-limit").value),
+          englishMode: $("#vocab-settings-mode").value
+        })
+      });
+      state.vocab.settings = settings;
+      renderVocabSettings();
+      showToast("字词设置已保存");
+    } catch (error) {
+      showToast(error.message, true);
+    }
   });
 
   document.addEventListener("click", (event) => {
@@ -5743,7 +6775,9 @@ function bindEvents() {
     state.entryPhotoCancelGuard = false;
     if (!files.length) return;
     closeEntryChoice({ restoreFocus: false, preserveTrigger: true });
-    uploadScanFiles(files, { returnToEntryChoice: true });
+    resetQuestionScan();
+    showView("scan", { updateHash: false });
+    runScanOcrBoxesValidation(files[0]);
   });
   $("#entry-photo-file-input").addEventListener("cancel", () => {
     state.entryPhotoPickerActive = false;
@@ -5822,27 +6856,112 @@ function bindEvents() {
       event.target.value = "";
     });
   }
-  $("#scan-choose-button").addEventListener("click", () => {
-    $("#scan-file-input").click();
+  $("#scan-ocr-boxes-button").addEventListener("click", () => {
+    $("#scan-ocr-boxes-file").click();
   });
-  $("#scan-file-input").addEventListener("change", (event) => {
-    uploadScanFiles(event.target.files);
+  $("#scan-ocr-boxes-file").addEventListener("change", (event) => {
+    const file = event.target.files?.[0];
     event.target.value = "";
+    if (file) runScanOcrBoxesValidation(file);
   });
-  $("#scan-image-list").addEventListener("click", (event) => {
-    const crop = event.target.closest("[data-crop-attachment]");
-    if (crop) {
-      openCropEditor(
-        Number(crop.dataset.cropAttachment),
-        crop.dataset.cropContext || "scan"
+  $("#scan-ocr-boxes-confirm").addEventListener(
+    "click",
+    confirmScanOcrBoxes
+  );
+  $$('input[name="scan-ocr-boxes-mode"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      setScanOcrBoxFocus(null);
+      state.scanOcrBoxesMode =
+        input.value === "multi" ? "multi" : "single";
+      renderScanOcrBoxes();
+    });
+  });
+  $("#scan-ocr-boxes-overlay").addEventListener("change", (event) => {
+    const checkbox = event.target.closest("[data-ocr-box-id]");
+    if (!checkbox) return;
+    setScanOcrBoxFocus(null);
+    if (checkbox.checked) {
+      state.scanOcrBoxesSelection.add(checkbox.dataset.ocrBoxId);
+    } else {
+      state.scanOcrBoxesSelection.delete(checkbox.dataset.ocrBoxId);
+    }
+    renderScanOcrBoxes();
+  });
+  $("#scan-ocr-boxes-overlay").addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest("[data-ocr-resize]");
+    if (handle) {
+      if (state.scanOcrBoxesFocusedId !== handle.dataset.ocrBoxId) return;
+      const block = state.scanOcrBoxesBlocks.find(
+        (item) => String(item.id) === handle.dataset.ocrBoxId
       );
+      if (!block) return;
+      event.preventDefault();
+      state.scanOcrBoxesDrag = {
+        type: "resize",
+        blockId: block.id,
+        handle: handle.dataset.ocrResize,
+        startX: event.clientX,
+        startY: event.clientY,
+        region: { ...block.region }
+      };
       return;
     }
-    const remove = event.target.closest("[data-remove-scan-image]");
-    if (remove) removeScanAttachment(Number(remove.dataset.removeScanImage));
+    const box = event.target.closest(".scan-ocr-box");
+    if (!box) {
+      setScanOcrBoxFocus(null);
+      return;
+    }
+    if (event.target.closest(".scan-ocr-box-marker")) {
+      setScanOcrBoxFocus(null);
+      return;
+    }
+    event.preventDefault();
+    setScanOcrBoxFocus(box.dataset.ocrBoxId);
+    box.focus({ preventScroll: true });
+    const block = state.scanOcrBoxesBlocks.find(
+      (item) => String(item.id) === box.dataset.ocrBoxId
+    );
+    if (block) {
+      state.scanOcrBoxesDrag = {
+        type: "move",
+        blockId: block.id,
+        startX: event.clientX,
+        startY: event.clientY,
+        region: { ...block.region }
+      };
+    }
   });
-  $("#scan-clear-images").addEventListener("click", clearScanAttachments);
-  $("#scan-start-button").addEventListener("click", startQuestionScan);
+  $("#scan-ocr-boxes-overlay").addEventListener("focusin", (event) => {
+    const box = event.target.closest?.(".scan-ocr-box");
+    if (!box || event.target !== box) return;
+    setScanOcrBoxFocus(box.dataset.ocrBoxId);
+  });
+  $("#scan-ocr-boxes-overlay").addEventListener("focusout", (event) => {
+    const box = event.target.closest?.(".scan-ocr-box");
+    if (!box) return;
+    const blockId = box.dataset.ocrBoxId;
+    window.setTimeout(() => {
+      const activeBox = document.activeElement?.matches?.(".scan-ocr-box")
+        ? document.activeElement
+        : null;
+      if (activeBox) {
+        if (state.scanOcrBoxesFocusedId !== activeBox.dataset.ocrBoxId) {
+          setScanOcrBoxFocus(activeBox.dataset.ocrBoxId);
+        }
+        return;
+      }
+      if (state.scanOcrBoxesFocusedId === blockId) {
+        setScanOcrBoxFocus(null);
+      }
+    }, 0);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (event.target.closest?.("#scan-ocr-boxes-overlay")) return;
+    if (state.scanOcrBoxesFocusedId !== null) {
+      setScanOcrBoxFocus(null);
+    }
+  });
   $("#scan-analyze-button").addEventListener(
     "click",
     analyzeSelectedScanCandidates
@@ -6017,8 +7136,15 @@ function bindEvents() {
   $("#apply-crop-button").addEventListener("click", applyCropEditor);
   $("#crop-selection").addEventListener("pointerdown", startCropDrag);
   document.addEventListener("pointermove", moveCropDrag);
+  document.addEventListener("pointermove", moveScanOcrBox);
   document.addEventListener("pointerup", endCropDrag);
+  document.addEventListener("pointerup", endScanOcrBoxDrag);
   document.addEventListener("pointercancel", endCropDrag);
+  document.addEventListener("pointercancel", endScanOcrBoxDrag);
+  window.addEventListener("blur", () => setScanOcrBoxFocus(null));
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) setScanOcrBoxFocus(null);
+  });
   window.addEventListener("resize", () => {
     syncSidebarForViewport();
     if (state.cropEditor?.image) renderCropEditor();
@@ -6285,6 +7411,8 @@ function bindEvents() {
       }
     } else if (route.view === "feedback") {
       loadFeedback().catch((error) => showToast(error.message, true));
+    } else if (route.view === "vocab") {
+      loadVocab().catch((error) => showToast(error.message, true));
     } else if (route.view === "settings") {
       loadSettings().catch((error) => showToast(error.message, true));
     } else if (route.view === "scan") {
@@ -6349,6 +7477,8 @@ async function init() {
       }
     } else if (initialRoute.view === "settings") {
       await loadSettings();
+    } else if (initialRoute.view === "vocab") {
+      await loadVocab();
     } else if (initialRoute.view === "scan" && initialRoute.scanId) {
       await loadQuestionScan(initialRoute.scanId);
     }

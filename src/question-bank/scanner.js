@@ -1,9 +1,10 @@
 import sharp from "sharp";
+import { MAX_SCAN_CANDIDATES } from "../database.js";
 
 export const QUESTION_SCAN_PROMPT_VERSION = "m2-ocr-parts-4";
 export const QUESTION_DISCOVERY_PROMPT_VERSION = "m2-ocr-boundaries-1";
 export const INTERNAL_OCR_TEXT_VERSION = "internal-ocr-1";
-export const MAX_SCAN_CANDIDATES = 20;
+export { MAX_SCAN_CANDIDATES };
 export const MAX_OCR_IMAGE_BYTES = 900 * 1024;
 
 const OCR_JPEG_QUALITIES = [88, 80, 72, 64, 56];
@@ -1139,41 +1140,61 @@ export class OcrTextQuestionScanner {
     return this.ocrClient?.isConfigured() === true;
   }
 
-  async scan({ images, mode = "single" }) {
-    if (!this.isConfigured()) {
+  async scan({ images, mode = "single", ocrResults: providedOcrResults = null }) {
+    const providedOcr = Array.isArray(providedOcrResults)
+      ? providedOcrResults
+      : null;
+    if (!providedOcr && !this.isConfigured()) {
       throw new QuestionScanError(
         "SCAN_NOT_CONFIGURED",
         "内部 OCR 未配置，图片已暂存；请改用手动录入或配置后重试。"
       );
     }
-    if (!Array.isArray(images) || !images.length) {
+    if (!providedOcr && (!Array.isArray(images) || !images.length)) {
       throw new QuestionScanError(
         "SCAN_IMAGE_REQUIRED",
         "请先选择扫描图片",
         { status: 400 }
       );
     }
-    const ocrResults = [];
-    try {
-      for (const [index, image] of images.entries()) {
-        const prepared = await prepareImageForOcr(image);
-        ocrResults.push(
-          await this.ocrClient.recognize({
-            buffer: prepared.buffer,
-            mimeType: prepared.mimeType,
-            imageIndex: index,
-            sourceWidth: prepared.sourceWidth,
-            sourceHeight: prepared.sourceHeight
-          })
+    const ocrResults = providedOcr || [];
+    const imageCount = providedOcr
+      ? providedOcr.length
+      : Array.isArray(images)
+        ? images.length
+        : 0;
+    if (
+      providedOcr &&
+      providedOcr.some((result) => !Array.isArray(result?.blocks))
+    ) {
+      throw new QuestionScanError(
+        "SCAN_OCR_CACHE_INVALID",
+        "缓存的 OCR 结果无效，需要重新识别",
+        { status: 422 }
+      );
+    }
+    if (!providedOcr) {
+      try {
+        for (const [index, image] of images.entries()) {
+          const prepared = await prepareImageForOcr(image);
+          ocrResults.push(
+            await this.ocrClient.recognize({
+              buffer: prepared.buffer,
+              mimeType: prepared.mimeType,
+              imageIndex: index,
+              sourceWidth: prepared.sourceWidth,
+              sourceHeight: prepared.sourceHeight
+            })
+          );
+        }
+      } catch (error) {
+        if (error instanceof QuestionScanError) throw error;
+        throw new QuestionScanError(
+          "SCAN_OCR_FAILED",
+          "OCR 识别失败，可重拍或改用手动录入",
+          { status: 502, details: { cause: error.name || "Error" } }
         );
       }
-    } catch (error) {
-      if (error instanceof QuestionScanError) throw error;
-      throw new QuestionScanError(
-        "SCAN_OCR_FAILED",
-        "OCR 识别失败，可重拍或改用手动录入",
-        { status: 502, details: { cause: error.name || "Error" } }
-      );
     }
     const blocks = ocrResults
       .flatMap((result) => result.blocks)
@@ -1248,7 +1269,7 @@ export class OcrTextQuestionScanner {
       }
       console.log(
         `[question-scan] 多题边界完成 blocks=${blocks.length} ` +
-          `questions=${candidates.length} images=${images.length} provider=${provider}`
+          `questions=${candidates.length} images=${imageCount} provider=${provider}`
       );
       return {
         candidates,
@@ -1348,7 +1369,8 @@ export class OcrTextQuestionScanner {
     }
     console.log(
       `[question-scan] OCR 完成 blocks=${blocks.length} ` +
-        `images=${images.length} provider=${provider}`
+        `images=${imageCount} provider=${provider} ` +
+        `cached=${providedOcr ? "yes" : "no"}`
     );
     return {
       candidates,

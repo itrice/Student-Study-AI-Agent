@@ -442,7 +442,7 @@ test("备份恢复同时保留原图、裁剪图和裁剪元数据", () => {
       databasePath: restoredDatabase,
       attachmentsDir: restoredAttachments
     });
-    assert.equal(restored.schemaVersion, 16);
+    assert.equal(restored.schemaVersion, 17);
     assert.equal(restored.attachmentCount, 2);
 
     const db = new DatabaseSync(restoredDatabase, { readOnly: true });
@@ -526,15 +526,10 @@ test("图片录入 UI 提供鼠标/触摸裁剪、旋转、重置、取消和查
   assert.match(app, /state\.originalPreviewIds\.has\(attachmentId\)/);
   assert.match(app, /window\.open\(url, "_blank", "noopener,noreferrer"\)/);
   assert.match(html, /<dialog\s+id="crop-editor"/);
-  assert.match(app, /openCropEditor\(lastUploaded\.id, "dialog"\)/);
-  assert.match(app, /openCropEditor\(lastUploaded\.id, "scan"\)/);
+  assert.match(app, /openCropEditor\(lastUploaded\.id\)/);
   assert.match(app, /uploadImageFiles\(files, \{ autoCrop: false \}\)/);
   assert.match(app, /cropDialog\.showModal\(\)/);
   assert.match(styles, /\.crop-editor::backdrop/);
-  assert.match(
-    app,
-    /if \(editor\.scope === "scan"\) \{\s*await startQuestionScan\(\{\s*revealWhenReady:/
-  );
   assert.match(
     app,
     /addEventListener\("cancel", \(event\) => \{[\s\S]*cancelCropEditor\(\)/

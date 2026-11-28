@@ -1,4 +1,11 @@
 # Deployer Agent
+
+> **归档（batch=nightly-2026-11-26）**
+> 原因：Compose + deployer 用户的手工部署路线与 CI 实际（kustomize + self-hosted runner）冲突，2026-11-10 后未再更新。
+> 取代者：`docs/DEPLOYMENT_RUNBOOK.md`
+> 还原：`git mv docs/_archive/nightly-2026-11-26/DEPLOYER_AGENT.md docs/DEPLOYER_AGENT.md`
+>
+> 以下为归档前原文。
 为了自动化部署，我create了一个deployer的agent，其实当前只是codex里面的一个会话session。但是目的是相同的。
 
 ### 创建单独的deployer用户，权限控制，避免AI进行瞎搞，删除重要文件。

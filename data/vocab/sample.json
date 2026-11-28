@@ -1,0 +1,135 @@
+{
+  "meta": {
+    "title": "字词教材导入示例",
+    "note": "示例数据，非教材内容。以下词语、拼音、释义均为开发联调占位，不代表任何出版社教材的真实生字表或单词表；真实教材数据需用户提供课本后另行导入。",
+    "reviewStatus": "unreviewed",
+    "schemaVersion": 1
+  },
+  "textbooks": [
+    {
+      "textbookKey": "sample-zh-6-upper",
+      "subject": "chinese",
+      "editionKey": "sample-edition-zh",
+      "publisher": "示例出版社",
+      "edition": "示例版",
+      "grade": 6,
+      "semester": "upper",
+      "displayName": "示例·语文六年级上册（非教材数据）",
+      "reviewStatus": "unreviewed",
+      "units": [
+        {
+          "unitNo": 1,
+          "title": "示例单元一",
+          "reviewStatus": "unreviewed",
+          "lessons": [
+            { "lessonNo": 1, "title": "示例课文一" },
+            { "lessonNo": 2, "title": "示例课文二" }
+          ],
+          "entries": [
+            {
+              "term": "山",
+              "kind": "char",
+              "pinyin": "shān",
+              "meaning": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 1
+            },
+            {
+              "term": "水",
+              "kind": "char",
+              "pinyin": "shuǐ",
+              "meaning": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 2
+            },
+            {
+              "term": "日",
+              "kind": "char",
+              "pinyin": "rì",
+              "meaning": "",
+              "listType": "会认",
+              "lessonNo": 2,
+              "position": 3
+            },
+            {
+              "term": "月亮",
+              "kind": "word",
+              "pinyin": "yuè liang",
+              "meaning": "示例释义",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 4
+            }
+          ]
+        },
+        {
+          "unitNo": 2,
+          "title": "示例单元二",
+          "reviewStatus": "unreviewed",
+          "lessons": [{ "lessonNo": 1, "title": "示例课文三" }],
+          "entries": [
+            {
+              "term": "春风",
+              "kind": "word",
+              "pinyin": "chūn fēng",
+              "meaning": "示例释义",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "textbookKey": "sample-en-6-upper",
+      "subject": "english",
+      "editionKey": "sample-edition-en",
+      "publisher": "示例出版社",
+      "edition": "示例版",
+      "grade": 6,
+      "semester": "upper",
+      "displayName": "示例·英语六年级上册（非教材数据）",
+      "reviewStatus": "unreviewed",
+      "units": [
+        {
+          "unitNo": 1,
+          "title": "示例 Unit 1",
+          "reviewStatus": "unreviewed",
+          "lessons": [{ "lessonNo": 1, "title": "示例 Part A" }],
+          "entries": [
+            {
+              "term": "apple",
+              "phonetic": "ˈæpl",
+              "pos": "n.",
+              "meaning": "苹果",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 1
+            },
+            {
+              "term": "banana",
+              "phonetic": "bəˈnɑːnə",
+              "pos": "n.",
+              "meaning": "香蕉",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 2
+            },
+            {
+              "term": "look at",
+              "phonetic": "",
+              "pos": "",
+              "meaning": "看",
+              "listType": "短语",
+              "lessonNo": 1,
+              "position": 3
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
