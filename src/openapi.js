@@ -2101,6 +2101,272 @@ const confirmQuestionScanBoxesResultSchema = {
   additionalProperties: false
 };
 
+const vocabItemSchema = {
+  type: "object",
+  required: [
+    "id",
+    "subject",
+    "termId",
+    "term",
+    "meaning",
+    "intervalIndex",
+    "dueAt",
+    "status",
+    "consecutiveCorrect",
+    "lapses",
+    "createdAt",
+    "updatedAt"
+  ],
+  properties: {
+    id: { type: "integer", minimum: 1 },
+    studentId: { type: "integer", minimum: 1 },
+    subject: { type: "string", enum: ["chinese", "english"] },
+    termId: { type: "integer", minimum: 1 },
+    term: { type: "string" },
+    kind: anyOfNullable({ type: "string", enum: ["char", "word"] }),
+    pinyin: anyOfNullable({ type: "string" }),
+    phonetic: anyOfNullable({ type: "string" }),
+    pos: anyOfNullable({ type: "string" }),
+    meaning: { type: "string" },
+    intervalIndex: { type: "integer", minimum: 0, maximum: 4 },
+    dueAt: anyOfNullable({ type: "string", format: "date" }),
+    status: { type: "string", enum: ["active", "mastered"] },
+    consecutiveCorrect: { type: "integer", minimum: 0 },
+    lapses: { type: "integer", minimum: 0 },
+    sourceOccurrenceId: anyOfNullable({ type: "integer", minimum: 1 }),
+    occurrencePinyin: anyOfNullable({ type: "string" }),
+    lastReviewedAt: anyOfNullable({ type: "string", format: "date-time" }),
+    createdAt: { type: "string", format: "date-time" },
+    updatedAt: { type: "string", format: "date-time" }
+  },
+  additionalProperties: false
+};
+
+const vocabItemsResponseSchema = {
+  type: "object",
+  required: ["items", "count"],
+  properties: {
+    items: { type: "array", items: ref("VocabItem") },
+    count: { type: "integer", minimum: 0 }
+  },
+  additionalProperties: false
+};
+
+const vocabEntryInputSchema = {
+  type: "object",
+  required: ["term"],
+  properties: {
+    term: { type: "string", minLength: 1, maxLength: 50 },
+    pinyin: { type: "string", maxLength: 100 },
+    pinyinInBook: { type: "string", maxLength: 100 },
+    meaning: { type: "string", maxLength: 200 },
+    phonetic: { type: "string", maxLength: 100 },
+    pos: { type: "string", maxLength: 20 },
+    kind: { type: "string", enum: ["char", "word"] },
+    unitId: { type: "integer", minimum: 1 },
+    lessonId: { type: "integer", minimum: 1 },
+    listType: { type: "string", enum: ["会认", "会写", "词语", "单词", "短语"] },
+    position: { type: "integer", minimum: 0 },
+    dueAt: { type: "string", format: "date" }
+  },
+  additionalProperties: false
+};
+
+const vocabItemsInputSchema = {
+  type: "object",
+  required: ["subject"],
+  properties: {
+    subject: { type: "string", enum: ["chinese", "english"] },
+    term: { type: "string", maxLength: 50 },
+    pinyin: { type: "string", maxLength: 100 },
+    meaning: { type: "string", maxLength: 200 },
+    phonetic: { type: "string", maxLength: 100 },
+    pos: { type: "string", maxLength: 20 },
+    kind: { type: "string", enum: ["char", "word"] },
+    entries: {
+      type: "array",
+      maxItems: 200,
+      items: ref("VocabEntryInput")
+    },
+    text: {
+      type: "string",
+      maxLength: 20000,
+      description:
+        "批量粘贴文本，每行一条；语文格式「词 拼音 释义（可选）」，英语格式「word 中文释义」。空行和 # 开头的行忽略。"
+    },
+    unitId: { type: "integer", minimum: 1 },
+    lessonId: { type: "integer", minimum: 1 },
+    listType: { type: "string", enum: ["会认", "会写", "词语", "单词", "短语"] },
+    dueAt: {
+      type: "string",
+      format: "date",
+      description: "可选到期日期；默认按排期引擎设为次日。"
+    }
+  },
+  additionalProperties: false
+};
+
+const vocabItemsCreatedSchema = {
+  type: "object",
+  required: ["created", "existing", "items"],
+  properties: {
+    created: { type: "integer", minimum: 0 },
+    existing: { type: "integer", minimum: 0 },
+    items: { type: "array", items: ref("VocabItem") }
+  },
+  additionalProperties: false
+};
+
+const vocabItemPatchSchema = {
+  type: "object",
+  properties: {
+    status: { type: "string", enum: ["active", "mastered"] },
+    dueAt: anyOfNullable({ type: "string", format: "date" })
+  },
+  additionalProperties: false
+};
+
+const vocabReviewTodayItemSchema = {
+  type: "object",
+  required: ["itemId", "subject", "prompt", "intervalIndex", "dueAt"],
+  properties: {
+    itemId: { type: "integer", minimum: 1 },
+    subject: { type: "string", enum: ["chinese", "english"] },
+    prompt: {
+      type: "string",
+      description:
+        "听写提示：语文为课本拼音，英语按模式返回中文释义或英文单词；不下发答案。"
+    },
+    intervalIndex: { type: "integer", minimum: 0, maximum: 4 },
+    dueAt: anyOfNullable({ type: "string", format: "date" })
+  },
+  additionalProperties: false
+};
+
+const vocabReviewTodaySchema = {
+  type: "object",
+  required: [
+    "date",
+    "dailyLimit",
+    "dueCount",
+    "deferredCount",
+    "reviewedToday",
+    "items"
+  ],
+  properties: {
+    date: { type: "string", format: "date" },
+    dailyLimit: { type: "integer", minimum: 5, maximum: 100 },
+    dueCount: { type: "integer", minimum: 0 },
+    deferredCount: { type: "integer", minimum: 0 },
+    reviewedToday: { type: "integer", minimum: 0 },
+    items: { type: "array", items: ref("VocabReviewTodayItem") }
+  },
+  additionalProperties: false
+};
+
+const vocabReviewEntrySchema = {
+  type: "object",
+  required: ["itemId", "result"],
+  properties: {
+    itemId: { type: "integer", minimum: 1 },
+    result: { type: "string", enum: ["correct", "incorrect"] },
+    surface: { type: "string", enum: ["web", "eink"] }
+  },
+  additionalProperties: false
+};
+
+const vocabReviewsInputSchema = {
+  type: "object",
+  required: ["reviews"],
+  properties: {
+    reviews: {
+      type: "array",
+      minItems: 1,
+      maxItems: 200,
+      items: ref("VocabReviewEntry")
+    }
+  },
+  additionalProperties: false
+};
+
+const vocabReviewsResultSchema = {
+  type: "object",
+  required: ["updated"],
+  properties: {
+    updated: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["itemId", "status", "intervalIndex", "dueAt"],
+        properties: {
+          itemId: { type: "integer", minimum: 1 },
+          status: { type: "string", enum: ["active", "mastered"] },
+          intervalIndex: { type: "integer", minimum: 0, maximum: 4 },
+          dueAt: anyOfNullable({ type: "string", format: "date" })
+        },
+        additionalProperties: false
+      }
+    }
+  },
+  additionalProperties: false
+};
+
+const vocabSettingsSchema = {
+  type: "object",
+  required: ["dailyLimit", "englishMode"],
+  properties: {
+    dailyLimit: { type: "integer", minimum: 5, maximum: 100 },
+    englishMode: { type: "string", enum: ["zh_to_en", "en_to_zh"] },
+    updatedAt: { type: "string", format: "date-time" }
+  },
+  additionalProperties: false
+};
+
+const vocabSettingsInputSchema = {
+  type: "object",
+  properties: {
+    dailyLimit: { type: "integer", minimum: 5, maximum: 100 },
+    englishMode: { type: "string", enum: ["zh_to_en", "en_to_zh"] }
+  },
+  minProperties: 1,
+  additionalProperties: false
+};
+
+const vocabDictationItemSchema = {
+  type: "object",
+  required: ["prompt"],
+  properties: {
+    itemId: anyOfNullable({ type: "integer", minimum: 1 }),
+    occurrenceId: anyOfNullable({ type: "integer", minimum: 1 }),
+    termId: { type: "integer", minimum: 1 },
+    unitId: anyOfNullable({ type: "integer", minimum: 1 }),
+    lessonId: anyOfNullable({ type: "integer", minimum: 1 }),
+    listType: anyOfNullable({ type: "string" }),
+    position: anyOfNullable({ type: "integer", minimum: 0 }),
+    intervalIndex: anyOfNullable({ type: "integer", minimum: 0, maximum: 4 }),
+    dueAt: anyOfNullable({ type: "string", format: "date" }),
+    prompt: {
+      type: "string",
+      description: "听写提示；答案字段始终不下发。"
+    }
+  },
+  additionalProperties: false
+};
+
+const vocabDictationSchema = {
+  type: "object",
+  required: ["subject", "mode", "items"],
+  properties: {
+    subject: { type: "string", enum: ["chinese", "english"] },
+    mode: {
+      type: "string",
+      enum: ["pinyin_to_hanzi", "zh_to_en", "en_to_zh"]
+    },
+    items: { type: "array", items: ref("VocabDictationItem") }
+  },
+  additionalProperties: false
+};
+
 const TAGS = [
   { name: "系统", description: "健康检查、运行状态与启动引导数据。" },
   { name: "教材", description: "教材目录、切换预演/执行和不可篡改的切换审计日志。" },
@@ -2111,7 +2377,11 @@ const TAGS = [
   { name: "知识库", description: "知识点统计、可追溯知识卡片与全文检索。" },
   { name: "反馈", description: "日总结、周报和家长可读报告。" },
   { name: "墨水屏", description: "匿名只读的到期队列、1bpp 整页帧和 PNG 预览。" },
-  { name: "运维", description: "仪表盘、运营指标、演示数据与学习数据删除。" }
+  { name: "运维", description: "仪表盘、运营指标、演示数据与学习数据删除。" },
+  {
+    name: "字词",
+    description: "语文生字词与英语单词的录入、到期复习清单、批量勾选和听写出题。"
+  }
 ];
 
 const components = {
@@ -2180,7 +2450,22 @@ const components = {
     ExtractAttachmentInput: extractAttachmentInputSchema,
     CreateQuestionScanInput: createQuestionScanInputSchema,
     QuestionScanSelectionInput: questionScanSelectionInputSchema,
-    UpdateQuestionScanCandidateInput: updateQuestionScanCandidateInputSchema
+    UpdateQuestionScanCandidateInput: updateQuestionScanCandidateInputSchema,
+    VocabItem: vocabItemSchema,
+    VocabItemsResponse: vocabItemsResponseSchema,
+    VocabEntryInput: vocabEntryInputSchema,
+    VocabItemsInput: vocabItemsInputSchema,
+    VocabItemsCreated: vocabItemsCreatedSchema,
+    VocabItemPatch: vocabItemPatchSchema,
+    VocabReviewTodayItem: vocabReviewTodayItemSchema,
+    VocabReviewToday: vocabReviewTodaySchema,
+    VocabReviewEntry: vocabReviewEntrySchema,
+    VocabReviewsInput: vocabReviewsInputSchema,
+    VocabReviewsResult: vocabReviewsResultSchema,
+    VocabSettings: vocabSettingsSchema,
+    VocabSettingsInput: vocabSettingsInputSchema,
+    VocabDictationItem: vocabDictationItemSchema,
+    VocabDictation: vocabDictationSchema
   }
 };
 
@@ -2195,7 +2480,7 @@ const paths = {
         200: jsonResponse(
           "服务正常",
           ref("Health"),
-          { ok: true, schemaVersion: 16, toolCount: 9 }
+          { ok: true, schemaVersion: 17, toolCount: 9 }
         )
       }
     }
@@ -3785,10 +4070,225 @@ Object.assign(paths, {
         404: errorResponse("没有找到候选图片")
       }
     }
+  },
+  "/api/vocab/items": {
+    get: {
+      tags: ["字词"],
+      summary: "查询字词条目",
+      description:
+        "按学科和状态查询当前学生的生字词/单词条目，含排期档位、到期日与来源课文。",
+      operationId: "listVocabItems",
+      parameters: [
+        {
+          name: "subject",
+          in: "query",
+          required: false,
+          description: "学科；缺省返回全部",
+          schema: { type: "string", enum: ["chinese", "english"] }
+        },
+        {
+          name: "status",
+          in: "query",
+          required: false,
+          description: "状态；缺省或 all 返回全部",
+          schema: { type: "string", enum: ["active", "mastered", "all"] }
+        }
+      ],
+      responses: {
+        200: jsonResponse("字词条目列表", ref("VocabItemsResponse"), {
+          items: [],
+          count: 0
+        }),
+        400: errorResponse("筛选参数无效")
+      }
+    },
+    post: {
+      tags: ["字词"],
+      summary: "录入字词（单条或批量粘贴）",
+      description:
+        "录入生字词/英语单词并加入艾宾浩斯排期。支持单条 term、结构化 entries 数组或 text 批量粘贴；同学生同学科同词条按现有条目返回，不重复建卡。",
+      operationId: "createVocabItems",
+      requestBody: requestBody(ref("VocabItemsInput"), {
+        example: {
+          subject: "chinese",
+          text: "山 shān\n水 shuǐ",
+          listType: "会写"
+        }
+      }),
+      responses: {
+        201: jsonResponse(
+          "录入结果",
+          ref("VocabItemsCreated"),
+          { created: 2, existing: 0, items: [] }
+        ),
+        400: errorResponse("词条或参数无效"),
+        404: errorResponse("没有找到对应学科的教材单元或课文")
+      }
+    }
+  },
+  "/api/vocab/items/{id}": {
+    patch: {
+      tags: ["字词"],
+      summary: "调整字词条目状态或到期日",
+      description: "可手动标记 mastered 停排、恢复 active（按第 1 档重新开始）或指定到期日。",
+      operationId: "updateVocabItem",
+      parameters: [idParameter("字词条目编号")],
+      requestBody: requestBody(ref("VocabItemPatch"), {
+        example: { status: "mastered" }
+      }),
+      responses: {
+        200: jsonResponse("更新后的条目", ref("VocabItem")),
+        400: errorResponse("参数无效"),
+        404: errorResponse("没有找到这个字词条目")
+      }
+    },
+    delete: {
+      tags: ["字词"],
+      summary: "删除字词条目",
+      description: "删除条目及其复习事件；词条主数据与教材挂载保留。",
+      operationId: "deleteVocabItem",
+      parameters: [idParameter("字词条目编号")],
+      responses: {
+        200: jsonResponse("删除成功", {
+          type: "object",
+          required: ["deleted"],
+          properties: { deleted: { type: "boolean", const: true } },
+          additionalProperties: false
+        }),
+        404: errorResponse("没有找到这个字词条目")
+      }
+    }
+  },
+  "/api/vocab/review/today": {
+    get: {
+      tags: ["字词"],
+      summary: "今日到期复习清单",
+      description:
+        "到期优先、逾期最久在前；超出每日上限（默认 25，可配置 5～100）的条目顺延，不掺入未到期新词。只返回提示，不下发答案。",
+      operationId: "getVocabReviewToday",
+      parameters: [
+        {
+          name: "date",
+          in: "query",
+          required: false,
+          description: "按指定日期模拟到期清单（YYYY-MM-DD），默认今天",
+          schema: { type: "string", format: "date" }
+        }
+      ],
+      responses: {
+        200: jsonResponse("今日复习清单", ref("VocabReviewToday"), {
+          date: "2026-11-28",
+          dailyLimit: 25,
+          dueCount: 0,
+          deferredCount: 0,
+          reviewedToday: 0,
+          items: []
+        }),
+        400: errorResponse("日期格式无效")
+      }
+    }
+  },
+  "/api/vocab/reviews": {
+    post: {
+      tags: ["字词"],
+      summary: "批量提交听写勾选结果",
+      description:
+        "人工勾选会/不会后批量提交。同日同条目重复提交按最后一次覆盖排期，历史事件全部保留。",
+      operationId: "submitVocabReviews",
+      requestBody: requestBody(ref("VocabReviewsInput"), {
+        example: {
+          reviews: [
+            { itemId: 1, result: "correct", surface: "web" },
+            { itemId: 2, result: "incorrect" }
+          ]
+        }
+      }),
+      responses: {
+        200: jsonResponse("提交后的排期状态", ref("VocabReviewsResult"), {
+          updated: []
+        }),
+        400: errorResponse("复习结果无效"),
+        404: errorResponse("没有找到字词条目")
+      }
+    }
+  },
+  "/api/vocab/settings": {
+    get: {
+      tags: ["字词"],
+      summary: "读取字词复习设置",
+      operationId: "getVocabSettings",
+      responses: {
+        200: jsonResponse("字词设置", ref("VocabSettings"), {
+          dailyLimit: 25,
+          englishMode: "zh_to_en"
+        })
+      }
+    },
+    put: {
+      tags: ["字词"],
+      summary: "更新字词复习设置",
+      description: "每日复习上限 5～100；英语听写模式 zh_to_en（默认）或 en_to_zh。",
+      operationId: "updateVocabSettings",
+      requestBody: requestBody(ref("VocabSettingsInput"), {
+        example: { dailyLimit: 30, englishMode: "en_to_zh" }
+      }),
+      responses: {
+        200: jsonResponse("更新后的字词设置", ref("VocabSettings")),
+        400: errorResponse("设置值无效")
+      }
+    }
+  },
+  "/api/vocab/dictation": {
+    get: {
+      tags: ["字词"],
+      summary: "获取听写出题提示",
+      description:
+        "语文显示课本拼音（多音字用 occurrence.pinyin_in_book），英语按模式显示中文或英文；答案始终不下发。缺省取今日到期清单，指定 unitId/lessonId 时按教材挂载出题。",
+      operationId: "getVocabDictation",
+      parameters: [
+        {
+          name: "subject",
+          in: "query",
+          required: true,
+          description: "学科",
+          schema: { type: "string", enum: ["chinese", "english"] }
+        },
+        {
+          name: "mode",
+          in: "query",
+          required: false,
+          description: "英语听写模式；缺省读系统设置",
+          schema: { type: "string", enum: ["zh_to_en", "en_to_zh"] }
+        },
+        {
+          name: "unitId",
+          in: "query",
+          required: false,
+          description: "教材单元编号",
+          schema: { type: "integer", minimum: 1 }
+        },
+        {
+          name: "lessonId",
+          in: "query",
+          required: false,
+          description: "课文编号",
+          schema: { type: "integer", minimum: 1 }
+        }
+      ],
+      responses: {
+        200: jsonResponse("听写提示列表", ref("VocabDictation"), {
+          subject: "chinese",
+          mode: "pinyin_to_hanzi",
+          items: []
+        }),
+        400: errorResponse("参数无效"),
+        404: errorResponse("没有找到对应学科的教材单元或课文")
+      }
+    }
   }
 });
 const INFO_DESCRIPTION = [
-  "子鱼学习AI 的本地学习数据 HTTP API，覆盖教材、附件、错题、题库、复习、知识库、反馈和运维。",
+  "子鱼学习AI 的本地学习数据 HTTP API，覆盖教材、字词、附件、错题、题库、复习、知识库、反馈和运维。",
   "",
   "### 接入前须知",
   "",
