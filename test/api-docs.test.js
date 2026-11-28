@@ -29,6 +29,8 @@ const DOCUMENTED_PATHS = [
   "/api/eink/dashboard",
   "/api/eink/page",
   "/api/eink/preview",
+  "/api/eink/vocab/page",
+  "/api/eink/vocab/preview",
   "/api/operations/metrics",
   "/api/learning-data",
   "/api/feedback/daily",
@@ -43,6 +45,14 @@ const DOCUMENTED_PATHS = [
   "/api/diagnose",
   "/api/review/next",
   "/api/review/queue",
+  "/api/vocab/items",
+  "/api/vocab/items/{id}",
+  "/api/vocab/catalog",
+  "/api/vocab/occurrences",
+  "/api/vocab/review/today",
+  "/api/vocab/reviews",
+  "/api/vocab/settings",
+  "/api/vocab/dictation",
   "/api/demo",
   "/api/mistakes/{id}",
   "/api/mistakes/{id}/evidence",
@@ -141,7 +151,7 @@ test(
       assert.equal(Object.keys(document.paths).length, DOCUMENTED_PATHS.length);
 
       const operations = collectOperations(document);
-      assert.equal(operations.length, 62);
+      assert.equal(operations.length, 75);
       const operationIds = operations.map(
         ({ operation }) => operation.operationId
       );
@@ -344,7 +354,7 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   assert.match(document.info.description, /Idempotency-Key/);
   assert.match(document.info.description, /未内置账号体系|无内置鉴权|鉴权/);
   assert.match(document.info.description, /尾斜杠/);
-  assert.equal(document.info.version, "0.22.0");
+  assert.equal(document.info.version, "0.23.0");
   assert.deepEqual(
     document.components.schemas.QuestionScanCandidate.properties.parts.items.$ref,
     "#/components/schemas/QuestionScanPart"
@@ -373,7 +383,8 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
       "知识库",
       "反馈",
       "墨水屏",
-      "运维"
+      "运维",
+      "字词"
     ]
   );
   assert.equal(
@@ -382,7 +393,7 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   );
   assert.equal(
     collectOperations(document).length,
-    62
+    75
   );
 });
 
