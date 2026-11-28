@@ -575,6 +575,9 @@ export function createVocabStore(db) {
     const termColumns = chinese
       ? "z.word, z.kind, z.pinyin_primary, z.meaning, NULL AS phonetic, NULL AS pos, NULL AS meaning_zh"
       : "e.term AS word, NULL AS kind, NULL AS pinyin_primary, NULL AS meaning, e.phonetic, e.pos, e.meaning_zh";
+    const pinyinColumn = chinese
+      ? "o.pinyin_in_book"
+      : "'' AS pinyin_in_book";
     const joinKey = chinese ? "z.id = o.term_id" : "e.id = o.term_id";
     const filters = [];
     const params = [];
@@ -590,7 +593,7 @@ export function createVocabStore(db) {
     return db
       .prepare(
         `SELECT o.id AS occurrence_id, o.term_id, o.unit_id, o.lesson_id,
-                o.list_type, o.position, o.pinyin_in_book, ${termColumns}
+                o.list_type, o.position, ${pinyinColumn}, ${termColumns}
          FROM ${table} o
          JOIN ${terms} ${chinese ? "z" : "e"} ON ${joinKey}
          WHERE ${filters.join(" AND ")}
