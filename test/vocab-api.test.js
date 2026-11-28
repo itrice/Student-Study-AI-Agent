@@ -894,3 +894,178 @@ test("可按词条与出现位置直接补录条目并校验学科", async () =>
     { seed: true }
   );
 });
+
+test("教材目录只返回有数据的学科教材并保留单元课文顺序", async () => {
+  await withVocabServer(async (server) => {
+    const empty = await api(server, "/api/vocab/catalog?subject=chinese");
+    assert.equal(empty.status, 200);
+    assert.deepEqual(empty.data, { textbooks: [] });
+  });
+
+  await withVocabServer(
+    async (server) => {
+      const chinese = await api(server, "/api/vocab/catalog?subject=chinese");
+      assert.equal(chinese.status, 200);
+      assert.equal(chinese.data.textbooks.length, 1);
+      const [zhBook] = chinese.data.textbooks;
+      assert.equal(zhBook.name, "测试语文六年级上册");
+      assert.equal(zhBook.grade, 6);
+      assert.equal(zhBook.semester, "upper");
+      assert.equal(zhBook.units.length, 1);
+      assert.equal(zhBook.units[0].order, 1);
+      assert.deepEqual(
+        zhBook.units[0].lessons.map((lesson) => [lesson.name, lesson.lessonNo]),
+        [
+          ["课文一", 1],
+          ["课文二", 2]
+        ]
+      );
+
+      const english = await api(server, "/api/vocab/catalog?subject=english");
+      assert.equal(english.status, 200);
+      assert.equal(english.data.textbooks.length, 1);
+      assert.equal(english.data.textbooks[0].name, "测试英语六年级上册");
+
+      assert.equal(
+        (await api(server, "/api/vocab/catalog?subject=math")).status,
+        400
+      );
+      assert.equal((await api(server, "/api/vocab/catalog")).status, 400);
+    },
+    { seed: true }
+  );
+});
+
+test("occurrences 按单元或课文返回词条并标记已入册 itemId", async () => {
+  await withVocabServer(
+    async (server) => {
+      const byUnit = await api(
+        server,
+        `/api/vocab/occurrences?subject=chinese&unitId=${server.seedIds.zhUnitId}`
+      );
+      assert.equal(byUnit.status, 200);
+      assert.equal(byUnit.data.items.length, 2);
+      const [shan, moon] = byUnit.data.items;
+      assert.equal(shan.word, "山");
+      assert.equal(shan.pinyin, "shān");
+      assert.equal(shan.meaning, "");
+      assert.equal(shan.listType, "会写");
+      assert.equal(shan.position, 1);
+      assert.equal(shan.itemId, null);
+      assert.equal(moon.word, "月亮");
+      assert.equal(moon.pinyin, "yuè liang");
+      assert.equal(moon.listType, "词语");
+
+      const enrolled = await api(server, "/api/vocab/items", {
+        method: "POST",
+        body: {
+          subject: "chinese",
+          termId: shan.termId,
+          sourceOccurrenceId: shan.occurrenceId
+        }
+      });
+      assert.equal(enrolled.status, 201);
+      const itemId = enrolled.data.items[0].id;
+
+      const refreshed = await api(
+        server,
+        `/api/vocab/occurrences?subject=chinese&unitId=${server.seedIds.zhUnitId}`
+      );
+      assert.equal(refreshed.data.items[0].itemId, itemId);
+      assert.equal(refreshed.data.items[1].itemId, null);
+
+      const byLesson = await api(
+        server,
+        `/api/vocab/occurrences?subject=chinese&lessonId=${server.seedIds.zhLesson2Id}`
+      );
+      assert.equal(byLesson.status, 200);
+      assert.deepEqual(
+        byLesson.data.items.map((item) => item.word),
+        ["月亮"]
+      );
+
+      const english = await api(
+        server,
+        `/api/vocab/occurrences?subject=english&lessonId=${server.seedIds.enLessonId}`
+      );
+      assert.equal(english.status, 200);
+      assert.equal(english.data.items[0].word, "apple");
+      assert.equal(english.data.items[0].pinyin, "");
+      assert.equal(english.data.items[0].meaning, "苹果");
+      assert.equal(english.data.items[0].listType, "单词");
+
+      assert.equal(
+        (
+          await api(
+            server,
+            `/api/vocab/occurrences?subject=english&unitId=${server.seedIds.zhUnitId}`
+          )
+        ).status,
+        404
+      );
+      assert.equal(
+        (await api(server, "/api/vocab/occurrences?subject=chinese&unitId=999999"))
+          .status,
+        404
+      );
+      assert.equal(
+        (await api(server, "/api/vocab/occurrences?subject=chinese")).status,
+        400
+      );
+    },
+    { seed: true }
+  );
+});
+
+test("今日复习清单支持按学科过滤到期与已复习计数", async () => {
+  await withVocabServer(
+    async (server) => {
+      const occurrences = await api(
+        server,
+        `/api/vocab/occurrences?subject=chinese&lessonId=${server.seedIds.zhLesson1Id}`
+      );
+      const shan = occurrences.data.items[0];
+      const enrolled = await api(server, "/api/vocab/items", {
+        method: "POST",
+        body: {
+          subject: "chinese",
+          termId: shan.termId,
+          sourceOccurrenceId: shan.occurrenceId,
+          dueAt: TODAY
+        }
+      });
+      assert.equal(enrolled.status, 201);
+
+      const chinese = await api(server, "/api/vocab/review/today?subject=chinese");
+      assert.equal(chinese.status, 200);
+      assert.equal(chinese.data.dueCount, 1);
+      assert.equal(chinese.data.items[0].subject, "chinese");
+
+      const english = await api(server, "/api/vocab/review/today?subject=english");
+      assert.equal(english.status, 200);
+      assert.equal(english.data.dueCount, 0);
+      assert.equal(english.data.reviewedToday, 0);
+      assert.deepEqual(english.data.items, []);
+
+      await api(server, "/api/vocab/reviews", {
+        method: "POST",
+        body: {
+          reviews: [
+            { itemId: chinese.data.items[0].itemId, result: "correct", surface: "web" }
+          ]
+        }
+      });
+      const reviewedZh = await api(server, "/api/vocab/review/today?subject=chinese");
+      assert.equal(reviewedZh.data.reviewedToday, 1);
+      assert.equal(reviewedZh.data.dueCount, 0);
+      const reviewedEn = await api(server, "/api/vocab/review/today?subject=english");
+      assert.equal(reviewedEn.data.reviewedToday, 0);
+
+      assert.equal(
+        (await api(server, "/api/vocab/review/today?subject=math")).status,
+        400
+      );
+    },
+    { seed: true }
+  );
+});

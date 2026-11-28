@@ -2379,6 +2379,94 @@ const vocabDictationSchema = {
   additionalProperties: false
 };
 
+const vocabCatalogLessonSchema = {
+  type: "object",
+  required: ["id", "name", "lessonNo"],
+  properties: {
+    id: { type: "integer", minimum: 1 },
+    name: { type: "string" },
+    lessonNo: { type: "integer" }
+  },
+  additionalProperties: false
+};
+
+const vocabCatalogUnitSchema = {
+  type: "object",
+  required: ["id", "name", "order", "lessons"],
+  properties: {
+    id: { type: "integer", minimum: 1 },
+    name: { type: "string" },
+    order: { type: "integer" },
+    lessons: { type: "array", items: ref("VocabCatalogLesson") }
+  },
+  additionalProperties: false
+};
+
+const vocabCatalogTextbookSchema = {
+  type: "object",
+  required: ["id", "name", "grade", "semester", "units"],
+  properties: {
+    id: { type: "integer", minimum: 1 },
+    name: { type: "string" },
+    grade: { type: "integer" },
+    semester: { type: "string", enum: ["full", "upper", "lower"] },
+    units: { type: "array", items: ref("VocabCatalogUnit") }
+  },
+  additionalProperties: false
+};
+
+const vocabCatalogSchema = {
+  type: "object",
+  required: ["textbooks"],
+  properties: {
+    textbooks: {
+      type: "array",
+      items: ref("VocabCatalogTextbook")
+    }
+  },
+  additionalProperties: false
+};
+
+const vocabOccurrenceSchema = {
+  type: "object",
+  required: [
+    "occurrenceId",
+    "termId",
+    "word",
+    "pinyin",
+    "meaning",
+    "listType",
+    "position",
+    "itemId"
+  ],
+  properties: {
+    occurrenceId: { type: "integer", minimum: 1 },
+    termId: { type: "integer", minimum: 1 },
+    word: { type: "string" },
+    pinyin: {
+      type: "string",
+      description: "语文为课本拼音（缺省回退主拼音）；英语为空串。"
+    },
+    meaning: {
+      type: "string",
+      description: "语文为释义；英语为中文释义。"
+    },
+    listType: { type: "string", enum: ["会认", "会写", "词语", "单词", "短语"] },
+    position: { type: "integer", minimum: 0 },
+    itemId: anyOfNullable({ type: "integer", minimum: 1 })
+  },
+  additionalProperties: false
+};
+
+const vocabOccurrencesSchema = {
+  type: "object",
+  required: ["items"],
+  properties: {
+    items: { type: "array", items: ref("VocabOccurrence") }
+  },
+  additionalProperties: false
+};
+
 const TAGS = [
   { name: "系统", description: "健康检查、运行状态与启动引导数据。" },
   { name: "教材", description: "教材目录、切换预演/执行和不可篡改的切换审计日志。" },
@@ -2477,7 +2565,13 @@ const components = {
     VocabSettings: vocabSettingsSchema,
     VocabSettingsInput: vocabSettingsInputSchema,
     VocabDictationItem: vocabDictationItemSchema,
-    VocabDictation: vocabDictationSchema
+    VocabDictation: vocabDictationSchema,
+    VocabCatalogLesson: vocabCatalogLessonSchema,
+    VocabCatalogUnit: vocabCatalogUnitSchema,
+    VocabCatalogTextbook: vocabCatalogTextbookSchema,
+    VocabCatalog: vocabCatalogSchema,
+    VocabOccurrence: vocabOccurrenceSchema,
+    VocabOccurrences: vocabOccurrencesSchema
   }
 };
 
@@ -4171,12 +4265,75 @@ Object.assign(paths, {
       }
     }
   },
+  "/api/vocab/catalog": {
+    get: {
+      tags: ["字词"],
+      summary: "读取学科教材目录",
+      description:
+        "按学科返回已有字词数据的教材、单元与课文三级目录，仅用于浏览选词；无数据的层级不返回。",
+      operationId: "getVocabCatalog",
+      parameters: [
+        {
+          name: "subject",
+          in: "query",
+          required: true,
+          description: "学科",
+          schema: { type: "string", enum: ["chinese", "english"] }
+        }
+      ],
+      responses: {
+        200: jsonResponse("教材目录", ref("VocabCatalog"), {
+          textbooks: []
+        }),
+        400: errorResponse("subject 不是 chinese 或 english")
+      }
+    }
+  },
+  "/api/vocab/occurrences": {
+    get: {
+      tags: ["字词"],
+      summary: "读取单元或课文的词条列表",
+      description:
+        "按单元或课文返回该学科的词条出现位置，含当前学生是否已入册（itemId 为 null 表示未入册）。语文返回字/词、课本拼音与释义；英语返回单词与中文释义。",
+      operationId: "listVocabOccurrences",
+      parameters: [
+        {
+          name: "subject",
+          in: "query",
+          required: true,
+          description: "学科",
+          schema: { type: "string", enum: ["chinese", "english"] }
+        },
+        {
+          name: "unitId",
+          in: "query",
+          required: false,
+          description: "教材单元编号；与 lessonId 至少提供一个",
+          schema: { type: "integer", minimum: 1 }
+        },
+        {
+          name: "lessonId",
+          in: "query",
+          required: false,
+          description: "课文编号；提供时优先按课文过滤",
+          schema: { type: "integer", minimum: 1 }
+        }
+      ],
+      responses: {
+        200: jsonResponse("词条列表", ref("VocabOccurrences"), {
+          items: []
+        }),
+        400: errorResponse("参数无效或缺少 unitId/lessonId"),
+        404: errorResponse("没有找到对应学科的教材单元或课文")
+      }
+    }
+  },
   "/api/vocab/review/today": {
     get: {
       tags: ["字词"],
       summary: "今日到期复习清单",
       description:
-        "到期优先、逾期最久在前；超出每日上限（默认 25，可配置 5～100）的条目顺延，不掺入未到期新词。只返回提示，不下发答案。",
+        "到期优先、逾期最久在前；超出每日上限（默认 25，可配置 5～100）的条目顺延，不掺入未到期新词。只返回提示，不下发答案。可按学科过滤，计数仅统计该学科。",
       operationId: "getVocabReviewToday",
       parameters: [
         {
@@ -4185,6 +4342,13 @@ Object.assign(paths, {
           required: false,
           description: "按指定日期模拟到期清单（YYYY-MM-DD），默认今天",
           schema: { type: "string", format: "date" }
+        },
+        {
+          name: "subject",
+          in: "query",
+          required: false,
+          description: "学科；缺省返回全部学科",
+          schema: { type: "string", enum: ["chinese", "english"] }
         }
       ],
       responses: {

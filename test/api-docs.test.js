@@ -45,6 +45,8 @@ const DOCUMENTED_PATHS = [
   "/api/review/queue",
   "/api/vocab/items",
   "/api/vocab/items/{id}",
+  "/api/vocab/catalog",
+  "/api/vocab/occurrences",
   "/api/vocab/review/today",
   "/api/vocab/reviews",
   "/api/vocab/settings",
@@ -147,7 +149,7 @@ test(
       assert.equal(Object.keys(document.paths).length, DOCUMENTED_PATHS.length);
 
       const operations = collectOperations(document);
-      assert.equal(operations.length, 71);
+      assert.equal(operations.length, 73);
       const operationIds = operations.map(
         ({ operation }) => operation.operationId
       );
@@ -389,7 +391,7 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   );
   assert.equal(
     collectOperations(document).length,
-    71
+    73
   );
 });
 
