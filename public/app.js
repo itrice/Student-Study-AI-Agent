@@ -59,6 +59,21 @@ const state = {
   dayDetailTrigger: null,
   knowledgeSearch: null,
   knowledgeSearchRequest: 0,
+  vocab: {
+    subject: "chinese",
+    request: 0,
+    catalog: null,
+    selection: { bookId: null, unitId: null, lessonId: null },
+    occurrences: [],
+    itemsById: new Map(),
+    today: null,
+    settings: null,
+    dictation: null,
+    dictationPhase: "idle",
+    gradingIndex: 0,
+    grading: [],
+    result: null
+  },
   scanTask: null,
   scanId: null,
   scanOcrBoxesBlocks: [],
@@ -113,6 +128,7 @@ const viewLabels = {
   mistakes: "题库",
   feedback: "学习反馈",
   knowledge: "知识点地图",
+  vocab: "字词",
   settings: "系统配置"
 };
 
@@ -2401,6 +2417,8 @@ function navigateTo(name) {
     }
   } else if (name === "feedback") {
     loadFeedback();
+  } else if (name === "vocab") {
+    loadVocab().catch((error) => showToast(error.message, true));
   } else if (name === "settings") {
     showSettingsSubpage(null, { updateHash: false });
     loadSettings().catch((error) => showToast(error.message, true));
@@ -3100,15 +3118,21 @@ async function loadSettings() {
   const historyInput = $("#curriculum-history-mistake");
   if (historyInput) historyInput.value = "";
   state.curriculumHistoryMistake = null;
-  const [curriculumResult, historyResult] = await Promise.allSettled([
-    api("/api/curriculum"),
-    api("/api/curriculum/switches?limit=10")
-  ]);
+  const [curriculumResult, historyResult, vocabSettingsResult] =
+    await Promise.allSettled([
+      api("/api/curriculum"),
+      api("/api/curriculum/switches?limit=10"),
+      api("/api/vocab/settings")
+    ]);
   if (curriculumResult.status === "fulfilled") {
     applyCurriculumData(curriculumResult.value);
   }
   if (historyResult.status === "fulfilled") {
     state.curriculumHistory = historyResult.value;
+  }
+  if (vocabSettingsResult.status === "fulfilled") {
+    state.vocab.settings = vocabSettingsResult.value;
+    renderVocabSettings();
   }
   renderSettings();
   renderCurriculumHistory();
@@ -3118,6 +3142,9 @@ async function loadSettings() {
       : null,
     historyResult.status === "rejected"
       ? `切换审计：${historyResult.reason?.message || "加载失败"}`
+      : null,
+    vocabSettingsResult.status === "rejected"
+      ? `字词设置：${vocabSettingsResult.reason?.message || "加载失败"}`
       : null
   ].filter(Boolean);
   if (failures.length) {
@@ -5955,9 +5982,731 @@ async function loadDemo() {
   }
 }
 
+const VOCAB_SUBJECT_LABELS = { chinese: "语文", english: "英语" };
+const VOCAB_SUBJECT_HINTS = {
+  chinese: "生字、词语与课本拼音",
+  english: "单词、短语与中文释义"
+};
+const VOCAB_PROMPT_HINTS = {
+  pinyin_to_hanzi: "看拼音，写出对应的字或词。",
+  zh_to_en: "看中文，写出英文单词。",
+  en_to_zh: "看英文，写出中文意思。"
+};
+
+function renderVocabSubjectTabs() {
+  const subject = state.vocab.subject;
+  $$("[data-vocab-subject]").forEach((button) => {
+    const active = button.dataset.vocabSubject === subject;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  const hint = $("#vocab-subject-hint");
+  if (hint) hint.textContent = VOCAB_SUBJECT_HINTS[subject] || "";
+}
+
+function syncVocabSelection() {
+  const vocab = state.vocab;
+  const books = vocab.catalog?.textbooks || [];
+  let book = books.find((entry) => entry.id === vocab.selection.bookId);
+  if (!book) book = books[0] || null;
+  vocab.selection.bookId = book ? book.id : null;
+  const units = book?.units || [];
+  let unit = units.find((entry) => entry.id === vocab.selection.unitId);
+  if (!unit) unit = units[0] || null;
+  vocab.selection.unitId = unit ? unit.id : null;
+  const lessons = unit?.lessons || [];
+  const lesson = lessons.find((entry) => entry.id === vocab.selection.lessonId);
+  vocab.selection.lessonId = lesson ? lesson.id : null;
+}
+
+function updateVocabDictationButtons() {
+  const vocab = state.vocab;
+  const hasDue = Boolean(vocab.today?.items?.length);
+  const start = $("#vocab-today-start");
+  if (start) start.disabled = !hasDue;
+  const todayButton = $("#vocab-dictation-today");
+  if (todayButton) todayButton.disabled = !hasDue;
+  const currentButton = $("#vocab-dictation-current");
+  if (currentButton) currentButton.disabled = !vocab.selection.unitId;
+}
+
+function renderVocabToday() {
+  const vocab = state.vocab;
+  const today = vocab.today;
+  $("#vocab-today-date").textContent = today?.date || "今天";
+  $("#vocab-today-due").textContent = today?.dueCount ?? 0;
+  $("#vocab-today-deferred").textContent = today?.deferredCount ?? 0;
+  $("#vocab-today-reviewed").textContent = today?.reviewedToday ?? 0;
+  const note = $("#vocab-today-note");
+  if (!today) {
+    note.textContent = "正在加载今日清单…";
+  } else if (!today.items.length && !today.reviewedToday) {
+    note.textContent = "今天没有到期字词；可先去字词库选择课文并加入复习。";
+  } else if (!today.items.length) {
+    note.textContent = "今日复习已完成，明天见。";
+  } else if (today.deferredCount > 0) {
+    note.textContent = `今日清单 ${today.items.length} 条；超过每日上限 ${today.dailyLimit} 条的 ${today.deferredCount} 条已顺延。`;
+  } else {
+    note.textContent = `今日清单 ${today.items.length} 条，每日上限 ${today.dailyLimit} 条。`;
+  }
+  updateVocabDictationButtons();
+}
+
+function renderVocabCatalog() {
+  const vocab = state.vocab;
+  const books = vocab.catalog?.textbooks || [];
+  const bookSelect = $("#vocab-book-select");
+  const unitSelect = $("#vocab-unit-select");
+  const lessonSelect = $("#vocab-lesson-select");
+  bookSelect.replaceChildren();
+  for (const book of books) {
+    const option = createElement("option", "", book.name);
+    option.value = String(book.id);
+    bookSelect.append(option);
+  }
+  const book = books.find((entry) => entry.id === vocab.selection.bookId);
+  bookSelect.disabled = books.length === 0;
+  if (book) bookSelect.value = String(book.id);
+
+  unitSelect.replaceChildren();
+  const units = book?.units || [];
+  for (const unit of units) {
+    const option = createElement("option", "", unit.name);
+    option.value = String(unit.id);
+    unitSelect.append(option);
+  }
+  const unit = units.find((entry) => entry.id === vocab.selection.unitId);
+  unitSelect.disabled = units.length === 0;
+  if (unit) unitSelect.value = String(unit.id);
+
+  lessonSelect.replaceChildren();
+  const wholeUnit = createElement("option", "", "整个单元");
+  wholeUnit.value = "";
+  lessonSelect.append(wholeUnit);
+  for (const lesson of unit?.lessons || []) {
+    const option = createElement("option", "", lesson.name);
+    option.value = String(lesson.id);
+    lessonSelect.append(option);
+  }
+  lessonSelect.value = vocab.selection.lessonId
+    ? String(vocab.selection.lessonId)
+    : "";
+  lessonSelect.disabled = !unit;
+
+  const empty = $("#vocab-empty");
+  if (empty) empty.hidden = !vocab.catalog || books.length > 0;
+  updateVocabDictationButtons();
+}
+
+function renderVocabOccurrences() {
+  const vocab = state.vocab;
+  const rows = vocab.occurrences;
+  const count = $("#vocab-library-count");
+  if (count) count.textContent = `${rows.length} 条`;
+  const list = $("#vocab-word-list");
+  list.replaceChildren();
+  if (!rows.length) {
+    const message = !vocab.catalog
+      ? "正在加载教材目录…"
+      : vocab.catalog.textbooks?.length
+        ? "这个单元/课还没有词条，可在下方批量粘贴录入。"
+        : "尚未导入教材，可先批量粘贴录入。";
+    list.append(createElement("p", "vocab-note", message));
+    return;
+  }
+  for (const occurrence of rows) {
+    const item = occurrence.itemId
+      ? vocab.itemsById.get(occurrence.itemId)
+      : null;
+    const row = createElement("article", "vocab-word");
+    const main = createElement("div", "vocab-word-main");
+    const head = createElement("div", "vocab-word-head");
+    head.append(createElement("strong", "vocab-word-term", occurrence.word));
+    if (occurrence.listType) {
+      head.append(createElement("span", "tag", occurrence.listType));
+    }
+    main.append(head);
+    const meta = [occurrence.pinyin, occurrence.meaning]
+      .filter(Boolean)
+      .join(" · ");
+    if (meta) main.append(createElement("span", "vocab-word-meta", meta));
+    const actions = createElement("div", "vocab-word-actions");
+    if (item) {
+      actions.append(
+        createElement(
+          "span",
+          `tag ${item.status === "mastered" ? "is-mastered" : "is-pending"}`,
+          item.status === "mastered" ? "已掌握" : "待复习"
+        )
+      );
+      if (item.status !== "mastered") {
+        const archive = createElement("button", "small-action", "归档");
+        archive.type = "button";
+        archive.dataset.vocabArchive = String(item.id);
+        actions.append(archive);
+      }
+      const remove = createElement("button", "small-action", "删除");
+      remove.type = "button";
+      remove.dataset.vocabDelete = String(item.id);
+      actions.append(remove);
+    } else {
+      const enroll = createElement("button", "small-action", "加入复习");
+      enroll.type = "button";
+      enroll.dataset.vocabEnroll = String(occurrence.termId);
+      enroll.dataset.occurrenceId = String(occurrence.occurrenceId);
+      actions.append(enroll);
+    }
+    row.append(main, actions);
+    list.append(row);
+  }
+}
+
+async function loadVocabOccurrences() {
+  const vocab = state.vocab;
+  const subject = vocab.subject;
+  const { unitId, lessonId } = vocab.selection;
+  if (!unitId && !lessonId) {
+    vocab.occurrences = [];
+    renderVocabOccurrences();
+    return;
+  }
+  const params = new URLSearchParams({ subject });
+  if (lessonId) params.set("lessonId", String(lessonId));
+  else params.set("unitId", String(unitId));
+  const data = await api(`/api/vocab/occurrences?${params}`);
+  if (
+    subject !== state.vocab.subject ||
+    unitId !== state.vocab.selection.unitId ||
+    lessonId !== state.vocab.selection.lessonId
+  ) {
+    return;
+  }
+  vocab.occurrences = data.items;
+  renderVocabOccurrences();
+}
+
+async function loadVocab() {
+  const vocab = state.vocab;
+  const requestId = ++vocab.request;
+  const subject = vocab.subject;
+  renderVocabSubjectTabs();
+  const [today, items, settings, catalog] = await Promise.all([
+    api(`/api/vocab/review/today?subject=${subject}`),
+    api(`/api/vocab/items?subject=${subject}`),
+    api("/api/vocab/settings"),
+    api(`/api/vocab/catalog?subject=${subject}`)
+  ]);
+  if (requestId !== vocab.request || subject !== vocab.subject) return;
+  vocab.today = today;
+  vocab.itemsById = new Map(items.items.map((item) => [item.id, item]));
+  vocab.settings = settings;
+  vocab.catalog = catalog;
+  syncVocabSelection();
+  renderVocabSubjectTabs();
+  renderVocabToday();
+  renderVocabCatalog();
+  renderVocabSettings();
+  await loadVocabOccurrences();
+}
+
+function renderVocabSettings() {
+  const settings = state.vocab.settings;
+  const limit = $("#vocab-settings-limit");
+  const mode = $("#vocab-settings-mode");
+  if (limit && settings && document.activeElement !== limit) {
+    limit.value = String(settings.dailyLimit);
+  }
+  if (mode && settings && document.activeElement !== mode) {
+    mode.value = settings.englishMode;
+  }
+  const status = $("#settings-vocab-status");
+  if (status && settings) {
+    status.textContent = `每日 ${settings.dailyLimit} 条 · ${
+      settings.englishMode === "zh_to_en" ? "中→英" : "英→中"
+    }`;
+  }
+}
+
+function setVocabSubject(subject) {
+  if (!VOCAB_SUBJECT_LABELS[subject] || subject === state.vocab.subject) return;
+  state.vocab.subject = subject;
+  state.vocab.catalog = null;
+  state.vocab.occurrences = [];
+  state.vocab.selection = { bookId: null, unitId: null, lessonId: null };
+  resetVocabDictation();
+  const pasteStatus = $("#vocab-paste-status");
+  if (pasteStatus) pasteStatus.textContent = "";
+  renderVocabSubjectTabs();
+  renderVocabOccurrences();
+  loadVocab().catch((error) => showToast(error.message, true));
+}
+
+async function enrollVocabTerm(termId, occurrenceId, gradeIndex = null) {
+  const body = { subject: state.vocab.subject, termId };
+  if (occurrenceId) body.sourceOccurrenceId = occurrenceId;
+  const data = await api("/api/vocab/items", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  const item = data.items?.[0] || null;
+  if (gradeIndex !== null && item) {
+    const entry = state.vocab.grading[gradeIndex];
+    if (entry) entry.itemId = item.id;
+  }
+  showToast(data.created ? "已加入复习" : "该词已在复习中");
+  await loadVocab();
+  if (gradeIndex !== null) renderVocabGrading();
+}
+
+function vocabAnswerFor(item) {
+  const vocab = state.vocab;
+  if (item.itemId) {
+    const entry = vocab.itemsById.get(item.itemId);
+    if (entry) {
+      return {
+        word: entry.term,
+        pinyin: entry.pinyin || entry.occurrencePinyin || "",
+        meaning: entry.meaning || ""
+      };
+    }
+  }
+  const occurrence = vocab.occurrences.find(
+    (row) => row.occurrenceId === item.occurrenceId
+  );
+  if (occurrence) {
+    return {
+      word: occurrence.word,
+      pinyin: occurrence.pinyin,
+      meaning: occurrence.meaning
+    };
+  }
+  return { word: item.prompt || "", pinyin: "", meaning: "" };
+}
+
+function vocabDictationModeLabel(dictation) {
+  if (!dictation) return "未开始";
+  if (dictation.mode === "pinyin_to_hanzi") return "语文 · 看拼音写词";
+  if (dictation.mode === "zh_to_en") return "英语 · 中→英";
+  if (dictation.mode === "en_to_zh") return "英语 · 英→中";
+  return dictation.mode;
+}
+
+function renderVocabPrompt() {
+  const vocab = state.vocab;
+  const items = vocab.dictation?.items || [];
+  const item = items[vocab.gradingIndex];
+  $("#vocab-dictation-progress").textContent = items.length
+    ? `第 ${vocab.gradingIndex + 1} / ${items.length} 个`
+    : "";
+  $("#vocab-dictation-prompt").textContent = item?.prompt || "";
+  $("#vocab-dictation-sub").textContent =
+    VOCAB_PROMPT_HINTS[vocab.dictation?.mode] || "";
+  $("#vocab-dictation-prev").disabled = vocab.gradingIndex <= 0;
+  $("#vocab-dictation-next").disabled =
+    vocab.gradingIndex >= items.length - 1;
+}
+
+function renderVocabGrading() {
+  const vocab = state.vocab;
+  const list = $("#vocab-grading-list");
+  list.replaceChildren();
+  vocab.grading.forEach((entry, index) => {
+    const row = createElement("article", "vocab-grade-row");
+    const main = createElement("div", "vocab-grade-main");
+    const head = createElement("div", "vocab-word-head");
+    head.append(
+      createElement("strong", "vocab-grade-word", entry.word || "（未命名词条）")
+    );
+    if (entry.listType) {
+      head.append(createElement("span", "tag", entry.listType));
+    }
+    if (!entry.itemId) {
+      head.append(createElement("span", "tag", "未入册"));
+    }
+    main.append(head);
+    const meta = [entry.pinyin, entry.meaning].filter(Boolean).join(" · ");
+    if (meta) main.append(createElement("span", "vocab-grade-meta", meta));
+
+    const actions = createElement("div", "vocab-grade-actions");
+    if (entry.itemId) {
+      const correct = createElement(
+        "button",
+        `small-action vocab-grade-mark${entry.correct === true ? " is-correct" : ""}`,
+        "✓ 对"
+      );
+      correct.type = "button";
+      correct.dataset.gradeIndex = String(index);
+      correct.dataset.gradeResult = "correct";
+      const wrong = createElement(
+        "button",
+        `small-action vocab-grade-mark${entry.correct === false ? " is-wrong" : ""}`,
+        "✗ 错"
+      );
+      wrong.type = "button";
+      wrong.dataset.gradeIndex = String(index);
+      wrong.dataset.gradeResult = "incorrect";
+      actions.append(correct, wrong);
+    } else {
+      const enroll = createElement("button", "small-action", "加入复习");
+      enroll.type = "button";
+      enroll.dataset.vocabEnroll = String(entry.termId);
+      enroll.dataset.occurrenceId = entry.occurrenceId
+        ? String(entry.occurrenceId)
+        : "";
+      enroll.dataset.gradeIndex = String(index);
+      actions.append(enroll);
+    }
+    row.append(main, actions);
+    list.append(row);
+  });
+}
+
+function renderVocabResult() {
+  const result = state.vocab.result;
+  const box = $("#vocab-dictation-result");
+  box.replaceChildren();
+  if (!result) return;
+  box.append(createElement("h3", "vocab-result-title", "本次听写结果"));
+  box.append(
+    createElement(
+      "p",
+      "vocab-note",
+      `共 ${result.total} 个词，提交 ${result.submitted} 个：✓ ${result.correctCount}，✗ ${result.incorrectCount}。`
+    )
+  );
+  if (result.total > result.submitted) {
+    box.append(
+      createElement(
+        "p",
+        "vocab-note",
+        `另有 ${result.total - result.submitted} 个词未入册，未计入复习。`
+      )
+    );
+  }
+  if (result.mastered > 0) {
+    box.append(
+      createElement(
+        "p",
+        "vocab-note",
+        `${result.mastered} 个词已掌握，退出后续排期。`
+      )
+    );
+  }
+  box.append(
+    createElement(
+      "p",
+      "vocab-note",
+      result.nextDue
+        ? `下次到期：${result.nextDue}。`
+        : "本次没有新的到期安排。"
+    )
+  );
+  const done = createElement("button", "primary-button", "完成");
+  done.type = "button";
+  done.id = "vocab-result-done";
+  box.append(done);
+}
+
+function renderVocabDictationPanel() {
+  const vocab = state.vocab;
+  const phase = vocab.dictationPhase;
+  $("#vocab-dictation-setup").hidden = phase !== "idle";
+  $("#vocab-dictation-run").hidden = phase !== "run";
+  $("#vocab-grading").hidden = phase !== "grading";
+  $("#vocab-dictation-result").hidden = phase !== "result";
+  const mode = $("#vocab-dictation-mode");
+  if (phase === "idle") mode.textContent = "未开始";
+  else if (phase === "result") mode.textContent = "已完成";
+  else mode.textContent = vocabDictationModeLabel(vocab.dictation);
+  if (phase === "run") renderVocabPrompt();
+  if (phase === "grading") renderVocabGrading();
+  if (phase === "result") renderVocabResult();
+  updateVocabDictationButtons();
+}
+
+function resetVocabDictation() {
+  const vocab = state.vocab;
+  vocab.dictation = null;
+  vocab.dictationPhase = "idle";
+  vocab.gradingIndex = 0;
+  vocab.grading = [];
+  vocab.result = null;
+  renderVocabDictationPanel();
+}
+
+async function startVocabDictation(source) {
+  const vocab = state.vocab;
+  const subject = vocab.subject;
+  const { unitId, lessonId } = vocab.selection;
+  const params = new URLSearchParams({ subject });
+  if (source === "current") {
+    if (!unitId) {
+      showToast("请先在字词库选择单元或课文", true);
+      return;
+    }
+    if (lessonId) {
+      params.set("lessonId", String(lessonId));
+    } else {
+      params.set("unitId", String(unitId));
+    }
+  }
+  const data = await api(`/api/vocab/dictation?${params}`);
+  if (subject !== state.vocab.subject) return;
+  if (!data.items.length) {
+    showToast(
+      source === "current" ? "当前单元/课还没有词条" : "今天没有到期字词",
+      true
+    );
+    return;
+  }
+  vocab.dictation = { ...data, source };
+  vocab.grading = data.items.map((item) => {
+    const answer = vocabAnswerFor(item);
+    return {
+      itemId: item.itemId ?? null,
+      termId: item.termId,
+      occurrenceId: item.occurrenceId ?? null,
+      listType: item.listType || "",
+      correct: null,
+      word: answer.word,
+      pinyin: answer.pinyin,
+      meaning: answer.meaning
+    };
+  });
+  vocab.gradingIndex = 0;
+  vocab.result = null;
+  vocab.dictationPhase = "run";
+  renderVocabDictationPanel();
+}
+
+function markAllVocabCorrect() {
+  for (const entry of state.vocab.grading) {
+    if (entry.itemId) entry.correct = true;
+  }
+  renderVocabGrading();
+}
+
+async function submitVocabReviews() {
+  const vocab = state.vocab;
+  const enrolled = vocab.grading.filter((entry) => entry.itemId);
+  if (!enrolled.length) {
+    showToast("没有已入册的词条可提交，请先把词加入复习。", true);
+    return;
+  }
+  if (enrolled.some((entry) => entry.correct === null)) {
+    showToast("请先为每个已入册词条勾选 ✓ 或 ✗。", true);
+    return;
+  }
+  const data = await api("/api/vocab/reviews", {
+    method: "POST",
+    body: JSON.stringify({
+      reviews: enrolled.map((entry) => ({
+        itemId: entry.itemId,
+        result: entry.correct ? "correct" : "incorrect",
+        surface: "web"
+      }))
+    })
+  });
+  const updated = Array.isArray(data.updated) ? data.updated : [];
+  const correctCount = enrolled.filter((entry) => entry.correct).length;
+  vocab.result = {
+    total: vocab.grading.length,
+    submitted: enrolled.length,
+    correctCount,
+    incorrectCount: enrolled.length - correctCount,
+    mastered: updated.filter((row) => row.status === "mastered").length,
+    nextDue:
+      updated
+        .filter((row) => row.status === "active" && row.dueAt)
+        .map((row) => row.dueAt)
+        .sort()[0] || null
+  };
+  vocab.dictationPhase = "result";
+  renderVocabDictationPanel();
+  try {
+    await loadVocab();
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
 function bindEvents() {
   $$(".nav-item").forEach((button) => {
     button.addEventListener("click", () => navigateTo(button.dataset.view));
+  });
+
+  $$("[data-vocab-subject]").forEach((button) => {
+    button.addEventListener("click", () =>
+      setVocabSubject(button.dataset.vocabSubject)
+    );
+  });
+  $("#vocab-book-select").addEventListener("change", (event) => {
+    state.vocab.selection.bookId = Number(event.target.value) || null;
+    state.vocab.selection.unitId = null;
+    state.vocab.selection.lessonId = null;
+    syncVocabSelection();
+    renderVocabCatalog();
+    loadVocabOccurrences().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-unit-select").addEventListener("change", (event) => {
+    state.vocab.selection.unitId = Number(event.target.value) || null;
+    state.vocab.selection.lessonId = null;
+    syncVocabSelection();
+    renderVocabCatalog();
+    loadVocabOccurrences().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-lesson-select").addEventListener("change", (event) => {
+    state.vocab.selection.lessonId = event.target.value
+      ? Number(event.target.value)
+      : null;
+    loadVocabOccurrences().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-paste-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const input = $("#vocab-paste-text");
+    const text = input.value.trim();
+    if (!text) {
+      showToast("请先粘贴词条", true);
+      return;
+    }
+    const vocab = state.vocab;
+    const body = { subject: vocab.subject, text };
+    if (vocab.selection.unitId) body.unitId = vocab.selection.unitId;
+    if (vocab.selection.lessonId) body.lessonId = vocab.selection.lessonId;
+    const status = $("#vocab-paste-status");
+    if (status) status.textContent = "正在导入…";
+    try {
+      const result = await api("/api/vocab/items", {
+        method: "POST",
+        body: JSON.stringify(body)
+      });
+      input.value = "";
+      if (status) {
+        status.textContent = `新增 ${result.created} 条，已存在 ${result.existing} 条`;
+      }
+      await loadVocab();
+    } catch (error) {
+      if (status) status.textContent = "";
+      showToast(error.message, true);
+    }
+  });
+  $("#vocab-word-list").addEventListener("click", (event) => {
+    const enroll = event.target.closest("[data-vocab-enroll]");
+    if (enroll) {
+      const occurrenceRaw = enroll.dataset.occurrenceId;
+      enrollVocabTerm(
+        Number(enroll.dataset.vocabEnroll),
+        occurrenceRaw ? Number(occurrenceRaw) : null
+      ).catch((error) => showToast(error.message, true));
+      return;
+    }
+    const archive = event.target.closest("[data-vocab-archive]");
+    if (archive) {
+      api(`/api/vocab/items/${Number(archive.dataset.vocabArchive)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "mastered" })
+      })
+        .then(() => {
+          showToast("已归档为掌握");
+          return loadVocab();
+        })
+        .catch((error) => showToast(error.message, true));
+      return;
+    }
+    const remove = event.target.closest("[data-vocab-delete]");
+    if (remove) {
+      if (!window.confirm("删除后该词条退出复习并清除复习记录，确定删除？")) {
+        return;
+      }
+      api(`/api/vocab/items/${Number(remove.dataset.vocabDelete)}`, {
+        method: "DELETE"
+      })
+        .then(() => {
+          showToast("已删除");
+          return loadVocab();
+        })
+        .catch((error) => showToast(error.message, true));
+    }
+  });
+  $("#vocab-today-refresh").addEventListener("click", () => {
+    loadVocab().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-today-start").addEventListener("click", () => {
+    startVocabDictation("today").catch((error) =>
+      showToast(error.message, true)
+    );
+  });
+  $("#vocab-dictation-today").addEventListener("click", () => {
+    startVocabDictation("today").catch((error) =>
+      showToast(error.message, true)
+    );
+  });
+  $("#vocab-dictation-current").addEventListener("click", () => {
+    startVocabDictation("current").catch((error) =>
+      showToast(error.message, true)
+    );
+  });
+  $("#vocab-dictation-prev").addEventListener("click", () => {
+    state.vocab.gradingIndex = Math.max(0, state.vocab.gradingIndex - 1);
+    renderVocabPrompt();
+  });
+  $("#vocab-dictation-next").addEventListener("click", () => {
+    const total = state.vocab.dictation?.items?.length || 0;
+    state.vocab.gradingIndex = Math.min(
+      total - 1,
+      state.vocab.gradingIndex + 1
+    );
+    renderVocabPrompt();
+  });
+  $("#vocab-dictation-finish").addEventListener("click", () => {
+    state.vocab.dictationPhase = "grading";
+    renderVocabDictationPanel();
+  });
+  $("#vocab-grading-list").addEventListener("click", (event) => {
+    const enroll = event.target.closest("[data-vocab-enroll]");
+    if (enroll) {
+      const occurrenceRaw = enroll.dataset.occurrenceId;
+      enrollVocabTerm(
+        Number(enroll.dataset.vocabEnroll),
+        occurrenceRaw ? Number(occurrenceRaw) : null,
+        Number(enroll.dataset.gradeIndex)
+      ).catch((error) => showToast(error.message, true));
+      return;
+    }
+    const mark = event.target.closest("[data-grade-index]");
+    if (!mark) return;
+    const entry = state.vocab.grading[Number(mark.dataset.gradeIndex)];
+    if (!entry) return;
+    entry.correct = mark.dataset.gradeResult === "correct";
+    renderVocabGrading();
+  });
+  $("#vocab-grade-all-correct").addEventListener("click", () => {
+    markAllVocabCorrect();
+  });
+  $("#vocab-grade-submit").addEventListener("click", () => {
+    submitVocabReviews().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-dictation-result").addEventListener("click", (event) => {
+    if (!event.target.closest("#vocab-result-done")) return;
+    resetVocabDictation();
+    loadVocab().catch((error) => showToast(error.message, true));
+  });
+  $("#vocab-settings-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const settings = await api("/api/vocab/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          dailyLimit: Number($("#vocab-settings-limit").value),
+          englishMode: $("#vocab-settings-mode").value
+        })
+      });
+      state.vocab.settings = settings;
+      renderVocabSettings();
+      showToast("字词设置已保存");
+    } catch (error) {
+      showToast(error.message, true);
+    }
   });
 
   document.addEventListener("click", (event) => {
@@ -6662,6 +7411,8 @@ function bindEvents() {
       }
     } else if (route.view === "feedback") {
       loadFeedback().catch((error) => showToast(error.message, true));
+    } else if (route.view === "vocab") {
+      loadVocab().catch((error) => showToast(error.message, true));
     } else if (route.view === "settings") {
       loadSettings().catch((error) => showToast(error.message, true));
     } else if (route.view === "scan") {
@@ -6726,6 +7477,8 @@ async function init() {
       }
     } else if (initialRoute.view === "settings") {
       await loadSettings();
+    } else if (initialRoute.view === "vocab") {
+      await loadVocab();
     } else if (initialRoute.view === "scan" && initialRoute.scanId) {
       await loadQuestionScan(initialRoute.scanId);
     }
