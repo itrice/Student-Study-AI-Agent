@@ -352,7 +352,7 @@ test("v13 升级到 v16 保留 15 条现有数据并回填兼容层", () => {
     });
 
     const repository = new LearningRepository(databasePath);
-    assert.equal(repository.getSchemaVersion(), 16);
+    assert.equal(repository.getSchemaVersion(), 17);
     assert.ok(repository.lastBackupPath);
 
     const after = {

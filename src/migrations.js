@@ -1785,6 +1785,241 @@ const MULTI_QUESTION_SCAN_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
   schema: MULTI_QUESTION_SCAN_MIGRATION_SCHEMA_SQL
 });
 
+const VOCAB_SCHEMA_SQL = `
+  ALTER TABLE textbooks ADD COLUMN subject TEXT NOT NULL DEFAULT 'math'
+    CHECK (subject IN ('math', 'chinese', 'english'));
+
+  CREATE INDEX IF NOT EXISTS idx_textbooks_subject
+  ON textbooks(subject, grade, semester);
+
+  CREATE TABLE IF NOT EXISTS textbook_lessons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    textbook_id INTEGER NOT NULL,
+    unit_id INTEGER NOT NULL,
+    lesson_no INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    review_status TEXT NOT NULL DEFAULT 'unreviewed'
+      CHECK (review_status IN ('unreviewed', 'self_reviewed', 'teacher_reviewed')),
+    source_key TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(textbook_id) REFERENCES textbooks(id) ON DELETE CASCADE,
+    FOREIGN KEY(unit_id) REFERENCES textbook_units(id) ON DELETE CASCADE,
+    UNIQUE(unit_id, lesson_no)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_textbook_lessons_textbook
+  ON textbook_lessons(textbook_id, position, id);
+
+  CREATE TABLE IF NOT EXISTS zh_terms (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    word TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL CHECK (kind IN ('char', 'word')),
+    pinyin_primary TEXT NOT NULL DEFAULT '',
+    meaning TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS zh_occurrences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    term_id INTEGER NOT NULL,
+    textbook_id INTEGER NOT NULL,
+    unit_id INTEGER NOT NULL,
+    lesson_id INTEGER,
+    list_type TEXT NOT NULL CHECK (list_type IN ('会认', '会写', '词语')),
+    pinyin_in_book TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL DEFAULT 0,
+    review_status TEXT NOT NULL DEFAULT 'unreviewed'
+      CHECK (review_status IN ('unreviewed', 'self_reviewed', 'teacher_reviewed')),
+    source_key TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(term_id) REFERENCES zh_terms(id) ON DELETE CASCADE,
+    FOREIGN KEY(textbook_id) REFERENCES textbooks(id) ON DELETE CASCADE,
+    FOREIGN KEY(unit_id) REFERENCES textbook_units(id) ON DELETE CASCADE,
+    FOREIGN KEY(lesson_id) REFERENCES textbook_lessons(id) ON DELETE SET NULL,
+    UNIQUE(term_id, textbook_id, unit_id, list_type)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_zh_occurrences_lesson
+  ON zh_occurrences(textbook_id, unit_id, lesson_id, position);
+
+  CREATE TABLE IF NOT EXISTS en_terms (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    term TEXT NOT NULL UNIQUE,
+    phonetic TEXT NOT NULL DEFAULT '',
+    pos TEXT NOT NULL DEFAULT '',
+    meaning_zh TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS en_occurrences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    term_id INTEGER NOT NULL,
+    textbook_id INTEGER NOT NULL,
+    unit_id INTEGER NOT NULL,
+    lesson_id INTEGER,
+    list_type TEXT NOT NULL CHECK (list_type IN ('单词', '短语')),
+    position INTEGER NOT NULL DEFAULT 0,
+    review_status TEXT NOT NULL DEFAULT 'unreviewed'
+      CHECK (review_status IN ('unreviewed', 'self_reviewed', 'teacher_reviewed')),
+    source_key TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(term_id) REFERENCES en_terms(id) ON DELETE CASCADE,
+    FOREIGN KEY(textbook_id) REFERENCES textbooks(id) ON DELETE CASCADE,
+    FOREIGN KEY(unit_id) REFERENCES textbook_units(id) ON DELETE CASCADE,
+    FOREIGN KEY(lesson_id) REFERENCES textbook_lessons(id) ON DELETE SET NULL,
+    UNIQUE(term_id, textbook_id, unit_id, list_type)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_en_occurrences_lesson
+  ON en_occurrences(textbook_id, unit_id, lesson_id, position);
+
+  CREATE TABLE IF NOT EXISTS vocab_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    subject TEXT NOT NULL CHECK (subject IN ('chinese', 'english')),
+    term_id INTEGER NOT NULL,
+    interval_index INTEGER NOT NULL DEFAULT 0
+      CHECK (interval_index BETWEEN 0 AND 4),
+    due_at TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('active', 'mastered')),
+    consecutive_correct INTEGER NOT NULL DEFAULT 0,
+    lapses INTEGER NOT NULL DEFAULT 0,
+    source_occurrence_id INTEGER,
+    last_reviewed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE,
+    UNIQUE(student_id, subject, term_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_vocab_items_due
+  ON vocab_items(student_id, status, due_at);
+
+  CREATE TABLE IF NOT EXISTS vocab_review_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL,
+    result TEXT NOT NULL CHECK (result IN ('correct', 'incorrect')),
+    surface TEXT NOT NULL DEFAULT 'web'
+      CHECK (surface IN ('web', 'eink')),
+    reviewed_at TEXT NOT NULL,
+    interval_before INTEGER NOT NULL,
+    interval_after INTEGER NOT NULL,
+    FOREIGN KEY(item_id) REFERENCES vocab_items(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_vocab_review_events_item
+  ON vocab_review_events(item_id, reviewed_at, id);
+
+  CREATE TABLE IF NOT EXISTS vocab_settings (
+    student_id INTEGER PRIMARY KEY,
+    daily_limit INTEGER NOT NULL DEFAULT 25
+      CHECK (daily_limit BETWEEN 5 AND 100),
+    english_mode TEXT NOT NULL DEFAULT 'zh_to_en'
+      CHECK (english_mode IN ('zh_to_en', 'en_to_zh')),
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE
+  );
+`;
+
+const VOCAB_REQUIRED_COLUMNS = {
+  textbooks: ["subject"],
+  textbook_lessons: [
+    "id",
+    "textbook_id",
+    "unit_id",
+    "lesson_no",
+    "title",
+    "position",
+    "review_status",
+    "source_key",
+    "note",
+    "created_at",
+    "updated_at"
+  ],
+  zh_terms: [
+    "id",
+    "word",
+    "kind",
+    "pinyin_primary",
+    "meaning",
+    "created_at",
+    "updated_at"
+  ],
+  zh_occurrences: [
+    "id",
+    "term_id",
+    "textbook_id",
+    "unit_id",
+    "lesson_id",
+    "list_type",
+    "pinyin_in_book",
+    "position",
+    "review_status",
+    "source_key",
+    "created_at",
+    "updated_at"
+  ],
+  en_terms: [
+    "id",
+    "term",
+    "phonetic",
+    "pos",
+    "meaning_zh",
+    "created_at",
+    "updated_at"
+  ],
+  en_occurrences: [
+    "id",
+    "term_id",
+    "textbook_id",
+    "unit_id",
+    "lesson_id",
+    "list_type",
+    "position",
+    "review_status",
+    "source_key",
+    "created_at",
+    "updated_at"
+  ],
+  vocab_items: [
+    "id",
+    "student_id",
+    "subject",
+    "term_id",
+    "interval_index",
+    "due_at",
+    "status",
+    "consecutive_correct",
+    "lapses",
+    "source_occurrence_id",
+    "last_reviewed_at",
+    "created_at",
+    "updated_at"
+  ],
+  vocab_review_events: [
+    "id",
+    "item_id",
+    "result",
+    "surface",
+    "reviewed_at",
+    "interval_before",
+    "interval_after"
+  ],
+  vocab_settings: ["student_id", "daily_limit", "english_mode", "updated_at"]
+};
+
+const VOCAB_MIGRATION_CHECKSUM_SOURCE = JSON.stringify({
+  schema: VOCAB_SCHEMA_SQL
+});
+
 export const SCHEMA_MIGRATIONS = [
   {
     version: 1,
@@ -1991,6 +2226,19 @@ export const SCHEMA_MIGRATIONS = [
       db.exec(MULTI_QUESTION_SCAN_MIGRATION_SCHEMA_SQL);
       for (const [table, columns] of Object.entries(
         MULTI_QUESTION_SCAN_MIGRATION_REQUIRED_COLUMNS
+      )) {
+        assertRequiredColumns(db, table, columns);
+      }
+    }
+  },
+  {
+    version: 17,
+    name: "vocab_dictation_schedule",
+    checksumSource: VOCAB_MIGRATION_CHECKSUM_SOURCE,
+    up(db) {
+      db.exec(VOCAB_SCHEMA_SQL);
+      for (const [table, columns] of Object.entries(
+        VOCAB_REQUIRED_COLUMNS
       )) {
         assertRequiredColumns(db, table, columns);
       }

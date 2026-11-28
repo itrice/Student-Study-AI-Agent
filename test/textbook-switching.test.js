@@ -1143,7 +1143,7 @@ test("v11 数据库升级到最新版本后旧错题自动绑定人教版且保�
 
     const repository = new LearningRepository(databasePath);
     try {
-      assert.equal(repository.getSchemaVersion(), 16);
+      assert.equal(repository.getSchemaVersion(), 17);
       const mistake = repository.getMistake(mistakeId);
       const textbook = repository.getTextbook("renjiao-6-all");
       assert.equal(mistake.textbookId, textbook.id);
