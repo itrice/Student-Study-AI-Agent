@@ -17,8 +17,13 @@ import {
   renderEinkPage,
   renderEinkUnfitNotice
 } from "./render.js";
+import {
+  EINK_VOCAB_LAYOUT_VERSION,
+  renderEinkVocabFrame
+} from "./vocab.js";
 import { evaluateEinkFit } from "./fit.js";
 import { prepareEinkPhoto } from "./photo.js";
+import { toDateKey } from "../vocab/schedule.js";
 
 const CACHE_PAGES = 32;
 const FIT_CACHE_ENTRIES = 256;
@@ -86,6 +91,13 @@ function notFound() {
   return error;
 }
 
+function vocabIndexOutOfRange(total) {
+  const error = new Error(`index 超出今日到期字词数量（共 ${total} 条）`);
+  error.status = 400;
+  error.code = "EINK_VOCAB_INDEX_OUT_OF_RANGE";
+  return error;
+}
+
 export function etagMatches(header, etag) {
   const value = String(header || "").trim();
   if (!value) return false;
@@ -99,8 +111,10 @@ export class EinkPageService {
   constructor({
     repository,
     attachmentStore,
+    vocabStore = null,
     renderer = renderEinkPage,
     dashboardRenderer = renderEinkDashboard,
+    vocabRenderer = renderEinkVocabFrame,
     preparePhoto = prepareEinkPhoto,
     unfitRenderer = renderEinkUnfitNotice,
     cache = new LRUCache({ max: CACHE_PAGES }),
@@ -108,8 +122,10 @@ export class EinkPageService {
   }) {
     this.repository = repository;
     this.attachmentStore = attachmentStore;
+    this.vocabStore = vocabStore;
     this.renderer = renderer;
     this.dashboardRenderer = dashboardRenderer;
+    this.vocabRenderer = vocabRenderer;
     this.preparePhoto = preparePhoto;
     this.unfitRenderer = unfitRenderer;
     this.cache = cache;
@@ -315,6 +331,43 @@ export class EinkPageService {
       etag,
       layoutVersion: EINK_LAYOUT_VERSION,
       warning
+    };
+    this.cache.set(key, result);
+    return { ...result, cacheHit: false };
+  }
+
+  async getVocabFrame({ studentId, subject, index, mode = null }) {
+    if (!this.vocabStore) throw new Error("字词帧服务未配置字词数据源");
+    const dictation = this.vocabStore.dictation({
+      studentId,
+      subject,
+      mode: mode || undefined,
+      todayKey: toDateKey(new Date())
+    });
+    const total = dictation.items.length;
+    const empty = total === 0;
+    if (!empty && index > total) throw vocabIndexOutOfRange(total);
+
+    const model = {
+      layoutVersion: EINK_VOCAB_LAYOUT_VERSION,
+      subject,
+      mode: dictation.mode,
+      index: empty ? 0 : index,
+      total,
+      prompt: empty ? "" : dictation.items[index - 1].prompt,
+      empty
+    };
+    const key = cacheDigest(JSON.stringify(model));
+    const cached = this.cache.get(key);
+    if (cached) return { ...cached, cacheHit: true };
+
+    const rendered = await this.vocabRenderer(model);
+    const etag = `"${cacheDigest(rendered.frame)}"`;
+    const result = {
+      ...rendered,
+      model,
+      etag,
+      layoutVersion: EINK_VOCAB_LAYOUT_VERSION
     };
     this.cache.set(key, result);
     return { ...result, cacheHit: false };
