@@ -1,0 +1,3788 @@
+{
+  "meta": {
+    "reviewStatus": "unreviewed",
+    "note": "数据手工转录自国家中小学智慧教育平台 2022 年修订版电子教材（写字表 180 字、词语表 215 词；本版无识字表）。拼音为词典/上下文推断（仅 12 字为课本注音），非人工逐条校对，标记 unreviewed。"
+  },
+  "textbooks": [
+    {
+      "textbookKey": "pep-zh-6-upper",
+      "editionKey": "pep-zh-2022-rev",
+      "publisher": "人民教育出版社",
+      "edition": "2022年版课标修订",
+      "grade": 6,
+      "semester": "upper",
+      "displayName": "（根据2022年版课程标准修订）义务教育教科书·语文六年级上册",
+      "sourceKey": "smartedu:2e3dc199-9c42-486b-bbee-7731bd0ee227",
+      "subject": "chinese",
+      "reviewStatus": "unreviewed",
+      "units": [
+        {
+          "unitNo": 1,
+          "title": "第一单元",
+          "position": 1,
+          "lessons": [
+            {
+              "lessonNo": 1,
+              "title": "草原",
+              "position": 1
+            },
+            {
+              "lessonNo": 2,
+              "title": "丁香结",
+              "position": 2
+            },
+            {
+              "lessonNo": 3,
+              "title": "古诗词三首",
+              "position": 3
+            }
+          ],
+          "entries": [
+            {
+              "term": "勒",
+              "kind": "char",
+              "pinyin": "lè",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 1
+            },
+            {
+              "term": "吟",
+              "kind": "char",
+              "pinyin": "yín",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 2
+            },
+            {
+              "term": "骏",
+              "kind": "char",
+              "pinyin": "jùn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 3
+            },
+            {
+              "term": "鞭",
+              "kind": "char",
+              "pinyin": "biān",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 4
+            },
+            {
+              "term": "裳",
+              "kind": "char",
+              "pinyin": "shang",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 5
+            },
+            {
+              "term": "蹄",
+              "kind": "char",
+              "pinyin": "tí",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 6
+            },
+            {
+              "term": "腐",
+              "kind": "char",
+              "pinyin": "fǔ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 7
+            },
+            {
+              "term": "貌",
+              "kind": "char",
+              "pinyin": "mào",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 8
+            },
+            {
+              "term": "拘",
+              "kind": "char",
+              "pinyin": "jū",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 9
+            },
+            {
+              "term": "稍",
+              "kind": "char",
+              "pinyin": "shāo",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 1,
+              "position": 10
+            },
+            {
+              "term": "缀",
+              "kind": "char",
+              "pinyin": "zhuì",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 2,
+              "position": 1
+            },
+            {
+              "term": "窥",
+              "kind": "char",
+              "pinyin": "kuī",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 2,
+              "position": 2
+            },
+            {
+              "term": "紫",
+              "kind": "char",
+              "pinyin": "zǐ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 2,
+              "position": 3
+            },
+            {
+              "term": "潇",
+              "kind": "char",
+              "pinyin": "xiāo",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 2,
+              "position": 4
+            },
+            {
+              "term": "雅",
+              "kind": "char",
+              "pinyin": "yǎ",
+              "pinyinInBook": "yǎ",
+              "listType": "会写",
+              "lessonNo": 2,
+              "position": 5
+            },
+            {
+              "term": "檐",
+              "kind": "char",
+              "pinyin": "yán",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 2,
+              "position": 6
+            },
+            {
+              "term": "浊",
+              "kind": "char",
+              "pinyin": "zhuó",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 2,
+              "position": 7
+            },
+            {
+              "term": "拙",
+              "kind": "char",
+              "pinyin": "zhuō",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 2,
+              "position": 8
+            },
+            {
+              "term": "簇",
+              "kind": "char",
+              "pinyin": "cù",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 2,
+              "position": 9
+            },
+            {
+              "term": "遮",
+              "kind": "char",
+              "pinyin": "zhē",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 2,
+              "position": 10
+            },
+            {
+              "term": "恍",
+              "kind": "char",
+              "pinyin": "huǎng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 2,
+              "position": 11
+            },
+            {
+              "term": "德",
+              "kind": "char",
+              "pinyin": "dé",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 3,
+              "position": 1
+            },
+            {
+              "term": "暮",
+              "kind": "char",
+              "pinyin": "mù",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 3,
+              "position": 2
+            },
+            {
+              "term": "旷",
+              "kind": "char",
+              "pinyin": "kuàng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 3,
+              "position": 3
+            },
+            {
+              "term": "鹊",
+              "kind": "char",
+              "pinyin": "què",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 3,
+              "position": 4
+            },
+            {
+              "term": "蝉",
+              "kind": "char",
+              "pinyin": "chán",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 3,
+              "position": 5
+            },
+            {
+              "term": "稻",
+              "kind": "char",
+              "pinyin": "dào",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 3,
+              "position": 6
+            },
+            {
+              "term": "柔美",
+              "kind": "word",
+              "pinyin": "róu měi",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 1
+            },
+            {
+              "term": "勾勒",
+              "kind": "word",
+              "pinyin": "gōu lè",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 2
+            },
+            {
+              "term": "境界",
+              "kind": "word",
+              "pinyin": "jìng jiè",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 3
+            },
+            {
+              "term": "惊叹",
+              "kind": "word",
+              "pinyin": "jīng tàn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 4
+            },
+            {
+              "term": "低吟",
+              "kind": "word",
+              "pinyin": "dī yín",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 5
+            },
+            {
+              "term": "奇丽",
+              "kind": "word",
+              "pinyin": "qí lì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 6
+            },
+            {
+              "term": "骏马",
+              "kind": "word",
+              "pinyin": "jùn mǎ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 7
+            },
+            {
+              "term": "回味",
+              "kind": "word",
+              "pinyin": "huí wèi",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 8
+            },
+            {
+              "term": "洒脱",
+              "kind": "word",
+              "pinyin": "sǎ tuo",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 9
+            },
+            {
+              "term": "衣裳",
+              "kind": "word",
+              "pinyin": "yī shang",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 10
+            },
+            {
+              "term": "疾驰",
+              "kind": "word",
+              "pinyin": "jí chí",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 11
+            },
+            {
+              "term": "静寂",
+              "kind": "word",
+              "pinyin": "jìng jì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 12
+            },
+            {
+              "term": "礼貌",
+              "kind": "word",
+              "pinyin": "lǐ mào",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 13
+            },
+            {
+              "term": "拘束",
+              "kind": "word",
+              "pinyin": "jū shù",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 14
+            },
+            {
+              "term": "回敬",
+              "kind": "word",
+              "pinyin": "huí jìng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 1,
+              "position": 15
+            },
+            {
+              "term": "宅院",
+              "kind": "word",
+              "pinyin": "zhái yuàn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 1
+            },
+            {
+              "term": "潇洒",
+              "kind": "word",
+              "pinyin": "xiāo sǎ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 2
+            },
+            {
+              "term": "幽雅",
+              "kind": "word",
+              "pinyin": "yōu yǎ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 3
+            },
+            {
+              "term": "伏案",
+              "kind": "word",
+              "pinyin": "fú àn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 4
+            },
+            {
+              "term": "轻灵",
+              "kind": "word",
+              "pinyin": "qīng líng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 5
+            },
+            {
+              "term": "浑浊",
+              "kind": "word",
+              "pinyin": "hún zhuó",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 6
+            },
+            {
+              "term": "笨拙",
+              "kind": "word",
+              "pinyin": "bèn zhuō",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 7
+            },
+            {
+              "term": "参差",
+              "kind": "word",
+              "pinyin": "cēn cī",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 8
+            },
+            {
+              "term": "遮掩",
+              "kind": "word",
+              "pinyin": "zhē yǎn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 9
+            },
+            {
+              "term": "文思",
+              "kind": "word",
+              "pinyin": "wén sī",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 10
+            },
+            {
+              "term": "如同",
+              "kind": "word",
+              "pinyin": "rú tóng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 11
+            },
+            {
+              "term": "何以",
+              "kind": "word",
+              "pinyin": "hé yǐ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 12
+            },
+            {
+              "term": "恰如",
+              "kind": "word",
+              "pinyin": "qià rú",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 13
+            },
+            {
+              "term": "恍然",
+              "kind": "word",
+              "pinyin": "huǎng rán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 14
+            },
+            {
+              "term": "顺心",
+              "kind": "word",
+              "pinyin": "shùn xīn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 2,
+              "position": 15
+            }
+          ]
+        },
+        {
+          "unitNo": 2,
+          "title": "第二单元",
+          "position": 2,
+          "lessons": [
+            {
+              "lessonNo": 4,
+              "title": "七律·长征",
+              "position": 4
+            },
+            {
+              "lessonNo": 5,
+              "title": "狼牙山五壮士",
+              "position": 5
+            },
+            {
+              "lessonNo": 6,
+              "title": "开国大典",
+              "position": 6
+            },
+            {
+              "lessonNo": 7,
+              "title": "我的战友邱少云",
+              "position": 7
+            }
+          ],
+          "entries": [
+            {
+              "term": "律",
+              "kind": "char",
+              "pinyin": "lǜ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 4,
+              "position": 1
+            },
+            {
+              "term": "蒙",
+              "kind": "char",
+              "pinyin": "měng",
+              "pinyinInBook": "měng",
+              "listType": "会写",
+              "lessonNo": 4,
+              "position": 2
+            },
+            {
+              "term": "丸",
+              "kind": "char",
+              "pinyin": "wán",
+              "pinyinInBook": "wán",
+              "listType": "会写",
+              "lessonNo": 4,
+              "position": 3
+            },
+            {
+              "term": "崖",
+              "kind": "char",
+              "pinyin": "yá",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 4,
+              "position": 4
+            },
+            {
+              "term": "渡",
+              "kind": "char",
+              "pinyin": "dù",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 4,
+              "position": 5
+            },
+            {
+              "term": "索",
+              "kind": "char",
+              "pinyin": "suǒ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 4,
+              "position": 6
+            },
+            {
+              "term": "贯",
+              "kind": "char",
+              "pinyin": "guàn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 5,
+              "position": 1
+            },
+            {
+              "term": "棋",
+              "kind": "char",
+              "pinyin": "qí",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 5,
+              "position": 2
+            },
+            {
+              "term": "悬",
+              "kind": "char",
+              "pinyin": "xuán",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 5,
+              "position": 3
+            },
+            {
+              "term": "斩",
+              "kind": "char",
+              "pinyin": "zhǎn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 5,
+              "position": 4
+            },
+            {
+              "term": "截",
+              "kind": "char",
+              "pinyin": "jié",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 5,
+              "position": 5
+            },
+            {
+              "term": "沸",
+              "kind": "char",
+              "pinyin": "fèi",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 5,
+              "position": 6
+            },
+            {
+              "term": "砸",
+              "kind": "char",
+              "pinyin": "zá",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 5,
+              "position": 7
+            },
+            {
+              "term": "雹",
+              "kind": "char",
+              "pinyin": "báo",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 5,
+              "position": 8
+            },
+            {
+              "term": "昂",
+              "kind": "char",
+              "pinyin": "áng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 5,
+              "position": 9
+            },
+            {
+              "term": "豪",
+              "kind": "char",
+              "pinyin": "háo",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 5,
+              "position": 10
+            },
+            {
+              "term": "迈",
+              "kind": "char",
+              "pinyin": "mài",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 5,
+              "position": 11
+            },
+            {
+              "term": "政",
+              "kind": "char",
+              "pinyin": "zhèng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 6,
+              "position": 1
+            },
+            {
+              "term": "府",
+              "kind": "char",
+              "pinyin": "fǔ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 6,
+              "position": 2
+            },
+            {
+              "term": "宾",
+              "kind": "char",
+              "pinyin": "bīn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 6,
+              "position": 3
+            },
+            {
+              "term": "宣",
+              "kind": "char",
+              "pinyin": "xuān",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 6,
+              "position": 4
+            },
+            {
+              "term": "拂",
+              "kind": "char",
+              "pinyin": "fú",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 6,
+              "position": 5
+            },
+            {
+              "term": "阅",
+              "kind": "char",
+              "pinyin": "yuè",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 6,
+              "position": 6
+            },
+            {
+              "term": "率",
+              "kind": "char",
+              "pinyin": "shuài",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 6,
+              "position": 7
+            },
+            {
+              "term": "榴",
+              "kind": "char",
+              "pinyin": "liú",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 6,
+              "position": 8
+            },
+            {
+              "term": "辆",
+              "kind": "char",
+              "pinyin": "liàng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 6,
+              "position": 9
+            },
+            {
+              "term": "嗓",
+              "kind": "char",
+              "pinyin": "sǎng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 6,
+              "position": 10
+            },
+            {
+              "term": "哑",
+              "kind": "char",
+              "pinyin": "yǎ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 6,
+              "position": 11
+            },
+            {
+              "term": "蔽",
+              "kind": "char",
+              "pinyin": "bì",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 7,
+              "position": 1
+            },
+            {
+              "term": "趴",
+              "kind": "char",
+              "pinyin": "pā",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 7,
+              "position": 2
+            },
+            {
+              "term": "伪",
+              "kind": "char",
+              "pinyin": "wěi",
+              "pinyinInBook": "wěi",
+              "listType": "会写",
+              "lessonNo": 7,
+              "position": 3
+            },
+            {
+              "term": "摧",
+              "kind": "char",
+              "pinyin": "cuī",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 7,
+              "position": 4
+            },
+            {
+              "term": "幕",
+              "kind": "char",
+              "pinyin": "mù",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 7,
+              "position": 5
+            },
+            {
+              "term": "搜",
+              "kind": "char",
+              "pinyin": "sōu",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 7,
+              "position": 6
+            },
+            {
+              "term": "蔓",
+              "kind": "char",
+              "pinyin": "màn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 7,
+              "position": 7
+            },
+            {
+              "term": "液",
+              "kind": "char",
+              "pinyin": "yè",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 7,
+              "position": 8
+            },
+            {
+              "term": "缩",
+              "kind": "char",
+              "pinyin": "suō",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 7,
+              "position": 9
+            },
+            {
+              "term": "熄",
+              "kind": "char",
+              "pinyin": "xī",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 7,
+              "position": 10
+            },
+            {
+              "term": "奋战",
+              "kind": "word",
+              "pinyin": "fèn zhàn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 1
+            },
+            {
+              "term": "险要",
+              "kind": "word",
+              "pinyin": "xiǎn yào",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 2
+            },
+            {
+              "term": "沉着",
+              "kind": "word",
+              "pinyin": "chén zhuó",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 3
+            },
+            {
+              "term": "全神贯注",
+              "kind": "word",
+              "pinyin": "quán shén guàn zhù",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 4
+            },
+            {
+              "term": "崎岖",
+              "kind": "word",
+              "pinyin": "qí qū",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 5
+            },
+            {
+              "term": "横七竖八",
+              "kind": "word",
+              "pinyin": "héng qī shù bā",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 6
+            },
+            {
+              "term": "悬崖",
+              "kind": "word",
+              "pinyin": "xuán yá",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 7
+            },
+            {
+              "term": "斩钉截铁",
+              "kind": "word",
+              "pinyin": "zhǎn dīng jié tiě",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 8
+            },
+            {
+              "term": "热血沸腾",
+              "kind": "word",
+              "pinyin": "rè xuè fèi téng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 9
+            },
+            {
+              "term": "居高临下",
+              "kind": "word",
+              "pinyin": "jū gāo lín xià",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 10
+            },
+            {
+              "term": "粉身碎骨",
+              "kind": "word",
+              "pinyin": "fěn shēn suì gǔ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 11
+            },
+            {
+              "term": "眺望",
+              "kind": "word",
+              "pinyin": "tiào wàng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 12
+            },
+            {
+              "term": "昂首",
+              "kind": "word",
+              "pinyin": "áng shǒu",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 13
+            },
+            {
+              "term": "豪迈",
+              "kind": "word",
+              "pinyin": "háo mài",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 14
+            },
+            {
+              "term": "气壮山河",
+              "kind": "word",
+              "pinyin": "qì zhuàng shān hé",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 5,
+              "position": 15
+            },
+            {
+              "term": "政府",
+              "kind": "word",
+              "pinyin": "zhèng fǔ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 1
+            },
+            {
+              "term": "汇集",
+              "kind": "word",
+              "pinyin": "huì jí",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 2
+            },
+            {
+              "term": "爆发",
+              "kind": "word",
+              "pinyin": "bào fā",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 3
+            },
+            {
+              "term": "排山倒海",
+              "kind": "word",
+              "pinyin": "pái shān dǎo hǎi",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 4
+            },
+            {
+              "term": "庄严",
+              "kind": "word",
+              "pinyin": "zhuāng yán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 5
+            },
+            {
+              "term": "宣告",
+              "kind": "word",
+              "pinyin": "xuān gào",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 6
+            },
+            {
+              "term": "欢跃",
+              "kind": "word",
+              "pinyin": "huān yuè",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 7
+            },
+            {
+              "term": "雄壮",
+              "kind": "word",
+              "pinyin": "xióng zhuàng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 8
+            },
+            {
+              "term": "肃立",
+              "kind": "word",
+              "pinyin": "sù lì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 9
+            },
+            {
+              "term": "飘拂",
+              "kind": "word",
+              "pinyin": "piāo fú",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 10
+            },
+            {
+              "term": "完毕",
+              "kind": "word",
+              "pinyin": "wán bì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 11
+            },
+            {
+              "term": "检阅",
+              "kind": "word",
+              "pinyin": "jiǎn yuè",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 12
+            },
+            {
+              "term": "率领",
+              "kind": "word",
+              "pinyin": "shuài lǐng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 6,
+              "position": 13
+            },
+            {
+              "term": "隐蔽",
+              "kind": "word",
+              "pinyin": "yǐn bì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 1
+            },
+            {
+              "term": "潜伏",
+              "kind": "word",
+              "pinyin": "qián fú",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 2
+            },
+            {
+              "term": "前沿",
+              "kind": "word",
+              "pinyin": "qián yán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 3
+            },
+            {
+              "term": "伪装",
+              "kind": "word",
+              "pinyin": "wěi zhuāng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 4
+            },
+            {
+              "term": "枯黄",
+              "kind": "word",
+              "pinyin": "kū huáng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 5
+            },
+            {
+              "term": "作为",
+              "kind": "word",
+              "pinyin": "zuò wéi",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 6
+            },
+            {
+              "term": "摧毁",
+              "kind": "word",
+              "pinyin": "cuī huǐ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 7
+            },
+            {
+              "term": "突击",
+              "kind": "word",
+              "pinyin": "tū jī",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 8
+            },
+            {
+              "term": "搜索",
+              "kind": "word",
+              "pinyin": "sōu suǒ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 9
+            },
+            {
+              "term": "蔓延",
+              "kind": "word",
+              "pinyin": "màn yán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 10
+            },
+            {
+              "term": "幸而",
+              "kind": "word",
+              "pinyin": "xìng ér",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 11
+            },
+            {
+              "term": "浓重",
+              "kind": "word",
+              "pinyin": "nóng zhòng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 12
+            },
+            {
+              "term": "落空",
+              "kind": "word",
+              "pinyin": "là kòng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 13
+            },
+            {
+              "term": "忍耐",
+              "kind": "word",
+              "pinyin": "rěn nài",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 14
+            },
+            {
+              "term": "熄灭",
+              "kind": "word",
+              "pinyin": "xī miè",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 7,
+              "position": 15
+            }
+          ]
+        },
+        {
+          "unitNo": 3,
+          "title": "第三单元",
+          "position": 3,
+          "lessons": [
+            {
+              "lessonNo": 8,
+              "title": "竹节人",
+              "position": 8
+            },
+            {
+              "lessonNo": 9,
+              "title": "宇宙生命之谜",
+              "position": 9
+            },
+            {
+              "lessonNo": 10,
+              "title": "故宫博物院",
+              "position": 10,
+              "note": "略读课文"
+            }
+          ],
+          "entries": [
+            {
+              "term": "凛",
+              "kind": "char",
+              "pinyin": "lǐn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 1
+            },
+            {
+              "term": "搏",
+              "kind": "char",
+              "pinyin": "bó",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 2
+            },
+            {
+              "term": "傻",
+              "kind": "char",
+              "pinyin": "shǎ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 3
+            },
+            {
+              "term": "棍",
+              "kind": "char",
+              "pinyin": "gùn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 4
+            },
+            {
+              "term": "裁",
+              "kind": "char",
+              "pinyin": "cái",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 5
+            },
+            {
+              "term": "筹",
+              "kind": "char",
+              "pinyin": "chóu",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 6
+            },
+            {
+              "term": "橡",
+              "kind": "char",
+              "pinyin": "xiàng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 7
+            },
+            {
+              "term": "雕",
+              "kind": "char",
+              "pinyin": "diāo",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 8
+            },
+            {
+              "term": "泰",
+              "kind": "char",
+              "pinyin": "tài",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 9
+            },
+            {
+              "term": "屏",
+              "kind": "char",
+              "pinyin": "píng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 10
+            },
+            {
+              "term": "禁",
+              "kind": "char",
+              "pinyin": "jīn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 11
+            },
+            {
+              "term": "蹲",
+              "kind": "char",
+              "pinyin": "dūn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 8,
+              "position": 12
+            },
+            {
+              "term": "谜",
+              "kind": "char",
+              "pinyin": "mí",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 9,
+              "position": 1
+            },
+            {
+              "term": "猜",
+              "kind": "char",
+              "pinyin": "cāi",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 9,
+              "position": 2
+            },
+            {
+              "term": "尚",
+              "kind": "char",
+              "pinyin": "shàng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 9,
+              "position": 3
+            },
+            {
+              "term": "析",
+              "kind": "char",
+              "pinyin": "xī",
+              "pinyinInBook": "xī",
+              "listType": "会写",
+              "lessonNo": 9,
+              "position": 4
+            },
+            {
+              "term": "效",
+              "kind": "char",
+              "pinyin": "xiào",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 9,
+              "position": 5
+            },
+            {
+              "term": "轨",
+              "kind": "char",
+              "pinyin": "guǐ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 9,
+              "position": 6
+            },
+            {
+              "term": "谓",
+              "kind": "char",
+              "pinyin": "wèi",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 9,
+              "position": 7
+            },
+            {
+              "term": "斑",
+              "kind": "char",
+              "pinyin": "bān",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 9,
+              "position": 8
+            },
+            {
+              "term": "萎",
+              "kind": "char",
+              "pinyin": "wěi",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 9,
+              "position": 9
+            },
+            {
+              "term": "燥",
+              "kind": "char",
+              "pinyin": "zào",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 9,
+              "position": 10
+            },
+            {
+              "term": "漠",
+              "kind": "char",
+              "pinyin": "mò",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 9,
+              "position": 11
+            },
+            {
+              "term": "前功尽弃",
+              "kind": "word",
+              "pinyin": "qián gōng jìn qì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 1
+            },
+            {
+              "term": "威风凛凛",
+              "kind": "word",
+              "pinyin": "wēi fēng lǐn lǐn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 2
+            },
+            {
+              "term": "搏斗",
+              "kind": "word",
+              "pinyin": "bó dòu",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 3
+            },
+            {
+              "term": "疲倦",
+              "kind": "word",
+              "pinyin": "pí juàn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 4
+            },
+            {
+              "term": "别出心裁",
+              "kind": "word",
+              "pinyin": "bié chū xīn cái",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 5
+            },
+            {
+              "term": "技高一筹",
+              "kind": "word",
+              "pinyin": "jì gāo yī chóu",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 6
+            },
+            {
+              "term": "得意扬扬",
+              "kind": "word",
+              "pinyin": "dé yì yáng yáng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 7
+            },
+            {
+              "term": "观摩",
+              "kind": "word",
+              "pinyin": "guān mó",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 8
+            },
+            {
+              "term": "弄巧成拙",
+              "kind": "word",
+              "pinyin": "nòng qiǎo chéng zhuō",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 9
+            },
+            {
+              "term": "知趣",
+              "kind": "word",
+              "pinyin": "zhī qù",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 10
+            },
+            {
+              "term": "大步流星",
+              "kind": "word",
+              "pinyin": "dà bù liú xīng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 11
+            },
+            {
+              "term": "不禁",
+              "kind": "word",
+              "pinyin": "bù jīn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 12
+            },
+            {
+              "term": "一无所获",
+              "kind": "word",
+              "pinyin": "yī wú suǒ huò",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 13
+            },
+            {
+              "term": "念念有词",
+              "kind": "word",
+              "pinyin": "niàn niàn yǒu cí",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 14
+            },
+            {
+              "term": "忘乎所以",
+              "kind": "word",
+              "pinyin": "wàng hū suǒ yǐ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 15
+            },
+            {
+              "term": "心满意足",
+              "kind": "word",
+              "pinyin": "xīn mǎn yì zú",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 8,
+              "position": 16
+            },
+            {
+              "term": "盛会",
+              "kind": "word",
+              "pinyin": "shèng huì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 1
+            },
+            {
+              "term": "系统",
+              "kind": "word",
+              "pinyin": "xì tǒng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 2
+            },
+            {
+              "term": "猜测",
+              "kind": "word",
+              "pinyin": "cāi cè",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 3
+            },
+            {
+              "term": "尚未",
+              "kind": "word",
+              "pinyin": "shàng wèi",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 4
+            },
+            {
+              "term": "分析",
+              "kind": "word",
+              "pinyin": "fēn xī",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 5
+            },
+            {
+              "term": "效应",
+              "kind": "word",
+              "pinyin": "xiào yìng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 6
+            },
+            {
+              "term": "轨道",
+              "kind": "word",
+              "pinyin": "guǐ dào",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 7
+            },
+            {
+              "term": "表明",
+              "kind": "word",
+              "pinyin": "biǎo míng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 8
+            },
+            {
+              "term": "所谓",
+              "kind": "word",
+              "pinyin": "suǒ wèi",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 9
+            },
+            {
+              "term": "斑点",
+              "kind": "word",
+              "pinyin": "bān diǎn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 10
+            },
+            {
+              "term": "枯萎",
+              "kind": "word",
+              "pinyin": "kū wěi",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 11
+            },
+            {
+              "term": "干燥",
+              "kind": "word",
+              "pinyin": "gān zào",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 12
+            },
+            {
+              "term": "沙漠",
+              "kind": "word",
+              "pinyin": "shā mò",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 13
+            },
+            {
+              "term": "进一步",
+              "kind": "word",
+              "pinyin": "jìn yī bù",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 14
+            },
+            {
+              "term": "一系列",
+              "kind": "word",
+              "pinyin": "yī xì liè",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 15
+            },
+            {
+              "term": "探索",
+              "kind": "word",
+              "pinyin": "tàn suǒ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 9,
+              "position": 16
+            }
+          ],
+          "note": "阅读策略单元"
+        },
+        {
+          "unitNo": 4,
+          "title": "第四单元",
+          "position": 4,
+          "lessons": [
+            {
+              "lessonNo": 11,
+              "title": "桥",
+              "position": 11
+            },
+            {
+              "lessonNo": 12,
+              "title": "穷人",
+              "position": 12
+            },
+            {
+              "lessonNo": 13,
+              "title": "金色的鱼钩",
+              "position": 13,
+              "note": "略读课文"
+            }
+          ],
+          "entries": [
+            {
+              "term": "黎",
+              "kind": "char",
+              "pinyin": "lí",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 11,
+              "position": 1
+            },
+            {
+              "term": "疯",
+              "kind": "char",
+              "pinyin": "fēng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 11,
+              "position": 2
+            },
+            {
+              "term": "淌",
+              "kind": "char",
+              "pinyin": "tǎng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 11,
+              "position": 3
+            },
+            {
+              "term": "盯",
+              "kind": "char",
+              "pinyin": "dīng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 11,
+              "position": 4
+            },
+            {
+              "term": "肆",
+              "kind": "char",
+              "pinyin": "sì",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 11,
+              "position": 5
+            },
+            {
+              "term": "伍",
+              "kind": "char",
+              "pinyin": "wǔ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 11,
+              "position": 6
+            },
+            {
+              "term": "揪",
+              "kind": "char",
+              "pinyin": "jiū",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 11,
+              "position": 7
+            },
+            {
+              "term": "呻",
+              "kind": "char",
+              "pinyin": "shēn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 11,
+              "position": 8
+            },
+            {
+              "term": "膛",
+              "kind": "char",
+              "pinyin": "táng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 11,
+              "position": 9
+            },
+            {
+              "term": "废",
+              "kind": "char",
+              "pinyin": "fèi",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 11,
+              "position": 10
+            },
+            {
+              "term": "塌",
+              "kind": "char",
+              "pinyin": "tā",
+              "pinyinInBook": "tā",
+              "listType": "会写",
+              "lessonNo": 11,
+              "position": 11
+            },
+            {
+              "term": "妻",
+              "kind": "char",
+              "pinyin": "qī",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 12,
+              "position": 1
+            },
+            {
+              "term": "娜",
+              "kind": "char",
+              "pinyin": "nà",
+              "pinyinInBook": "nà",
+              "listType": "会写",
+              "lessonNo": 12,
+              "position": 2
+            },
+            {
+              "term": "唉",
+              "kind": "char",
+              "pinyin": "āi",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 12,
+              "position": 3
+            },
+            {
+              "term": "僵",
+              "kind": "char",
+              "pinyin": "jiāng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 12,
+              "position": 4
+            },
+            {
+              "term": "淋",
+              "kind": "char",
+              "pinyin": "lín",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 12,
+              "position": 5
+            },
+            {
+              "term": "嘿",
+              "kind": "char",
+              "pinyin": "hēi",
+              "pinyinInBook": "hēi",
+              "listType": "会写",
+              "lessonNo": 12,
+              "position": 6
+            },
+            {
+              "term": "糟",
+              "kind": "char",
+              "pinyin": "zāo",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 12,
+              "position": 7
+            },
+            {
+              "term": "霉",
+              "kind": "char",
+              "pinyin": "méi",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 12,
+              "position": 8
+            },
+            {
+              "term": "嘛",
+              "kind": "char",
+              "pinyin": "ma",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 12,
+              "position": 9
+            },
+            {
+              "term": "惨",
+              "kind": "char",
+              "pinyin": "cǎn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 12,
+              "position": 10
+            },
+            {
+              "term": "熬",
+              "kind": "char",
+              "pinyin": "áo",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 12,
+              "position": 11
+            },
+            {
+              "term": "黎明",
+              "kind": "word",
+              "pinyin": "lí míng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 1
+            },
+            {
+              "term": "狂奔",
+              "kind": "word",
+              "pinyin": "kuáng bēn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 2
+            },
+            {
+              "term": "惊慌",
+              "kind": "word",
+              "pinyin": "jīng huāng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 3
+            },
+            {
+              "term": "跌跌撞撞",
+              "kind": "word",
+              "pinyin": "diē die zhuàng zhuàng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 4
+            },
+            {
+              "term": "拥戴",
+              "kind": "word",
+              "pinyin": "yōng dài",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 5
+            },
+            {
+              "term": "清瘦",
+              "kind": "word",
+              "pinyin": "qīng shòu",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 6
+            },
+            {
+              "term": "乱哄哄",
+              "kind": "word",
+              "pinyin": "luàn hōng hōng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 7
+            },
+            {
+              "term": "沙哑",
+              "kind": "word",
+              "pinyin": "shā yǎ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 8
+            },
+            {
+              "term": "依次",
+              "kind": "word",
+              "pinyin": "yī cì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 9
+            },
+            {
+              "term": "放肆",
+              "kind": "word",
+              "pinyin": "fàng sì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 10
+            },
+            {
+              "term": "队伍",
+              "kind": "word",
+              "pinyin": "duì wǔ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 11
+            },
+            {
+              "term": "呻吟",
+              "kind": "word",
+              "pinyin": "shēn yín",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 12
+            },
+            {
+              "term": "胸膛",
+              "kind": "word",
+              "pinyin": "xiōng táng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 13
+            },
+            {
+              "term": "吞没",
+              "kind": "word",
+              "pinyin": "tūn mò",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 14
+            },
+            {
+              "term": "猛然",
+              "kind": "word",
+              "pinyin": "měng rán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 11,
+              "position": 15
+            },
+            {
+              "term": "风暴",
+              "kind": "word",
+              "pinyin": "fēng bào",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 1
+            },
+            {
+              "term": "心惊肉跳",
+              "kind": "word",
+              "pinyin": "xīn jīng ròu tiào",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 2
+            },
+            {
+              "term": "勉强",
+              "kind": "word",
+              "pinyin": "miǎn qiǎng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 3
+            },
+            {
+              "term": "抱怨",
+              "kind": "word",
+              "pinyin": "bào yuàn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 4
+            },
+            {
+              "term": "倾听",
+              "kind": "word",
+              "pinyin": "qīng tīng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 5
+            },
+            {
+              "term": "探望",
+              "kind": "word",
+              "pinyin": "tàn wàng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 6
+            },
+            {
+              "term": "照顾",
+              "kind": "word",
+              "pinyin": "zhào gu",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 7
+            },
+            {
+              "term": "张罗",
+              "kind": "word",
+              "pinyin": "zhāng luo",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 8
+            },
+            {
+              "term": "仍旧",
+              "kind": "word",
+              "pinyin": "réng jiù",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 9
+            },
+            {
+              "term": "僵硬",
+              "kind": "word",
+              "pinyin": "jiāng yìng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 10
+            },
+            {
+              "term": "自作自受",
+              "kind": "word",
+              "pinyin": "zì zuò zì shòu",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 11
+            },
+            {
+              "term": "湿淋淋",
+              "kind": "word",
+              "pinyin": "shī lín lín",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 12
+            },
+            {
+              "term": "糟糕",
+              "kind": "word",
+              "pinyin": "zāo gāo",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 13
+            },
+            {
+              "term": "倒霉",
+              "kind": "word",
+              "pinyin": "dǎo méi",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 14
+            },
+            {
+              "term": "忧虑",
+              "kind": "word",
+              "pinyin": "yōu lǜ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 12,
+              "position": 15
+            }
+          ]
+        },
+        {
+          "unitNo": 5,
+          "title": "第五单元",
+          "position": 5,
+          "lessons": [
+            {
+              "lessonNo": 14,
+              "title": "灯光",
+              "position": 14
+            },
+            {
+              "lessonNo": 15,
+              "title": "盼",
+              "position": 15
+            }
+          ],
+          "entries": [
+            {
+              "term": "盏",
+              "kind": "char",
+              "pinyin": "zhǎn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 1
+            },
+            {
+              "term": "豫",
+              "kind": "char",
+              "pinyin": "yù",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 2
+            },
+            {
+              "term": "副",
+              "kind": "char",
+              "pinyin": "fù",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 3
+            },
+            {
+              "term": "倚",
+              "kind": "char",
+              "pinyin": "yǐ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 4
+            },
+            {
+              "term": "制",
+              "kind": "char",
+              "pinyin": "zhì",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 5
+            },
+            {
+              "term": "插",
+              "kind": "char",
+              "pinyin": "chā",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 6
+            },
+            {
+              "term": "聚",
+              "kind": "char",
+              "pinyin": "jù",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 7
+            },
+            {
+              "term": "愣",
+              "kind": "char",
+              "pinyin": "lèng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 8
+            },
+            {
+              "term": "漆",
+              "kind": "char",
+              "pinyin": "qī",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 9
+            },
+            {
+              "term": "堡",
+              "kind": "char",
+              "pinyin": "bǎo",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 10
+            },
+            {
+              "term": "枪",
+              "kind": "char",
+              "pinyin": "qiāng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 11
+            },
+            {
+              "term": "编",
+              "kind": "char",
+              "pinyin": "biān",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 14,
+              "position": 12
+            },
+            {
+              "term": "篷",
+              "kind": "char",
+              "pinyin": "peng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 15,
+              "position": 1
+            },
+            {
+              "term": "嫌",
+              "kind": "char",
+              "pinyin": "xián",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 15,
+              "position": 2
+            },
+            {
+              "term": "瓦",
+              "kind": "char",
+              "pinyin": "wǎ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 15,
+              "position": 3
+            },
+            {
+              "term": "柜",
+              "kind": "char",
+              "pinyin": "guì",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 15,
+              "position": 4
+            },
+            {
+              "term": "嘻",
+              "kind": "char",
+              "pinyin": "xī",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 15,
+              "position": 5
+            },
+            {
+              "term": "嚷",
+              "kind": "char",
+              "pinyin": "rǎng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 15,
+              "position": 6
+            },
+            {
+              "term": "锅",
+              "kind": "char",
+              "pinyin": "guō",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 15,
+              "position": 7
+            },
+            {
+              "term": "酱",
+              "kind": "char",
+              "pinyin": "jiàng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 15,
+              "position": 8
+            },
+            {
+              "term": "唇",
+              "kind": "char",
+              "pinyin": "chún",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 15,
+              "position": 9
+            },
+            {
+              "term": "蹦",
+              "kind": "char",
+              "pinyin": "bèng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 15,
+              "position": 10
+            },
+            {
+              "term": "宏伟",
+              "kind": "word",
+              "pinyin": "hóng wěi",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 1
+            },
+            {
+              "term": "赞叹",
+              "kind": "word",
+              "pinyin": "zàn tàn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 2
+            },
+            {
+              "term": "自制",
+              "kind": "word",
+              "pinyin": "zì zhì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 3
+            },
+            {
+              "term": "微弱",
+              "kind": "word",
+              "pinyin": "wēi ruò",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 4
+            },
+            {
+              "term": "聚精会神",
+              "kind": "word",
+              "pinyin": "jù jīng huì shén",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 5
+            },
+            {
+              "term": "不由得",
+              "kind": "word",
+              "pinyin": "bù yóu de",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 6
+            },
+            {
+              "term": "点燃",
+              "kind": "word",
+              "pinyin": "diǎn rán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 7
+            },
+            {
+              "term": "漆黑",
+              "kind": "word",
+              "pinyin": "qī hēi",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 8
+            },
+            {
+              "term": "后续",
+              "kind": "word",
+              "pinyin": "hòu xù",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 9
+            },
+            {
+              "term": "阻击",
+              "kind": "word",
+              "pinyin": "zǔ jī",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 10
+            },
+            {
+              "term": "突破",
+              "kind": "word",
+              "pinyin": "tū pò",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 11
+            },
+            {
+              "term": "暴露",
+              "kind": "word",
+              "pinyin": "bào lù",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 12
+            },
+            {
+              "term": "不惜",
+              "kind": "word",
+              "pinyin": "bù xī",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 14,
+              "position": 13
+            },
+            {
+              "term": "斗篷",
+              "kind": "word",
+              "pinyin": "dǒu peng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 1
+            },
+            {
+              "term": "瓦蓝",
+              "kind": "word",
+              "pinyin": "wǎ lán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 2
+            },
+            {
+              "term": "衣柜",
+              "kind": "word",
+              "pinyin": "yī guì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 3
+            },
+            {
+              "term": "遮盖",
+              "kind": "word",
+              "pinyin": "zhē gài",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 4
+            },
+            {
+              "term": "闷雷",
+              "kind": "word",
+              "pinyin": "mèn léi",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 5
+            },
+            {
+              "term": "央求",
+              "kind": "word",
+              "pinyin": "yāng qiú",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 6
+            },
+            {
+              "term": "心思",
+              "kind": "word",
+              "pinyin": "xīn si",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 7
+            },
+            {
+              "term": "不声不响",
+              "kind": "word",
+              "pinyin": "bù shēng bù xiǎng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 8
+            },
+            {
+              "term": "逗引",
+              "kind": "word",
+              "pinyin": "dòu yǐn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 9
+            },
+            {
+              "term": "张望",
+              "kind": "word",
+              "pinyin": "zhāng wàng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 10
+            },
+            {
+              "term": "果真",
+              "kind": "word",
+              "pinyin": "guǒ zhēn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 11
+            },
+            {
+              "term": "甜丝丝",
+              "kind": "word",
+              "pinyin": "tián sī sī",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 12
+            },
+            {
+              "term": "理直气壮",
+              "kind": "word",
+              "pinyin": "lǐ zhí qì zhuàng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 13
+            },
+            {
+              "term": "起劲",
+              "kind": "word",
+              "pinyin": "qǐ jìn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 15,
+              "position": 14
+            }
+          ],
+          "note": "习作单元"
+        },
+        {
+          "unitNo": 6,
+          "title": "第六单元",
+          "position": 6,
+          "lessons": [
+            {
+              "lessonNo": 16,
+              "title": "只有一个地球",
+              "position": 16
+            },
+            {
+              "lessonNo": 17,
+              "title": "青山不老",
+              "position": 17,
+              "note": "略读课文"
+            },
+            {
+              "lessonNo": 18,
+              "title": "三黑和土地",
+              "position": 18,
+              "note": "略读课文"
+            },
+            {
+              "lessonNo": 19,
+              "title": "古诗三首",
+              "position": 19
+            }
+          ],
+          "entries": [
+            {
+              "term": "帘",
+              "kind": "char",
+              "pinyin": "lián",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 16,
+              "position": 1
+            },
+            {
+              "term": "裹",
+              "kind": "char",
+              "pinyin": "guǒ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 16,
+              "position": 2
+            },
+            {
+              "term": "薄",
+              "kind": "char",
+              "pinyin": "báo",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 16,
+              "position": 3
+            },
+            {
+              "term": "篮",
+              "kind": "char",
+              "pinyin": "lán",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 16,
+              "position": 4
+            },
+            {
+              "term": "渺",
+              "kind": "char",
+              "pinyin": "miǎo",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 16,
+              "position": 5
+            },
+            {
+              "term": "资",
+              "kind": "char",
+              "pinyin": "zī",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 16,
+              "position": 6
+            },
+            {
+              "term": "滥",
+              "kind": "char",
+              "pinyin": "làn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 16,
+              "position": 7
+            },
+            {
+              "term": "胁",
+              "kind": "char",
+              "pinyin": "xié",
+              "pinyinInBook": "xié",
+              "listType": "会写",
+              "lessonNo": 16,
+              "position": 8
+            },
+            {
+              "term": "福",
+              "kind": "char",
+              "pinyin": "fú",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 16,
+              "position": 9
+            },
+            {
+              "term": "涯",
+              "kind": "char",
+              "pinyin": "yá",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 19,
+              "position": 1
+            },
+            {
+              "term": "牵",
+              "kind": "char",
+              "pinyin": "qiān",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 19,
+              "position": 2
+            },
+            {
+              "term": "莺",
+              "kind": "char",
+              "pinyin": "yīng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 19,
+              "position": 3
+            },
+            {
+              "term": "苔",
+              "kind": "char",
+              "pinyin": "tái",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 19,
+              "position": 4
+            },
+            {
+              "term": "眼帘",
+              "kind": "word",
+              "pinyin": "yǎn lián",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 1
+            },
+            {
+              "term": "摇篮",
+              "kind": "word",
+              "pinyin": "yáo lán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 2
+            },
+            {
+              "term": "渺小",
+              "kind": "word",
+              "pinyin": "miǎo xiǎo",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 3
+            },
+            {
+              "term": "资源",
+              "kind": "word",
+              "pinyin": "zī yuán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 4
+            },
+            {
+              "term": "无私",
+              "kind": "word",
+              "pinyin": "wú sī",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 5
+            },
+            {
+              "term": "节制",
+              "kind": "word",
+              "pinyin": "jié zhì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 6
+            },
+            {
+              "term": "枯竭",
+              "kind": "word",
+              "pinyin": "kū jié",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 7
+            },
+            {
+              "term": "毁坏",
+              "kind": "word",
+              "pinyin": "huǐ huài",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 8
+            },
+            {
+              "term": "滥用",
+              "kind": "word",
+              "pinyin": "làn yòng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 9
+            },
+            {
+              "term": "威胁",
+              "kind": "word",
+              "pinyin": "wēi xié",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 10
+            },
+            {
+              "term": "移居",
+              "kind": "word",
+              "pinyin": "yí jū",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 11
+            },
+            {
+              "term": "指望",
+              "kind": "word",
+              "pinyin": "zhǐ wàng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 12
+            },
+            {
+              "term": "设想",
+              "kind": "word",
+              "pinyin": "shè xiǎng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 13
+            },
+            {
+              "term": "目睹",
+              "kind": "word",
+              "pinyin": "mù dǔ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 14
+            },
+            {
+              "term": "造福",
+              "kind": "word",
+              "pinyin": "zào fú",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 16,
+              "position": 15
+            }
+          ]
+        },
+        {
+          "unitNo": 7,
+          "title": "第七单元",
+          "position": 7,
+          "lessons": [
+            {
+              "lessonNo": 20,
+              "title": "文言文二则",
+              "position": 20
+            },
+            {
+              "lessonNo": 21,
+              "title": "表里的生物",
+              "position": 21
+            },
+            {
+              "lessonNo": 22,
+              "title": "他们那时候多有趣啊",
+              "position": 22,
+              "note": "略读课文"
+            }
+          ],
+          "entries": [
+            {
+              "term": "仓",
+              "kind": "char",
+              "pinyin": "cāng",
+              "pinyinInBook": "cāng",
+              "listType": "会写",
+              "lessonNo": 20,
+              "position": 1
+            },
+            {
+              "term": "聪",
+              "kind": "char",
+              "pinyin": "cōng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 20,
+              "position": 2
+            },
+            {
+              "term": "置",
+              "kind": "char",
+              "pinyin": "zhì",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 20,
+              "position": 3
+            },
+            {
+              "term": "悦",
+              "kind": "char",
+              "pinyin": "yuè",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 20,
+              "position": 4
+            },
+            {
+              "term": "施",
+              "kind": "char",
+              "pinyin": "shī",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 20,
+              "position": 5
+            },
+            {
+              "term": "谐",
+              "kind": "char",
+              "pinyin": "xié",
+              "pinyinInBook": "xié",
+              "listType": "会写",
+              "lessonNo": 21,
+              "position": 1
+            },
+            {
+              "term": "拦",
+              "kind": "char",
+              "pinyin": "lán",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 21,
+              "position": 2
+            },
+            {
+              "term": "添",
+              "kind": "char",
+              "pinyin": "tiān",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 21,
+              "position": 3
+            },
+            {
+              "term": "怖",
+              "kind": "char",
+              "pinyin": "bù",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 21,
+              "position": 4
+            },
+            {
+              "term": "愉",
+              "kind": "char",
+              "pinyin": "yú",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 21,
+              "position": 5
+            },
+            {
+              "term": "蟋",
+              "kind": "char",
+              "pinyin": "xī",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 21,
+              "position": 6
+            },
+            {
+              "term": "蟀",
+              "kind": "char",
+              "pinyin": "shuài",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 21,
+              "position": 7
+            },
+            {
+              "term": "街心",
+              "kind": "word",
+              "pinyin": "jiē xīn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 1
+            },
+            {
+              "term": "走动",
+              "kind": "word",
+              "pinyin": "zǒu dòng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 2
+            },
+            {
+              "term": "和谐",
+              "kind": "word",
+              "pinyin": "hé xié",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 3
+            },
+            {
+              "term": "清脆",
+              "kind": "word",
+              "pinyin": "qīng cuì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 4
+            },
+            {
+              "term": "单调",
+              "kind": "word",
+              "pinyin": "dān diào",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 5
+            },
+            {
+              "term": "增加",
+              "kind": "word",
+              "pinyin": "zēng jiā",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 6
+            },
+            {
+              "term": "神秘",
+              "kind": "word",
+              "pinyin": "shén mì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 7
+            },
+            {
+              "term": "轻易",
+              "kind": "word",
+              "pinyin": "qīng yì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 8
+            },
+            {
+              "term": "入神",
+              "kind": "word",
+              "pinyin": "rù shén",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 9
+            },
+            {
+              "term": "唯恐",
+              "kind": "word",
+              "pinyin": "wéi kǒng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 10
+            },
+            {
+              "term": "恐怖",
+              "kind": "word",
+              "pinyin": "kǒng bù",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 11
+            },
+            {
+              "term": "愉快",
+              "kind": "word",
+              "pinyin": "yú kuài",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 12
+            },
+            {
+              "term": "证实",
+              "kind": "word",
+              "pinyin": "zhèng shí",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 13
+            },
+            {
+              "term": "蟋蟀",
+              "kind": "word",
+              "pinyin": "xī shuài",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 21,
+              "position": 14
+            }
+          ]
+        },
+        {
+          "unitNo": 8,
+          "title": "第八单元",
+          "position": 8,
+          "lessons": [
+            {
+              "lessonNo": 23,
+              "title": "少年闰土",
+              "position": 23
+            },
+            {
+              "lessonNo": 24,
+              "title": "好的故事",
+              "position": 24
+            },
+            {
+              "lessonNo": 25,
+              "title": "我的伯父鲁迅先生",
+              "position": 25,
+              "note": "略读课文"
+            },
+            {
+              "lessonNo": 26,
+              "title": "有的人——纪念鲁迅有感",
+              "position": 26,
+              "note": "略读课文"
+            }
+          ],
+          "entries": [
+            {
+              "term": "郑",
+              "kind": "char",
+              "pinyin": "zhèng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 23,
+              "position": 1
+            },
+            {
+              "term": "拜",
+              "kind": "char",
+              "pinyin": "bài",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 23,
+              "position": 2
+            },
+            {
+              "term": "偷",
+              "kind": "char",
+              "pinyin": "tōu",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 23,
+              "position": 3
+            },
+            {
+              "term": "租",
+              "kind": "char",
+              "pinyin": "zū",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 23,
+              "position": 4
+            },
+            {
+              "term": "厨",
+              "kind": "char",
+              "pinyin": "chú",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 23,
+              "position": 5
+            },
+            {
+              "term": "毡",
+              "kind": "char",
+              "pinyin": "zhān",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 23,
+              "position": 6
+            },
+            {
+              "term": "羞",
+              "kind": "char",
+              "pinyin": "xiū",
+              "pinyinInBook": "xiū",
+              "listType": "会写",
+              "lessonNo": 23,
+              "position": 7
+            },
+            {
+              "term": "爹",
+              "kind": "char",
+              "pinyin": "diē",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 23,
+              "position": 8
+            },
+            {
+              "term": "猬",
+              "kind": "char",
+              "pinyin": "wei",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 23,
+              "position": 9
+            },
+            {
+              "term": "伶",
+              "kind": "char",
+              "pinyin": "líng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 23,
+              "position": 10
+            },
+            {
+              "term": "俐",
+              "kind": "char",
+              "pinyin": "lì",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 23,
+              "position": 11
+            },
+            {
+              "term": "搁",
+              "kind": "char",
+              "pinyin": "gē",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 1
+            },
+            {
+              "term": "萍",
+              "kind": "char",
+              "pinyin": "píng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 2
+            },
+            {
+              "term": "藻",
+              "kind": "char",
+              "pinyin": "zǎo",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 3
+            },
+            {
+              "term": "漾",
+              "kind": "char",
+              "pinyin": "yàng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 4
+            },
+            {
+              "term": "焰",
+              "kind": "char",
+              "pinyin": "yàn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 5
+            },
+            {
+              "term": "削",
+              "kind": "char",
+              "pinyin": "xuē",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 6
+            },
+            {
+              "term": "缕",
+              "kind": "char",
+              "pinyin": "lǚ",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 7
+            },
+            {
+              "term": "晕",
+              "kind": "char",
+              "pinyin": "yùn",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 8
+            },
+            {
+              "term": "骤",
+              "kind": "char",
+              "pinyin": "zhòu",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 9
+            },
+            {
+              "term": "撕",
+              "kind": "char",
+              "pinyin": "sī",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 10
+            },
+            {
+              "term": "坠",
+              "kind": "char",
+              "pinyin": "zhuì",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 11
+            },
+            {
+              "term": "剩",
+              "kind": "char",
+              "pinyin": "shèng",
+              "pinyinInBook": "",
+              "listType": "会写",
+              "lessonNo": 24,
+              "position": 12
+            },
+            {
+              "term": "一望无际",
+              "kind": "word",
+              "pinyin": "yī wàng wú jì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 1
+            },
+            {
+              "term": "其间",
+              "kind": "word",
+              "pinyin": "qí jiān",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 2
+            },
+            {
+              "term": "尽力",
+              "kind": "word",
+              "pinyin": "jìn lì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 3
+            },
+            {
+              "term": "郑重",
+              "kind": "word",
+              "pinyin": "zhèng zhòng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 4
+            },
+            {
+              "term": "讲究",
+              "kind": "word",
+              "pinyin": "jiǎng jiu",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 5
+            },
+            {
+              "term": "以及",
+              "kind": "word",
+              "pinyin": "yǐ jí",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 6
+            },
+            {
+              "term": "允许",
+              "kind": "word",
+              "pinyin": "yǔn xǔ",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 7
+            },
+            {
+              "term": "明晃晃",
+              "kind": "word",
+              "pinyin": "míng huǎng huǎng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 8
+            },
+            {
+              "term": "可见",
+              "kind": "word",
+              "pinyin": "kě jiàn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 9
+            },
+            {
+              "term": "无端",
+              "kind": "word",
+              "pinyin": "wú duān",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 10
+            },
+            {
+              "term": "伶俐",
+              "kind": "word",
+              "pinyin": "líng lì",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 11
+            },
+            {
+              "term": "潮汛",
+              "kind": "word",
+              "pinyin": "cháo xùn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 12
+            },
+            {
+              "term": "往常",
+              "kind": "word",
+              "pinyin": "wǎng cháng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 23,
+              "position": 13
+            },
+            {
+              "term": "昏沉",
+              "kind": "word",
+              "pinyin": "hūn chén",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 24,
+              "position": 1
+            },
+            {
+              "term": "茅屋",
+              "kind": "word",
+              "pinyin": "máo wū",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 24,
+              "position": 2
+            },
+            {
+              "term": "荡漾",
+              "kind": "word",
+              "pinyin": "dàng yàng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 24,
+              "position": 3
+            },
+            {
+              "term": "解散",
+              "kind": "word",
+              "pinyin": "jiě sàn",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 24,
+              "position": 4
+            },
+            {
+              "term": "退缩",
+              "kind": "word",
+              "pinyin": "tuì suō",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 24,
+              "position": 5
+            },
+            {
+              "term": "边缘",
+              "kind": "word",
+              "pinyin": "biān yuán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 24,
+              "position": 6
+            },
+            {
+              "term": "瘦削",
+              "kind": "word",
+              "pinyin": "shòu xuē",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 24,
+              "position": 7
+            },
+            {
+              "term": "浮动",
+              "kind": "word",
+              "pinyin": "fú dòng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 24,
+              "position": 8
+            },
+            {
+              "term": "骤然",
+              "kind": "word",
+              "pinyin": "zhòu rán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 24,
+              "position": 9
+            },
+            {
+              "term": "陡然",
+              "kind": "word",
+              "pinyin": "dǒu rán",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 24,
+              "position": 10
+            },
+            {
+              "term": "何尝",
+              "kind": "word",
+              "pinyin": "hé cháng",
+              "pinyinInBook": "",
+              "listType": "词语",
+              "lessonNo": 24,
+              "position": 11
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
