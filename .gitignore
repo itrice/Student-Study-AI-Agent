@@ -1,6 +1,8 @@
 node_modules/
 .pnpm-store/
-data/
+data/*
+!data/vocab/
+data/vocab/*.sqlite*
 *.env
 *.log
 .DS_Store
