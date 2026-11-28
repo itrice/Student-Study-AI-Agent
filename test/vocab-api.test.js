@@ -616,3 +616,281 @@ test("英语听写默认中译英并支持切换英译中，跟随设置默认�
     { seed: true }
   );
 });
+
+const DUP_OCCURRENCE_CATALOG = {
+  meta: { reviewStatus: "unreviewed" },
+  textbooks: [
+    {
+      textbookKey: "test-dup-zh",
+      subject: "chinese",
+      editionKey: "test-dup-edition",
+      publisher: "测试出版社",
+      edition: "测试版",
+      grade: 6,
+      semester: "upper",
+      displayName: "测试同字跨课",
+      units: [
+        {
+          unitNo: 1,
+          title: "第一单元",
+          lessons: [
+            { lessonNo: 1, title: "课文一" },
+            { lessonNo: 2, title: "课文二" }
+          ],
+          entries: [
+            {
+              term: "重",
+              kind: "char",
+              pinyin: "zhòng",
+              listType: "会写",
+              lessonNo: 1,
+              position: 1
+            },
+            {
+              term: "重",
+              kind: "char",
+              pinyin: "chóng",
+              listType: "会写",
+              lessonNo: 2,
+              position: 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+};
+
+test("同单元两课同一字保留两条 occurrence 且重复导入幂等", () => {
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "math-coach-vocab-dup-")
+  );
+  const repository = new LearningRepository(
+    path.join(directory, "learning.sqlite")
+  );
+  try {
+    const first = importVocabCatalog(repository.db, DUP_OCCURRENCE_CATALOG);
+    assert.deepEqual(first, {
+      textbooks: 1,
+      units: 1,
+      lessons: 2,
+      terms: 2,
+      occurrences: 2
+    });
+    const readOccurrences = () =>
+      repository.db
+        .prepare(
+          `SELECT o.id, o.lesson_id, o.pinyin_in_book
+           FROM zh_occurrences o
+           JOIN zh_terms t ON t.id = o.term_id
+           WHERE t.word = '重'
+           ORDER BY o.lesson_id`
+        )
+        .all();
+    const rows = readOccurrences();
+    assert.equal(rows.length, 2);
+    assert.equal(new Set(rows.map((row) => row.lesson_id)).size, 2);
+    assert.deepEqual(
+      rows.map((row) => row.pinyin_in_book),
+      ["zhòng", "chóng"]
+    );
+    assert.equal(
+      repository.db
+        .prepare("SELECT COUNT(*) AS count FROM zh_terms WHERE word = '重'")
+        .get().count,
+      1
+    );
+
+    const second = importVocabCatalog(repository.db, DUP_OCCURRENCE_CATALOG);
+    assert.deepEqual(second, first);
+    const rerunRows = readOccurrences();
+    assert.deepEqual(
+      rerunRows.map((row) => row.id),
+      rows.map((row) => row.id)
+    );
+    assert.equal(rerunRows.length, 2);
+  } finally {
+    repository.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("同一字录入不同课保留两条出现位置", async () => {
+  await withVocabServer(
+    async (server) => {
+      const { zhLesson1Id, zhLesson2Id } = server.seedIds;
+      const posted = await api(server, "/api/vocab/items", {
+        method: "POST",
+        body: {
+          subject: "chinese",
+          term: "山",
+          pinyin: "shān",
+          lessonId: zhLesson2Id
+        }
+      });
+      assert.equal(posted.status, 201);
+      assert.equal(posted.data.created, 1);
+      assert.ok(posted.data.items[0].sourceOccurrenceId);
+
+      const lessonOne = await api(
+        server,
+        `/api/vocab/dictation?subject=chinese&lessonId=${zhLesson1Id}`
+      );
+      assert.deepEqual(
+        lessonOne.data.items.map((item) => item.prompt),
+        ["shān"]
+      );
+      const lessonTwo = await api(
+        server,
+        `/api/vocab/dictation?subject=chinese&lessonId=${zhLesson2Id}`
+      );
+      assert.deepEqual(
+        lessonTwo.data.items.map((item) => item.prompt),
+        ["shān", "yuè liang"]
+      );
+
+      const db = new DatabaseSync(server.databasePath);
+      try {
+        assert.equal(
+          db
+            .prepare(
+              `SELECT COUNT(*) AS count
+               FROM zh_occurrences o
+               JOIN zh_terms t ON t.id = o.term_id
+               WHERE t.word = '山'`
+            )
+            .get().count,
+          2
+        );
+      } finally {
+        db.close();
+      }
+    },
+    { seed: true }
+  );
+});
+
+test("批量录入中途失败时整批回滚", async () => {
+  await withVocabServer(async (server) => {
+    const failed = await api(server, "/api/vocab/items", {
+      method: "POST",
+      body: {
+        subject: "chinese",
+        entries: [{ term: "半批甲", pinyin: "ban" }, { term: "" }]
+      }
+    });
+    assert.equal(failed.status, 400);
+
+    const list = await api(server, "/api/vocab/items?subject=chinese");
+    assert.equal(list.data.count, 0);
+    const db = new DatabaseSync(server.databasePath);
+    try {
+      assert.equal(
+        db
+          .prepare("SELECT COUNT(*) AS count FROM zh_terms WHERE word = '半批甲'")
+          .get().count,
+        0
+      );
+      assert.equal(
+        db.prepare("SELECT COUNT(*) AS count FROM vocab_items").get().count,
+        0
+      );
+    } finally {
+      db.close();
+    }
+  });
+});
+
+test("可按词条与出现位置直接补录条目并校验学科", async () => {
+  await withVocabServer(
+    async (server) => {
+      const { zhLesson2Id, enUnitId } = server.seedIds;
+      const chinese = await api(
+        server,
+        `/api/vocab/dictation?subject=chinese&lessonId=${zhLesson2Id}`
+      );
+      const target = chinese.data.items.find(
+        (item) => item.prompt === "yuè liang"
+      );
+      assert.ok(target.termId);
+      assert.ok(target.occurrenceId);
+
+      const created = await api(server, "/api/vocab/items", {
+        method: "POST",
+        body: {
+          subject: "chinese",
+          termId: target.termId,
+          sourceOccurrenceId: target.occurrenceId
+        }
+      });
+      assert.equal(created.status, 201);
+      assert.equal(created.data.created, 1);
+      assert.equal(created.data.items[0].term, "月亮");
+      assert.equal(created.data.items[0].dueAt, TOMORROW);
+      assert.equal(
+        created.data.items[0].sourceOccurrenceId,
+        target.occurrenceId
+      );
+
+      const repeated = await api(server, "/api/vocab/items", {
+        method: "POST",
+        body: {
+          subject: "chinese",
+          termId: target.termId,
+          sourceOccurrenceId: target.occurrenceId
+        }
+      });
+      assert.equal(repeated.data.created, 0);
+      assert.equal(repeated.data.existing, 1);
+      assert.equal(repeated.data.items[0].id, created.data.items[0].id);
+
+      const dictation = await api(
+        server,
+        `/api/vocab/dictation?subject=chinese&lessonId=${zhLesson2Id}`
+      );
+      const dictationItem = dictation.data.items.find(
+        (item) => item.prompt === "yuè liang"
+      );
+      assert.equal(dictationItem.itemId, created.data.items[0].id);
+
+      const english = await api(
+        server,
+        `/api/vocab/dictation?subject=english&unitId=${enUnitId}`
+      );
+      const englishTerm = english.data.items[0];
+      const crossOccurrence = await api(server, "/api/vocab/items", {
+        method: "POST",
+        body: {
+          subject: "chinese",
+          termId: target.termId,
+          sourceOccurrenceId: englishTerm.occurrenceId
+        }
+      });
+      assert.equal(crossOccurrence.status, 404);
+
+      const zhThird = await api(server, "/api/vocab/items", {
+        method: "POST",
+        body: { subject: "chinese", term: "雨", pinyin: "yǔ" }
+      });
+      const zhTermId = zhThird.data.items[0].termId;
+      const wrongSubject = await api(server, "/api/vocab/items", {
+        method: "POST",
+        body: { subject: "english", termId: zhTermId }
+      });
+      assert.equal(wrongSubject.status, 404);
+
+      const missing = await api(server, "/api/vocab/items", {
+        method: "POST",
+        body: { subject: "chinese", termId: 999999 }
+      });
+      assert.equal(missing.status, 404);
+
+      const conflict = await api(server, "/api/vocab/items", {
+        method: "POST",
+        body: { subject: "chinese", termId: target.termId, term: "月亮" }
+      });
+      assert.equal(conflict.status, 400);
+    },
+    { seed: true }
+  );
+});

@@ -1840,8 +1840,12 @@ const VOCAB_SCHEMA_SQL = `
     FOREIGN KEY(term_id) REFERENCES zh_terms(id) ON DELETE CASCADE,
     FOREIGN KEY(textbook_id) REFERENCES textbooks(id) ON DELETE CASCADE,
     FOREIGN KEY(unit_id) REFERENCES textbook_units(id) ON DELETE CASCADE,
-    FOREIGN KEY(lesson_id) REFERENCES textbook_lessons(id) ON DELETE SET NULL,
-    UNIQUE(term_id, textbook_id, unit_id, list_type)
+    FOREIGN KEY(lesson_id) REFERENCES textbook_lessons(id) ON DELETE SET NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_zh_occurrences_unique
+  ON zh_occurrences(
+    term_id, textbook_id, unit_id, COALESCE(lesson_id, 0), list_type
   );
 
   CREATE INDEX IF NOT EXISTS idx_zh_occurrences_lesson
@@ -1873,8 +1877,12 @@ const VOCAB_SCHEMA_SQL = `
     FOREIGN KEY(term_id) REFERENCES en_terms(id) ON DELETE CASCADE,
     FOREIGN KEY(textbook_id) REFERENCES textbooks(id) ON DELETE CASCADE,
     FOREIGN KEY(unit_id) REFERENCES textbook_units(id) ON DELETE CASCADE,
-    FOREIGN KEY(lesson_id) REFERENCES textbook_lessons(id) ON DELETE SET NULL,
-    UNIQUE(term_id, textbook_id, unit_id, list_type)
+    FOREIGN KEY(lesson_id) REFERENCES textbook_lessons(id) ON DELETE SET NULL
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_en_occurrences_unique
+  ON en_occurrences(
+    term_id, textbook_id, unit_id, COALESCE(lesson_id, 0), list_type
   );
 
   CREATE INDEX IF NOT EXISTS idx_en_occurrences_lesson

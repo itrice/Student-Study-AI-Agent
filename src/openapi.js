@@ -2177,6 +2177,18 @@ const vocabItemsInputSchema = {
   required: ["subject"],
   properties: {
     subject: { type: "string", enum: ["chinese", "english"] },
+    termId: {
+      type: "integer",
+      minimum: 1,
+      description:
+        "直接引用已入库词条建条目（如在听写批改中补录生词），不能与 term/word/entries/text 同时提供，且必须与 subject 同学科。"
+    },
+    sourceOccurrenceId: {
+      type: "integer",
+      minimum: 1,
+      description:
+        "配合 termId 使用，指定该词条在教材中的出现位置；必须与 termId 同科且同词。"
+    },
     term: { type: "string", maxLength: 50 },
     pinyin: { type: "string", maxLength: 100 },
     meaning: { type: "string", maxLength: 200 },

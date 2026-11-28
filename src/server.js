@@ -1871,6 +1871,39 @@ async function handleApi(request, response, url) {
     const body = await readJson(request);
     const studentId = currentVocabStudentId();
     const subject = parseVocabSubject(body.subject);
+    const hasTermRef = body.termId !== undefined && body.termId !== null;
+    if (hasTermRef) {
+      if (
+        Array.isArray(body.entries) ||
+        (typeof body.text === "string" && body.text.trim()) ||
+        body.term !== undefined ||
+        body.word !== undefined
+      ) {
+        throw new HttpError(400, "termId 录入不能与词条内容同时提供");
+      }
+      const termId = parseVocabItemId(body.termId, "词条编号");
+      vocabStore.requireTerm(subject, termId);
+      const occurrenceId = parseVocabOptionalId(body.sourceOccurrenceId);
+      if (occurrenceId) {
+        vocabStore.requireSourceOccurrence(subject, occurrenceId, termId);
+      }
+      const dueAt =
+        body.dueAt === undefined || body.dueAt === null
+          ? null
+          : parseVocabDueAt(body.dueAt);
+      const result = vocabStore.createItem({
+        studentId,
+        subject,
+        termId,
+        sourceOccurrenceId: occurrenceId,
+        dueAt
+      });
+      return sendJson(response, 201, {
+        created: result.created ? 1 : 0,
+        existing: result.created ? 0 : 1,
+        items: [result.item]
+      });
+    }
     let rawEntries = [];
     if (Array.isArray(body.entries)) {
       rawEntries = body.entries;
@@ -1896,7 +1929,7 @@ async function handleApi(request, response, url) {
     let created = 0;
     let existing = 0;
 
-    rawEntries.forEach((raw, index) => {
+    const importEntry = (raw, index) => {
       const entry = parseVocabEntry(subject, raw);
       let unitId =
         entry.unitId === null ? defaultUnitId : entry.unitId;
@@ -1972,7 +2005,16 @@ async function handleApi(request, response, url) {
       if (result.created) created += 1;
       else existing += 1;
       items.push(result.item);
-    });
+    };
+
+    repository.db.exec("BEGIN IMMEDIATE");
+    try {
+      rawEntries.forEach(importEntry);
+      repository.db.exec("COMMIT");
+    } catch (error) {
+      repository.db.exec("ROLLBACK");
+      throw error;
+    }
 
     return sendJson(response, 201, { created, existing, items });
   }

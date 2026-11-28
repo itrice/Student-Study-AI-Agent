@@ -261,35 +261,54 @@ export function importVocabCatalog(db, catalog) {
             termId = db
               .prepare("SELECT id FROM zh_terms WHERE word = ?")
               .get(termText).id;
-            db.prepare(
-              `INSERT INTO zh_occurrences
-               (term_id, textbook_id, unit_id, lesson_id, list_type,
-                pinyin_in_book, position, review_status, source_key,
-                created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(term_id, textbook_id, unit_id, list_type)
-               DO UPDATE SET
-                 lesson_id = excluded.lesson_id,
-                 pinyin_in_book = excluded.pinyin_in_book,
-                 position = excluded.position,
-                 review_status = excluded.review_status,
-                 source_key = excluded.source_key,
-                 updated_at = excluded.updated_at`
-            ).run(
-              termId,
-              textbookId,
-              unitId,
-              lessonNo === null ? null : lessonIds.get(lessonNo),
-              listType,
-              text(entry.pinyinInBook ?? entry.pinyin, "pinyinInBook", {
-                required: false
-              }),
-              position,
-              entryStatus,
-              sourceKey,
-              timestamp,
-              timestamp
+            const lessonId = lessonNo === null ? null : lessonIds.get(lessonNo);
+            const existingOccurrence = db
+              .prepare(
+                `SELECT id FROM zh_occurrences
+                 WHERE term_id = ? AND textbook_id = ? AND unit_id = ?
+                   AND lesson_id IS ? AND list_type = ?`
+              )
+              .get(termId, textbookId, unitId, lessonId, listType);
+            const pinyinInBook = text(
+              entry.pinyinInBook ?? entry.pinyin,
+              "pinyinInBook",
+              { required: false }
             );
+            if (existingOccurrence) {
+              db.prepare(
+                `UPDATE zh_occurrences
+                 SET pinyin_in_book = ?, position = ?, review_status = ?,
+                     source_key = ?, updated_at = ?
+                 WHERE id = ?`
+              ).run(
+                pinyinInBook,
+                position,
+                entryStatus,
+                sourceKey,
+                timestamp,
+                existingOccurrence.id
+              );
+            } else {
+              db.prepare(
+                `INSERT INTO zh_occurrences
+                 (term_id, textbook_id, unit_id, lesson_id, list_type,
+                  pinyin_in_book, position, review_status, source_key,
+                  created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              ).run(
+                termId,
+                textbookId,
+                unitId,
+                lessonId,
+                listType,
+                pinyinInBook,
+                position,
+                entryStatus,
+                sourceKey,
+                timestamp,
+                timestamp
+              );
+            }
           } else {
             db.prepare(
               `INSERT INTO en_terms
@@ -317,30 +336,46 @@ export function importVocabCatalog(db, catalog) {
             termId = db
               .prepare("SELECT id FROM en_terms WHERE term = ?")
               .get(termText).id;
-            db.prepare(
-              `INSERT INTO en_occurrences
-               (term_id, textbook_id, unit_id, lesson_id, list_type,
-                position, review_status, source_key, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(term_id, textbook_id, unit_id, list_type)
-               DO UPDATE SET
-                 lesson_id = excluded.lesson_id,
-                 position = excluded.position,
-                 review_status = excluded.review_status,
-                 source_key = excluded.source_key,
-                 updated_at = excluded.updated_at`
-            ).run(
-              termId,
-              textbookId,
-              unitId,
-              lessonNo === null ? null : lessonIds.get(lessonNo),
-              listType,
-              position,
-              entryStatus,
-              sourceKey,
-              timestamp,
-              timestamp
-            );
+            const lessonId = lessonNo === null ? null : lessonIds.get(lessonNo);
+            const existingOccurrence = db
+              .prepare(
+                `SELECT id FROM en_occurrences
+                 WHERE term_id = ? AND textbook_id = ? AND unit_id = ?
+                   AND lesson_id IS ? AND list_type = ?`
+              )
+              .get(termId, textbookId, unitId, lessonId, listType);
+            if (existingOccurrence) {
+              db.prepare(
+                `UPDATE en_occurrences
+                 SET position = ?, review_status = ?, source_key = ?,
+                     updated_at = ?
+                 WHERE id = ?`
+              ).run(
+                position,
+                entryStatus,
+                sourceKey,
+                timestamp,
+                existingOccurrence.id
+              );
+            } else {
+              db.prepare(
+                `INSERT INTO en_occurrences
+                 (term_id, textbook_id, unit_id, lesson_id, list_type,
+                  position, review_status, source_key, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              ).run(
+                termId,
+                textbookId,
+                unitId,
+                lessonId,
+                listType,
+                position,
+                entryStatus,
+                sourceKey,
+                timestamp,
+                timestamp
+              );
+            }
           }
           stats.terms += 1;
           stats.occurrences += 1;

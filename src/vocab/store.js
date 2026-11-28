@@ -243,6 +243,34 @@ export function createVocabStore(db) {
     return row;
   }
 
+  function requireTerm(subject, termId) {
+    const table = subject === "chinese" ? "zh_terms" : "en_terms";
+    const row = db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(termId);
+    if (!row) {
+      throw new VocabStoreError(
+        404,
+        "VOCAB_TERM_NOT_FOUND",
+        "没有找到对应学科的词条"
+      );
+    }
+    return row;
+  }
+
+  function requireSourceOccurrence(subject, occurrenceId, termId) {
+    const table = subject === "chinese" ? "zh_occurrences" : "en_occurrences";
+    const row = db
+      .prepare(`SELECT id, term_id FROM ${table} WHERE id = ?`)
+      .get(occurrenceId);
+    if (!row || row.term_id !== termId) {
+      throw new VocabStoreError(
+        404,
+        "VOCAB_OCCURRENCE_NOT_FOUND",
+        "没有找到对应学科的词条出现位置"
+      );
+    }
+    return row;
+  }
+
   function upsertZhOccurrence({
     termId,
     textbookId,
@@ -255,9 +283,10 @@ export function createVocabStore(db) {
     const existing = db
       .prepare(
         `SELECT id FROM zh_occurrences
-         WHERE term_id = ? AND textbook_id = ? AND unit_id = ? AND list_type = ?`
+         WHERE term_id = ? AND textbook_id = ? AND unit_id = ?
+           AND lesson_id IS ? AND list_type = ?`
       )
-      .get(termId, textbookId, unitId, listType);
+      .get(termId, textbookId, unitId, lessonId, listType);
     const timestamp = nowIso();
     if (existing) {
       db.prepare(
@@ -298,9 +327,10 @@ export function createVocabStore(db) {
     const existing = db
       .prepare(
         `SELECT id FROM en_occurrences
-         WHERE term_id = ? AND textbook_id = ? AND unit_id = ? AND list_type = ?`
+         WHERE term_id = ? AND textbook_id = ? AND unit_id = ?
+           AND lesson_id IS ? AND list_type = ?`
       )
-      .get(termId, textbookId, unitId, listType);
+      .get(termId, textbookId, unitId, lessonId, listType);
     const timestamp = nowIso();
     if (existing) {
       db.prepare(
@@ -707,6 +737,8 @@ export function createVocabStore(db) {
     findOrCreateEnTerm,
     requireUnit,
     requireLesson,
+    requireTerm,
+    requireSourceOccurrence,
     upsertZhOccurrence,
     upsertEnOccurrence,
     createItem,
