@@ -441,17 +441,22 @@ export function createVocabStore(db) {
       .map(mapItem);
   }
 
-  function reviewedTodayCount(studentId, todayKey) {
+  function reviewedTodayCount(studentId, todayKey, subject = null) {
     const bounds = localDayBounds(todayKey);
+    const subjectClause = subject ? "AND i.subject = ?" : "";
+    const params = subject
+      ? [studentId, subject, bounds.start, bounds.end]
+      : [studentId, bounds.start, bounds.end];
     return db
       .prepare(
         `SELECT COUNT(DISTINCT e.item_id) AS count
          FROM vocab_review_events e
          JOIN vocab_items i ON i.id = e.item_id
          WHERE i.student_id = ?
+           ${subjectClause}
            AND e.reviewed_at >= ? AND e.reviewed_at < ?`
       )
-      .get(studentId, bounds.start, bounds.end).count;
+      .get(...params).count;
   }
 
   function reviewPrompt(item, englishMode) {
@@ -469,9 +474,9 @@ export function createVocabStore(db) {
     });
   }
 
-  function reviewToday({ studentId, todayKey, englishMode }) {
+  function reviewToday({ studentId, todayKey, englishMode, subject = null }) {
     const settings = getSettings(studentId);
-    const due = dueItemRows(studentId, todayKey);
+    const due = dueItemRows(studentId, todayKey, subject);
     const queue = buildDailyReviewQueue({
       items: due,
       todayKey,
@@ -482,7 +487,7 @@ export function createVocabStore(db) {
       dailyLimit: settings.dailyLimit,
       dueCount: queue.dueCount,
       deferredCount: queue.deferredCount,
-      reviewedToday: reviewedTodayCount(studentId, todayKey),
+      reviewedToday: reviewedTodayCount(studentId, todayKey, subject),
       items: queue.items.map((item) => ({
         itemId: item.id,
         subject: item.subject,
@@ -652,6 +657,89 @@ export function createVocabStore(db) {
     return byTerm ? byTerm.id : null;
   }
 
+  function catalog(subject) {
+    const table = subject === "chinese" ? "zh_occurrences" : "en_occurrences";
+    const textbooks = db
+      .prepare(
+        `SELECT t.id, t.display_name AS name, t.grade, t.semester
+         FROM textbooks t
+         WHERE t.subject = ?
+           AND EXISTS (SELECT 1 FROM ${table} o WHERE o.textbook_id = t.id)
+         ORDER BY t.grade, t.semester, t.id`
+      )
+      .all(subject);
+    const units = db
+      .prepare(
+        `SELECT u.id, u.textbook_id, u.title AS name, u.position AS "order"
+         FROM textbook_units u
+         WHERE EXISTS (SELECT 1 FROM ${table} o WHERE o.unit_id = u.id)
+         ORDER BY u.textbook_id, u.position, u.id`
+      )
+      .all();
+    const lessons = db
+      .prepare(
+        `SELECT l.id, l.unit_id, l.title AS name, l.lesson_no AS lessonNo
+         FROM textbook_lessons l
+         WHERE EXISTS (SELECT 1 FROM ${table} o WHERE o.lesson_id = l.id)
+         ORDER BY l.unit_id, l.position, l.id`
+      )
+      .all();
+    const lessonsByUnit = new Map();
+    for (const lesson of lessons) {
+      if (!lessonsByUnit.has(lesson.unit_id)) lessonsByUnit.set(lesson.unit_id, []);
+      lessonsByUnit.get(lesson.unit_id).push({
+        id: lesson.id,
+        name: lesson.name,
+        lessonNo: lesson.lessonNo
+      });
+    }
+    const unitsByTextbook = new Map();
+    for (const unit of units) {
+      if (!unitsByTextbook.has(unit.textbook_id)) {
+        unitsByTextbook.set(unit.textbook_id, []);
+      }
+      unitsByTextbook.get(unit.textbook_id).push({
+        id: unit.id,
+        name: unit.name,
+        order: unit.order,
+        lessons: lessonsByUnit.get(unit.id) || []
+      });
+    }
+    return {
+      textbooks: textbooks.map((textbook) => ({
+        id: textbook.id,
+        name: textbook.name,
+        grade: textbook.grade,
+        semester: textbook.semester,
+        units: unitsByTextbook.get(textbook.id) || []
+      }))
+    };
+  }
+
+  function listOccurrences({ studentId, subject, unitId = null, lessonId = null }) {
+    const rows = occurrenceRows({ subject, unitId, lessonId });
+    return {
+      items: rows.map((row) => ({
+        occurrenceId: row.occurrence_id,
+        termId: row.term_id,
+        word: row.word,
+        pinyin:
+          subject === "chinese"
+            ? row.pinyin_in_book || row.pinyin_primary
+            : "",
+        meaning: subject === "chinese" ? row.meaning : row.meaning_zh,
+        listType: row.list_type,
+        position: row.position,
+        itemId: itemIdForTerm({
+          studentId,
+          subject,
+          termId: row.term_id,
+          occurrenceId: row.occurrence_id
+        })
+      }))
+    };
+  }
+
   function dictation({
     studentId,
     subject,
@@ -746,6 +834,8 @@ export function createVocabStore(db) {
     deleteItem,
     reviewToday,
     submitReviews,
+    catalog,
+    listOccurrences,
     dictation
   };
 }

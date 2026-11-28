@@ -2045,16 +2045,43 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, { deleted: true });
   }
 
+  if (request.method === "GET" && url.pathname === "/api/vocab/catalog") {
+    const subject = parseVocabSubject(url.searchParams.get("subject"));
+    return sendJson(response, 200, vocabStore.catalog(subject));
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/vocab/occurrences") {
+    const studentId = currentVocabStudentId();
+    const subject = parseVocabSubject(url.searchParams.get("subject"));
+    const unitId = parseVocabOptionalId(url.searchParams.get("unitId"));
+    const lessonId = parseVocabOptionalId(url.searchParams.get("lessonId"));
+    if (!unitId && !lessonId) {
+      throw new HttpError(400, "请提供 unitId 或 lessonId");
+    }
+    if (lessonId) {
+      vocabStore.requireLesson(subject, lessonId, unitId);
+    } else {
+      vocabStore.requireUnit(subject, unitId);
+    }
+    return sendJson(
+      response,
+      200,
+      vocabStore.listOccurrences({ studentId, subject, unitId, lessonId })
+    );
+  }
+
   if (request.method === "GET" && url.pathname === "/api/vocab/review/today") {
     const studentId = currentVocabStudentId();
     const dateParam = url.searchParams.get("date");
+    const subjectParam = url.searchParams.get("subject");
+    const subject = subjectParam ? parseVocabSubject(subjectParam) : null;
     const todayKey = dateParam
       ? parseVocabDueAt(dateParam)
       : toDateKey(new Date());
     return sendJson(
       response,
       200,
-      vocabStore.reviewToday({ studentId, todayKey })
+      vocabStore.reviewToday({ studentId, todayKey, subject })
     );
   }
 
