@@ -1,0 +1,1636 @@
+{
+  "meta": {
+    "reviewStatus": "unreviewed",
+    "note": "数据手工转录自国家中小学智慧教育平台 2022 年修订版电子教材 PEP 英语六上（附录 2 单元词汇表 144 条、附录 4 常用表达法 53 条）。音标与释义照录课本，未人工逐条校对，标记 unreviewed。"
+  },
+  "textbooks": [
+    {
+      "textbookKey": "pep-en-6-upper",
+      "editionKey": "pep-en-2022-rev",
+      "publisher": "人民教育出版社",
+      "edition": "2022年版课标修订（PEP）",
+      "grade": 6,
+      "semester": "upper",
+      "displayName": "（根据2022年版课程标准修订）义务教育教科书·英语六年级上册（PEP）",
+      "sourceKey": "smartedu:9e2878bf-964d-47fb-85ba-937cf61159a5",
+      "subject": "english",
+      "reviewStatus": "unreviewed",
+      "units": [
+        {
+          "unitNo": 1,
+          "title": "Unit 1 Amazing places",
+          "position": 1,
+          "lessons": [
+            {
+              "lessonNo": 1,
+              "title": "Unit 1 Amazing places",
+              "position": 1
+            }
+          ],
+          "entries": [
+            {
+              "term": "was",
+              "phonetic": "wəz",
+              "meaning": "（be 的第一和第三人称单数过去式）",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 1
+            },
+            {
+              "term": "climb",
+              "phonetic": "klaɪm",
+              "meaning": "攀登；爬",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 2
+            },
+            {
+              "term": "kilometre",
+              "phonetic": "kɪˈlɒmɪtə(r)",
+              "meaning": "（=km）千米；公里",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 3
+            },
+            {
+              "term": "gingerbread house",
+              "phonetic": "ˈdʒɪndʒəbred",
+              "meaning": "姜饼屋",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 4
+            },
+            {
+              "term": "send",
+              "phonetic": "send",
+              "meaning": "邮寄；发送",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 5
+            },
+            {
+              "term": "go",
+              "phonetic": "ɡəʊ",
+              "meaning": "（过去式 went /went/）去；走",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 6
+            },
+            {
+              "term": "thousand",
+              "phonetic": "ˈθaʊznd",
+              "meaning": "一千",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 7
+            },
+            {
+              "term": "clay",
+              "phonetic": "kleɪ",
+              "meaning": "黏土；陶土",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 8
+            },
+            {
+              "term": "see",
+              "phonetic": "siː",
+              "meaning": "（过去式 saw /sɔː/）看见",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 9
+            },
+            {
+              "term": "village",
+              "phonetic": "ˈvɪlɪdʒ",
+              "meaning": "村庄；村镇",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 10
+            },
+            {
+              "term": "eat",
+              "phonetic": "iːt",
+              "meaning": "（过去式 ate /eɪt/）吃",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 11
+            },
+            {
+              "term": "dry",
+              "phonetic": "draɪ",
+              "meaning": "干的",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 12
+            },
+            {
+              "term": "take",
+              "phonetic": "teɪk",
+              "meaning": "（过去式 took /tʊk/）做（某个动作；和名词连用代替某个动词）",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 13
+            },
+            {
+              "term": "view",
+              "phonetic": "vjuː",
+              "meaning": "景色",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 14
+            },
+            {
+              "term": "inspiring",
+              "phonetic": "ɪnˈspaɪərɪŋ",
+              "meaning": "鼓舞人心的",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 15
+            },
+            {
+              "term": "bamboo",
+              "phonetic": "ˌbæmˈbuː",
+              "meaning": "竹；竹子",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 16
+            },
+            {
+              "term": "pumpkin",
+              "phonetic": "ˈpʌmpkɪn",
+              "meaning": "南瓜",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 17
+            },
+            {
+              "term": "restaurant",
+              "phonetic": "ˈrestrɒnt",
+              "meaning": "餐馆；餐厅",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 18
+            },
+            {
+              "term": "airport",
+              "phonetic": "ˈeəpɔːt",
+              "meaning": "机场",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 19
+            },
+            {
+              "term": "New Zealand",
+              "phonetic": "ˌnjuː ˈziːlənd",
+              "meaning": "新西兰",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 20
+            },
+            {
+              "term": "Hong Kong-Zhuhai-Macao Bridge",
+              "phonetic": "ˌhɒŋˈkɒŋ məˈkaʊ brɪdʒ",
+              "meaning": "港珠澳大桥",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 21
+            },
+            {
+              "term": "Paris",
+              "phonetic": "ˈpærɪs",
+              "meaning": "巴黎",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 22
+            },
+            {
+              "term": "Eiffel Tower",
+              "phonetic": "ˈaɪfəl",
+              "meaning": "埃菲尔铁塔",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 23
+            },
+            {
+              "term": "Terracotta Warriors",
+              "phonetic": "ˌterəˈkɒtə ˈwɒriəz",
+              "meaning": "兵马俑",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 24
+            },
+            {
+              "term": "Jinggangshan Revolution Museum",
+              "phonetic": "ˌrevəˈluːʃn",
+              "meaning": "井冈山革命博物馆",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 25
+            },
+            {
+              "term": "the Red Army",
+              "phonetic": "",
+              "meaning": "红军",
+              "listType": "单词",
+              "lessonNo": 1,
+              "position": 26
+            },
+            {
+              "term": "How was your weekend?",
+              "meaning": "你周末过得怎么样？",
+              "listType": "短语",
+              "lessonNo": 1,
+              "position": 1
+            },
+            {
+              "term": "It was great! I climbed the Great Wall.",
+              "meaning": "非常棒！我去爬长城了。",
+              "listType": "短语",
+              "lessonNo": 1,
+              "position": 2
+            },
+            {
+              "term": "What did you do, Leo?",
+              "meaning": "你做什么了，利奥？",
+              "listType": "短语",
+              "lessonNo": 1,
+              "position": 3
+            },
+            {
+              "term": "I visited the \"Gingerbread House\" last Saturday.",
+              "meaning": "我上个星期六去参观“姜饼屋”了。",
+              "listType": "短语",
+              "lessonNo": 1,
+              "position": 4
+            },
+            {
+              "term": "Where did you go over the summer holidays, Binbin?",
+              "meaning": "你暑假去哪儿了，斌斌？",
+              "listType": "短语",
+              "lessonNo": 1,
+              "position": 5
+            },
+            {
+              "term": "I went to Xi'an with my family.",
+              "meaning": "我和家人去西安了。",
+              "listType": "短语",
+              "lessonNo": 1,
+              "position": 6
+            },
+            {
+              "term": "What did you do there?",
+              "meaning": "你们在那儿做了些什么？",
+              "listType": "短语",
+              "lessonNo": 1,
+              "position": 7
+            },
+            {
+              "term": "We went to see the Terracotta Warriors.",
+              "meaning": "我们去看兵马俑了。",
+              "listType": "短语",
+              "lessonNo": 1,
+              "position": 8
+            },
+            {
+              "term": "What else did you do?",
+              "meaning": "你们还做什么了？",
+              "listType": "短语",
+              "lessonNo": 1,
+              "position": 9
+            }
+          ]
+        },
+        {
+          "unitNo": 2,
+          "title": "Unit 2 Getting together",
+          "position": 2,
+          "lessons": [
+            {
+              "lessonNo": 2,
+              "title": "Unit 2 Getting together",
+              "position": 2
+            }
+          ],
+          "entries": [
+            {
+              "term": "paste",
+              "phonetic": "peɪst",
+              "meaning": "粘贴",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 1
+            },
+            {
+              "term": "dress",
+              "phonetic": "dres",
+              "meaning": "穿衣服",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 2
+            },
+            {
+              "term": "gala",
+              "phonetic": "ˈɡɑːlə",
+              "meaning": "演出；庆典",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 3
+            },
+            {
+              "term": "count down",
+              "phonetic": "kaʊnt daʊn",
+              "meaning": "倒计时",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 4
+            },
+            {
+              "term": "marathon",
+              "phonetic": "ˈmærəθən",
+              "meaning": "马拉松赛跑",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 5
+            },
+            {
+              "term": "as",
+              "phonetic": "əz",
+              "meaning": "作为",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 6
+            },
+            {
+              "term": "race",
+              "phonetic": "reɪs",
+              "meaning": "赛跑；速度竞赛",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 7
+            },
+            {
+              "term": "run",
+              "phonetic": "rʌn",
+              "meaning": "（过去式 ran /ræn/）跑；奔跑；（使）运转",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 8
+            },
+            {
+              "term": "cheer",
+              "phonetic": "tʃɪə(r)",
+              "meaning": "欢呼；加油",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 9
+            },
+            {
+              "term": "book fair",
+              "phonetic": "feə(r)",
+              "meaning": "书市",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 10
+            },
+            {
+              "term": "writer",
+              "phonetic": "ˈraɪtə(r)",
+              "meaning": "作家；作者",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 11
+            },
+            {
+              "term": "read",
+              "phonetic": "riːd",
+              "meaning": "（过去式 read /red/）阅读",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 12
+            },
+            {
+              "term": "make",
+              "phonetic": "meɪk",
+              "meaning": "（过去式 made /meɪd/）做；使出现",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 13
+            },
+            {
+              "term": "sing",
+              "phonetic": "sɪŋ",
+              "meaning": "（过去式 sang /sæŋ/）唱（歌）；演唱",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 14
+            },
+            {
+              "term": "wear",
+              "phonetic": "weə(r)",
+              "meaning": "（过去式 wore /wɔː(r)/）穿；戴",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 15
+            },
+            {
+              "term": "yesterday",
+              "phonetic": "ˈjestədeɪ",
+              "meaning": "昨天",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 16
+            },
+            {
+              "term": "notice",
+              "phonetic": "ˈnəʊtɪs",
+              "meaning": "通知",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 17
+            },
+            {
+              "term": "wake",
+              "phonetic": "weɪk",
+              "meaning": "（过去式 woke /wəʊk/）醒；醒来",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 18
+            },
+            {
+              "term": "later",
+              "phonetic": "ˈleɪtə(r)",
+              "meaning": "随后；后来",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 19
+            },
+            {
+              "term": "judge",
+              "phonetic": "dʒʌdʒ",
+              "meaning": "裁判",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 20
+            },
+            {
+              "term": "begin",
+              "phonetic": "bɪˈɡɪn",
+              "meaning": "（过去式 began /bɪˈɡæn/）开始",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 21
+            },
+            {
+              "term": "win",
+              "phonetic": "wɪn",
+              "meaning": "（过去式 won /wʌn/）获胜",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 22
+            },
+            {
+              "term": "winner",
+              "phonetic": "ˈwɪnə(r)",
+              "meaning": "获胜的人（或队）；成功者",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 23
+            },
+            {
+              "term": "ever",
+              "phonetic": "ˈevə(r)",
+              "meaning": "（进行比较时用于加强语气）以往任何时候",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 24
+            },
+            {
+              "term": "exciting",
+              "phonetic": "ɪkˈsaɪtɪŋ",
+              "meaning": "令人激动的",
+              "listType": "单词",
+              "lessonNo": 2,
+              "position": 25
+            },
+            {
+              "term": "How was your Mid-Autumn Festival holiday, Binbin?",
+              "meaning": "你中秋假期过得怎么样，斌斌？",
+              "listType": "短语",
+              "lessonNo": 2,
+              "position": 1
+            },
+            {
+              "term": "It was great!",
+              "meaning": "非常棒！",
+              "listType": "短语",
+              "lessonNo": 2,
+              "position": 2
+            },
+            {
+              "term": "Did you take a trip?",
+              "meaning": "你们去旅行了吗？",
+              "listType": "短语",
+              "lessonNo": 2,
+              "position": 3
+            },
+            {
+              "term": "No, we didn't.",
+              "meaning": "不，我们没有。",
+              "listType": "短语",
+              "lessonNo": 2,
+              "position": 4
+            },
+            {
+              "term": "Did you eat mooncakes?",
+              "meaning": "你们吃月饼了吗？",
+              "listType": "短语",
+              "lessonNo": 2,
+              "position": 5
+            },
+            {
+              "term": "Yes, we did.",
+              "meaning": "是的，我们吃了。",
+              "listType": "短语",
+              "lessonNo": 2,
+              "position": 6
+            },
+            {
+              "term": "My mother and I went to a marathon on Sunday.",
+              "meaning": "我和妈妈上周日去看了一场马拉松比赛。",
+              "listType": "短语",
+              "lessonNo": 2,
+              "position": 7
+            },
+            {
+              "term": "What did you like about it?",
+              "meaning": "你喜欢它哪一点？",
+              "listType": "短语",
+              "lessonNo": 2,
+              "position": 8
+            },
+            {
+              "term": "I liked watching the runners.",
+              "meaning": "我喜欢看参赛者（跑步）。",
+              "listType": "短语",
+              "lessonNo": 2,
+              "position": 9
+            },
+            {
+              "term": "What did you do last weekend?",
+              "meaning": "你上周末做什么了？",
+              "listType": "短语",
+              "lessonNo": 2,
+              "position": 10
+            }
+          ]
+        },
+        {
+          "unitNo": 3,
+          "title": "Unit 3 Healthy life",
+          "position": 3,
+          "lessons": [
+            {
+              "lessonNo": 3,
+              "title": "Unit 3 Healthy life",
+              "position": 3
+            }
+          ],
+          "entries": [
+            {
+              "term": "cold",
+              "phonetic": "kəʊld",
+              "meaning": "感冒",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 1
+            },
+            {
+              "term": "ill",
+              "phonetic": "ɪl",
+              "meaning": "不舒服；生病的",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 2
+            },
+            {
+              "term": "head",
+              "phonetic": "hed",
+              "meaning": "头；头部",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 3
+            },
+            {
+              "term": "runny nose",
+              "phonetic": "ˈrʌni",
+              "meaning": "流鼻涕",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 4
+            },
+            {
+              "term": "soon",
+              "phonetic": "suːn",
+              "meaning": "很快；马上",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 5
+            },
+            {
+              "term": "fever",
+              "phonetic": "ˈfiːvə(r)",
+              "meaning": "发烧；发热",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 6
+            },
+            {
+              "term": "cough",
+              "phonetic": "kɒf",
+              "meaning": "咳嗽",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 7
+            },
+            {
+              "term": "discuss",
+              "phonetic": "dɪˈskʌs",
+              "meaning": "讨论；商量",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 8
+            },
+            {
+              "term": "diet",
+              "phonetic": "ˈdaɪət",
+              "meaning": "日常饮食",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 9
+            },
+            {
+              "term": "stay up",
+              "phonetic": "",
+              "meaning": "熬夜",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 10
+            },
+            {
+              "term": "cry",
+              "phonetic": "kraɪ",
+              "meaning": "哭；哭泣",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 11
+            },
+            {
+              "term": "another",
+              "phonetic": "əˈnʌðə(r)",
+              "meaning": "另一；不同的（人或事物）",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 12
+            },
+            {
+              "term": "call",
+              "phonetic": "kɔːl",
+              "meaning": "（给......）打电话",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 13
+            },
+            {
+              "term": "email",
+              "phonetic": "ˈiːmeɪl",
+              "meaning": "电子邮件",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 14
+            },
+            {
+              "term": "unhappy",
+              "phonetic": "ʌnˈhæpi",
+              "meaning": "不快乐的；难过的",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 15
+            },
+            {
+              "term": "glass",
+              "phonetic": "ɡlɑːs",
+              "meaning": "一杯（的量）；玻璃",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 16
+            },
+            {
+              "term": "may",
+              "phonetic": "meɪ",
+              "meaning": "也许；可能",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 17
+            },
+            {
+              "term": "add",
+              "phonetic": "æd",
+              "meaning": "补充说；增加",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 18
+            },
+            {
+              "term": "video",
+              "phonetic": "ˈvɪdiəʊ",
+              "meaning": "视频；录像",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 19
+            },
+            {
+              "term": "better",
+              "phonetic": "ˈbetə(r)",
+              "meaning": "舒畅些的；（病势）好转的",
+              "listType": "单词",
+              "lessonNo": 3,
+              "position": 20
+            },
+            {
+              "term": "How do you feel?",
+              "meaning": "你感觉怎么样？",
+              "listType": "短语",
+              "lessonNo": 3,
+              "position": 1
+            },
+            {
+              "term": "I feel ill. My head hurts and I have a runny nose.",
+              "meaning": "我感觉不舒服。我头痛还流鼻涕。",
+              "listType": "短语",
+              "lessonNo": 3,
+              "position": 2
+            },
+            {
+              "term": "I'm sorry to hear that. Maybe you should see a doctor.",
+              "meaning": "对此我感到难过。也许你应该去看医生。",
+              "listType": "短语",
+              "lessonNo": 3,
+              "position": 3
+            },
+            {
+              "term": "How can we live a healthy life?",
+              "meaning": "我们怎样能过健康的生活？",
+              "listType": "短语",
+              "lessonNo": 3,
+              "position": 4
+            },
+            {
+              "term": "We need to eat healthy food. We should exercise too.",
+              "meaning": "我们需要吃健康的食物。我们还需要运动。",
+              "listType": "短语",
+              "lessonNo": 3,
+              "position": 5
+            },
+            {
+              "term": "Have a healthy diet.",
+              "meaning": "（保持）健康的饮食。",
+              "listType": "短语",
+              "lessonNo": 3,
+              "position": 6
+            },
+            {
+              "term": "Don't stay up late.",
+              "meaning": "不要熬夜。",
+              "listType": "短语",
+              "lessonNo": 3,
+              "position": 7
+            },
+            {
+              "term": "Think about happy things.",
+              "meaning": "想开心的事情。",
+              "listType": "短语",
+              "lessonNo": 3,
+              "position": 8
+            },
+            {
+              "term": "Join clubs and teams.",
+              "meaning": "加入俱乐部和团队。",
+              "listType": "短语",
+              "lessonNo": 3,
+              "position": 9
+            }
+          ]
+        },
+        {
+          "unitNo": 4,
+          "title": "Unit 4 Managing money well",
+          "position": 4,
+          "lessons": [
+            {
+              "lessonNo": 4,
+              "title": "Unit 4 Managing money well",
+              "position": 4
+            }
+          ],
+          "entries": [
+            {
+              "term": "money",
+              "phonetic": "ˈmʌni",
+              "meaning": "钱",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 1
+            },
+            {
+              "term": "pocket money",
+              "phonetic": "ˈpɒkɪt",
+              "meaning": "零花钱",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 2
+            },
+            {
+              "term": "schoolbag",
+              "phonetic": "ˈskuːlbæɡ",
+              "meaning": "书包",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 3
+            },
+            {
+              "term": "goods",
+              "phonetic": "ɡʊdz",
+              "meaning": "商品",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 4
+            },
+            {
+              "term": "drink",
+              "phonetic": "drɪŋk",
+              "meaning": "饮料",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 5
+            },
+            {
+              "term": "service",
+              "phonetic": "ˈsɜːvɪs",
+              "meaning": "服务",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 6
+            },
+            {
+              "term": "haircut",
+              "phonetic": "ˈheəkʌt",
+              "meaning": "理发；发型",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 7
+            },
+            {
+              "term": "microscope",
+              "phonetic": "ˈmaɪkrəskəʊp",
+              "meaning": "显微镜",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 8
+            },
+            {
+              "term": "lucky",
+              "phonetic": "ˈlʌki",
+              "meaning": "幸运的",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 9
+            },
+            {
+              "term": "half",
+              "phonetic": "hɑːf",
+              "meaning": "一半",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 10
+            },
+            {
+              "term": "save up",
+              "phonetic": "",
+              "meaning": "攒钱",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 11
+            },
+            {
+              "term": "sale",
+              "phonetic": "seɪl",
+              "meaning": "特价销售；出售",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 12
+            },
+            {
+              "term": "ticket",
+              "phonetic": "ˈtɪkɪt",
+              "meaning": "票",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 13
+            },
+            {
+              "term": "manage",
+              "phonetic": "ˈmænɪdʒ",
+              "meaning": "管理",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 14
+            },
+            {
+              "term": "sell",
+              "phonetic": "sel",
+              "meaning": "出售；售卖",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 15
+            },
+            {
+              "term": "jar",
+              "phonetic": "dʒɑː(r)",
+              "meaning": "罐子",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 16
+            },
+            {
+              "term": "for example",
+              "phonetic": "ɪɡˈzɑːmpl",
+              "meaning": "例如",
+              "listType": "单词",
+              "lessonNo": 4,
+              "position": 17
+            },
+            {
+              "term": "How are you going to spend it?",
+              "meaning": "你打算怎么花（这些钱）？",
+              "listType": "短语",
+              "lessonNo": 4,
+              "position": 1
+            },
+            {
+              "term": "I'm going to buy a schoolbag.",
+              "meaning": "我打算买一个书包。",
+              "listType": "短语",
+              "lessonNo": 4,
+              "position": 2
+            },
+            {
+              "term": "I also want to buy some animal books.",
+              "meaning": "我还想买一些动物类书籍。",
+              "listType": "短语",
+              "lessonNo": 4,
+              "position": 3
+            },
+            {
+              "term": "What else are you going to buy?",
+              "meaning": "你还打算买什么？",
+              "listType": "短语",
+              "lessonNo": 4,
+              "position": 4
+            },
+            {
+              "term": "I'm going to buy a pair of sunglasses for Grandpa.",
+              "meaning": "我打算给爷爷买一副太阳镜。",
+              "listType": "短语",
+              "lessonNo": 4,
+              "position": 5
+            },
+            {
+              "term": "I also want to buy a microscope.",
+              "meaning": "我还想买一个显微镜。",
+              "listType": "短语",
+              "lessonNo": 4,
+              "position": 6
+            }
+          ]
+        },
+        {
+          "unitNo": 5,
+          "title": "Unit 5 Exploring space",
+          "position": 5,
+          "lessons": [
+            {
+              "lessonNo": 5,
+              "title": "Unit 5 Exploring space",
+              "position": 5
+            }
+          ],
+          "entries": [
+            {
+              "term": "planet",
+              "phonetic": "ˈplænɪt",
+              "meaning": "行星",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 1
+            },
+            {
+              "term": "earth",
+              "phonetic": "ɜːθ",
+              "meaning": "(also Earth) 地球",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 2
+            },
+            {
+              "term": "sky",
+              "phonetic": "skaɪ",
+              "meaning": "天；天空",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 3
+            },
+            {
+              "term": "daytime",
+              "phonetic": "ˈdeɪtaɪm",
+              "meaning": "白天",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 4
+            },
+            {
+              "term": "cloud",
+              "phonetic": "klaʊd",
+              "meaning": "云",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 5
+            },
+            {
+              "term": "moon",
+              "phonetic": "muːn",
+              "meaning": "(also the Moon) 月球；月亮；卫星",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 6
+            },
+            {
+              "term": "star",
+              "phonetic": "stɑː(r)",
+              "meaning": "恒星；星",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 7
+            },
+            {
+              "term": "space",
+              "phonetic": "speɪs",
+              "meaning": "太空；空间",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 8
+            },
+            {
+              "term": "outer space",
+              "phonetic": "ˈaʊtə(r)",
+              "meaning": "外太空",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 9
+            },
+            {
+              "term": "space station",
+              "phonetic": "",
+              "meaning": "空间站",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 10
+            },
+            {
+              "term": "ocean",
+              "phonetic": "ˈəʊʃn",
+              "meaning": "大海；海洋",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 11
+            },
+            {
+              "term": "marble",
+              "phonetic": "ˈmɑːbl",
+              "meaning": "（玻璃）弹子",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 12
+            },
+            {
+              "term": "satellite",
+              "phonetic": "ˈsætəlaɪt",
+              "meaning": "人造卫星",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 13
+            },
+            {
+              "term": "soil",
+              "phonetic": "sɔɪl",
+              "meaning": "土壤",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 14
+            },
+            {
+              "term": "alien",
+              "phonetic": "ˈeɪliən",
+              "meaning": "外星生物",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 15
+            },
+            {
+              "term": "sunrise",
+              "phonetic": "ˈsʌnraɪz",
+              "meaning": "日出",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 16
+            },
+            {
+              "term": "rover",
+              "phonetic": "ˈrəʊvə(r)",
+              "meaning": "探测器",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 17
+            },
+            {
+              "term": "into",
+              "phonetic": "ˈɪntə",
+              "meaning": "朝；进入",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 18
+            },
+            {
+              "term": "telescope",
+              "phonetic": "ˈtelɪskəʊp",
+              "meaning": "望远镜",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 19
+            },
+            {
+              "term": "astronaut",
+              "phonetic": "ˈæstrənɔːt",
+              "meaning": "航天员；宇航员",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 20
+            },
+            {
+              "term": "spaceship",
+              "phonetic": "ˈspeɪsʃɪp",
+              "meaning": "宇宙飞船",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 21
+            },
+            {
+              "term": "month",
+              "phonetic": "mʌnθ",
+              "meaning": "月；月份",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 22
+            },
+            {
+              "term": "taikonaut",
+              "phonetic": "ˈtaɪkənɔːt",
+              "meaning": "中国航天员",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 23
+            },
+            {
+              "term": "cloth",
+              "phonetic": "klɒθ",
+              "meaning": "（一块）布；织物",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 24
+            },
+            {
+              "term": "toothpaste",
+              "phonetic": "ˈtuːθpeɪst",
+              "meaning": "牙膏",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 25
+            },
+            {
+              "term": "question",
+              "phonetic": "ˈkwestʃən",
+              "meaning": "问题",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 26
+            },
+            {
+              "term": "sunset",
+              "phonetic": "ˈsʌnset",
+              "meaning": "日落",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 27
+            },
+            {
+              "term": "time",
+              "phonetic": "taɪm",
+              "meaning": "次；回",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 28
+            },
+            {
+              "term": "Mars",
+              "phonetic": "mɑːz",
+              "meaning": "火星",
+              "listType": "单词",
+              "lessonNo": 5,
+              "position": 29
+            },
+            {
+              "term": "What can you see in the sky?",
+              "meaning": "你能在天空中看到什么？",
+              "listType": "短语",
+              "lessonNo": 5,
+              "position": 1
+            },
+            {
+              "term": "We can see the Sun and clouds.",
+              "meaning": "我们能看到太阳和云。",
+              "listType": "短语",
+              "lessonNo": 5,
+              "position": 2
+            },
+            {
+              "term": "At night, we can see the Moon and the stars.",
+              "meaning": "在晚上，我们能看到月亮和星星。",
+              "listType": "短语",
+              "lessonNo": 5,
+              "position": 3
+            },
+            {
+              "term": "Is there any water on Mars?",
+              "meaning": "火星上有水吗？",
+              "listType": "短语",
+              "lessonNo": 5,
+              "position": 4
+            },
+            {
+              "term": "Yes, there is. There is soil too.",
+              "meaning": "是，有的。那里还有土壤。",
+              "listType": "短语",
+              "lessonNo": 5,
+              "position": 5
+            },
+            {
+              "term": "Are there any aliens?",
+              "meaning": "那儿有外星生物吗？",
+              "listType": "短语",
+              "lessonNo": 5,
+              "position": 6
+            },
+            {
+              "term": "I don't think so. They say there aren't any living things.",
+              "meaning": "我不这样认为。据说那里没有生物。",
+              "listType": "短语",
+              "lessonNo": 5,
+              "position": 7
+            },
+            {
+              "term": "China put a rover on Mars.",
+              "meaning": "中国在火星上放置了探测器。",
+              "listType": "短语",
+              "lessonNo": 5,
+              "position": 8
+            },
+            {
+              "term": "The taikonauts get up early in the morning.",
+              "meaning": "中国航天员很早就起床。",
+              "listType": "短语",
+              "lessonNo": 5,
+              "position": 9
+            }
+          ]
+        },
+        {
+          "unitNo": 6,
+          "title": "Unit 6 Energy, nature and us",
+          "position": 6,
+          "lessons": [
+            {
+              "lessonNo": 6,
+              "title": "Unit 6 Energy, nature and us",
+              "position": 6
+            }
+          ],
+          "entries": [
+            {
+              "term": "power",
+              "phonetic": "ˈpaʊə(r)",
+              "meaning": "能；能量",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 1
+            },
+            {
+              "term": "electricity",
+              "phonetic": "ɪˌlekˈtrɪsəti",
+              "meaning": "电",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 2
+            },
+            {
+              "term": "solar",
+              "phonetic": "ˈsəʊlə(r)",
+              "meaning": "太阳的",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 3
+            },
+            {
+              "term": "type",
+              "phonetic": "taɪp",
+              "meaning": "类型；种类",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 4
+            },
+            {
+              "term": "energy",
+              "phonetic": "ˈenədʒi",
+              "meaning": "能源",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 5
+            },
+            {
+              "term": "light",
+              "phonetic": "laɪt",
+              "meaning": "照亮",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 6
+            },
+            {
+              "term": "heat",
+              "phonetic": "hiːt",
+              "meaning": "加热；（使）变暖；热量",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 7
+            },
+            {
+              "term": "cool",
+              "phonetic": "kuːl",
+              "meaning": "（使）变凉，冷却",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 8
+            },
+            {
+              "term": "run",
+              "phonetic": "rʌn",
+              "meaning": "（过去式 ran /ræn/）跑；奔跑；（使）运转",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 9
+            },
+            {
+              "term": "resource",
+              "phonetic": "rɪˈsɔːs",
+              "meaning": "资源",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 10
+            },
+            {
+              "term": "run out",
+              "phonetic": "",
+              "meaning": "用完",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 11
+            },
+            {
+              "term": "change",
+              "phonetic": "tʃeɪndʒ",
+              "meaning": "（使）不同；改变",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 12
+            },
+            {
+              "term": "quick",
+              "phonetic": "kwɪk",
+              "meaning": "迅速的；快的",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 13
+            },
+            {
+              "term": "shower",
+              "phonetic": "ˈʃaʊə(r)",
+              "meaning": "淋浴",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 14
+            },
+            {
+              "term": "unplug",
+              "phonetic": "ˌʌnˈplʌɡ",
+              "meaning": "拔掉......的电源插头",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 15
+            },
+            {
+              "term": "difference",
+              "phonetic": "ˈdɪfrəns",
+              "meaning": "差别；不同（之处）",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 16
+            },
+            {
+              "term": "reduce",
+              "phonetic": "rɪˈdjuːs",
+              "meaning": "减少",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 17
+            },
+            {
+              "term": "air conditioner",
+              "phonetic": "ˈeə kənˌdɪʃənə(r)",
+              "meaning": "空调机",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 18
+            },
+            {
+              "term": "drive",
+              "phonetic": "draɪv",
+              "meaning": "驾驶；开车",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 19
+            },
+            {
+              "term": "reuse",
+              "phonetic": "ˌriːˈjuːz",
+              "meaning": "再次使用；重复使用",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 20
+            },
+            {
+              "term": "own",
+              "phonetic": "əʊn",
+              "meaning": "自己的",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 21
+            },
+            {
+              "term": "market",
+              "phonetic": "ˈmɑːkɪt",
+              "meaning": "集市；市场",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 22
+            },
+            {
+              "term": "bottle",
+              "phonetic": "ˈbɒtl",
+              "meaning": "瓶子",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 23
+            },
+            {
+              "term": "top",
+              "phonetic": "tɒp",
+              "meaning": "（位置、级别或程度）最高的",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 24
+            },
+            {
+              "term": "useful",
+              "phonetic": "ˈjuːsfl",
+              "meaning": "有用的；有益的",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 25
+            },
+            {
+              "term": "dirty",
+              "phonetic": "ˈdɜːti",
+              "meaning": "脏的",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 26
+            },
+            {
+              "term": "side",
+              "phonetic": "saɪd",
+              "meaning": "一面；一边",
+              "listType": "单词",
+              "lessonNo": 6,
+              "position": 27
+            },
+            {
+              "term": "What do you know about it?",
+              "meaning": "关于它你知道些什么？",
+              "listType": "短语",
+              "lessonNo": 6,
+              "position": 1
+            },
+            {
+              "term": "Running water can make electricity.",
+              "meaning": "流水可以发电。",
+              "listType": "短语",
+              "lessonNo": 6,
+              "position": 2
+            },
+            {
+              "term": "What else do you want to know about water?",
+              "meaning": "关于水你还想了解些什么？",
+              "listType": "短语",
+              "lessonNo": 6,
+              "position": 3
+            },
+            {
+              "term": "Where does water come from?",
+              "meaning": "水从哪儿来？",
+              "listType": "短语",
+              "lessonNo": 6,
+              "position": 4
+            },
+            {
+              "term": "Wind power, solar power and water power are types of green energy.",
+              "meaning": "风能、太阳能和水能是不同类型的绿色能源。",
+              "listType": "短语",
+              "lessonNo": 6,
+              "position": 5
+            },
+            {
+              "term": "But many resources are running out.",
+              "meaning": "但是很多资源快要耗尽了。",
+              "listType": "短语",
+              "lessonNo": 6,
+              "position": 6
+            },
+            {
+              "term": "What should we do?",
+              "meaning": "我们该怎么办？",
+              "listType": "短语",
+              "lessonNo": 6,
+              "position": 7
+            },
+            {
+              "term": "How can we save energy?",
+              "meaning": "我们怎样才能节约能源？",
+              "listType": "短语",
+              "lessonNo": 6,
+              "position": 8
+            },
+            {
+              "term": "We can take quick showers.",
+              "meaning": "我们可以快速淋浴。",
+              "listType": "短语",
+              "lessonNo": 6,
+              "position": 9
+            },
+            {
+              "term": "We can also use LED lighting.",
+              "meaning": "我们还可以使用LED照明。",
+              "listType": "短语",
+              "lessonNo": 6,
+              "position": 10
+            },
+            {
+              "term": "We should use air conditioners less.",
+              "meaning": "我们应该少用空调。",
+              "listType": "短语",
+              "lessonNo": 6,
+              "position": 11
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
