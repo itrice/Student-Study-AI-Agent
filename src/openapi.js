@@ -3839,6 +3839,123 @@ Object.assign(paths, {
       }
     }
   },
+  "/api/eink/vocab/page": {
+    get: {
+      tags: ["墨水屏"],
+      summary: "读取字词听写提示帧",
+      description:
+        "按今日到期字词队列返回 800×480、48000 字节 1bpp 提示帧，一次一题。语文提示为课本拼音，英语按模式提示中文释义或英文单词；不返回、不渲染任何答案。空队列返回“今天没有到期字词”提示帧。带 If-None-Match 命中时返回 304。",
+      operationId: "getEinkVocabPage",
+      parameters: [
+        {
+          name: "subject",
+          in: "query",
+          required: true,
+          description: "学科：chinese 或 english",
+          schema: { type: "string", enum: ["chinese", "english"] }
+        },
+        {
+          name: "index",
+          in: "query",
+          required: false,
+          description:
+            "今日到期队列中的题号，从 1 开始；缺省 1，非法或超出队列返回 400",
+          schema: { type: "integer", minimum: 1, default: 1 }
+        },
+        {
+          name: "mode",
+          in: "query",
+          required: false,
+          description:
+            "英语听写模式；缺省跟随字词设置 englishMode。语文不接受该参数",
+          schema: { type: "string", enum: ["zh_to_en", "en_to_zh"] }
+        },
+        {
+          name: "If-None-Match",
+          in: "header",
+          required: false,
+          description: "上一次响应的强 ETag",
+          schema: { type: "string" }
+        }
+      ],
+      responses: {
+        200: {
+          description: "48000 字节无压缩字词提示帧",
+          headers: {
+            "Content-Length": {
+              description: "固定为 48000",
+              schema: { type: "integer", enum: [48000] }
+            },
+            ETag: {
+              description: "基于最终帧内容计算的强校验值",
+              schema: { type: "string" }
+            },
+            "X-Etag": {
+              description: "与 ETag 相同的兼容头",
+              schema: { type: "string" }
+            },
+            "Cache-Control": {
+              schema: { type: "string", enum: ["no-transform"] }
+            }
+          },
+          content: {
+            "application/octet-stream": {
+              schema: { type: "string", format: "binary" }
+            }
+          }
+        },
+        304: { description: "提示帧内容未变化，无响应体" },
+        400: errorResponse("subject、index 或 mode 非法", {
+          error: "index 超出今日到期字词数量（共 1 条）",
+          code: "EINK_VOCAB_INDEX_OUT_OF_RANGE"
+        })
+      }
+    }
+  },
+  "/api/eink/vocab/preview": {
+    get: {
+      tags: ["墨水屏"],
+      summary: "读取字词提示帧的 PNG 预览",
+      description:
+        "返回 800×480 PNG，与同参数 vocab/page 帧逐像素一致；仅供人工查看和验收。参数与错误行为同 vocab/page。",
+      operationId: "getEinkVocabPreview",
+      parameters: [
+        {
+          name: "subject",
+          in: "query",
+          required: true,
+          description: "学科：chinese 或 english",
+          schema: { type: "string", enum: ["chinese", "english"] }
+        },
+        {
+          name: "index",
+          in: "query",
+          required: false,
+          description:
+            "今日到期队列中的题号，从 1 开始；缺省 1，非法或超出队列返回 400",
+          schema: { type: "integer", minimum: 1, default: 1 }
+        },
+        {
+          name: "mode",
+          in: "query",
+          required: false,
+          description:
+            "英语听写模式；缺省跟随字词设置 englishMode。语文不接受该参数",
+          schema: { type: "string", enum: ["zh_to_en", "en_to_zh"] }
+        }
+      ],
+      responses: {
+        200: binaryResponse(
+          "与设备帧逐像素一致的 800×480 PNG 预览",
+          "image/png"
+        ),
+        400: errorResponse("subject、index 或 mode 非法", {
+          error: "index 超出今日到期字词数量（共 1 条）",
+          code: "EINK_VOCAB_INDEX_OUT_OF_RANGE"
+        })
+      }
+    }
+  },
   "/api/operations/metrics": {
     get: {
       tags: ["运维"],
@@ -4488,7 +4605,7 @@ const INFO_DESCRIPTION = [
 
 export function buildOpenApiDocument({
   baseUrl = "/",
-  version = "0.22.0"
+  version = "0.23.0"
 } = {}) {
   return {
     openapi: "3.1.0",

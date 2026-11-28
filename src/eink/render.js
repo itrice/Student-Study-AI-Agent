@@ -39,7 +39,7 @@ function escapeXml(value) {
     .replaceAll("'", "&apos;");
 }
 
-function textElement({
+export function textElement({
   x,
   y,
   text,
@@ -117,7 +117,7 @@ function photoPageSvg(index, total, knowledgePoint) {
   ]);
 }
 
-function svgDocument(elements) {
+export function svgDocument(elements) {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" ` +
     `width="${EINK_WIDTH}" height="${EINK_HEIGHT}" ` +

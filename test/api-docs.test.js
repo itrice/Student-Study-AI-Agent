@@ -29,6 +29,8 @@ const DOCUMENTED_PATHS = [
   "/api/eink/dashboard",
   "/api/eink/page",
   "/api/eink/preview",
+  "/api/eink/vocab/page",
+  "/api/eink/vocab/preview",
   "/api/operations/metrics",
   "/api/learning-data",
   "/api/feedback/daily",
@@ -149,7 +151,7 @@ test(
       assert.equal(Object.keys(document.paths).length, DOCUMENTED_PATHS.length);
 
       const operations = collectOperations(document);
-      assert.equal(operations.length, 73);
+      assert.equal(operations.length, 75);
       const operationIds = operations.map(
         ({ operation }) => operation.operationId
       );
@@ -352,7 +354,7 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   assert.match(document.info.description, /Idempotency-Key/);
   assert.match(document.info.description, /未内置账号体系|无内置鉴权|鉴权/);
   assert.match(document.info.description, /尾斜杠/);
-  assert.equal(document.info.version, "0.22.0");
+  assert.equal(document.info.version, "0.23.0");
   assert.deepEqual(
     document.components.schemas.QuestionScanCandidate.properties.parts.items.$ref,
     "#/components/schemas/QuestionScanPart"
@@ -391,7 +393,7 @@ test("OpenAPI 生成器可独立构建且包含第三方接入说明", async () 
   );
   assert.equal(
     collectOperations(document).length,
-    73
+    75
   );
 });
 

@@ -76,7 +76,8 @@ const attachmentStore = new AttachmentStore({
 });
 const einkPageService = new EinkPageService({
   repository,
-  attachmentStore
+  attachmentStore,
+  vocabStore
 });
 const internalOcrTextExtractor =
   createInternalOcrTextExtractorFromEnvironment(process.env);
@@ -332,6 +333,28 @@ function parseEinkMode(value) {
   if (value === null) return "question";
   if (value === "question" || value === "answer") return value;
   throw new HttpError(400, "mode 只能是 question 或 answer");
+}
+
+function parseEinkVocabIndex(value) {
+  if (value === null) return 1;
+  const text = String(value).trim();
+  const index = Number(text);
+  if (!/^[1-9]\d*$/.test(text) || !Number.isSafeInteger(index)) {
+    throw new HttpError(400, "index 必须是从 1 开始的整数");
+  }
+  return index;
+}
+
+function parseEinkVocabMode(subject, value) {
+  if (value === null) return null;
+  if (subject === "chinese") {
+    throw new HttpError(400, "语文听写不支持 mode 参数");
+  }
+  const mode = String(value).trim();
+  if (!VOCAB_ENGLISH_MODES.has(mode)) {
+    throw new HttpError(400, "mode 只能是 zh_to_en 或 en_to_zh");
+  }
+  return mode;
 }
 
 const VOCAB_SUBJECTS = new Set(["chinese", "english"]);
@@ -1590,6 +1613,86 @@ async function handleApi(request, response, url) {
     console.info(
       `[eink] id=${id} mode=${mode} status=200 ` +
         `cache=${page.cacheHit ? "hit" : "miss"} ` +
+        `duration=${Date.now() - startedAt}ms`
+    );
+    return;
+  }
+
+  if (
+    request.method === "GET" &&
+    (url.pathname === "/api/eink/vocab/page" ||
+      url.pathname === "/api/eink/vocab/preview")
+  ) {
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    const startedAt = Date.now();
+    const subject = parseVocabSubject(url.searchParams.get("subject"));
+    const index = parseEinkVocabIndex(url.searchParams.get("index"));
+    const mode = parseEinkVocabMode(
+      subject,
+      url.searchParams.get("mode")
+    );
+    const studentId = currentVocabStudentId();
+    let vocab;
+    try {
+      vocab = await einkPageService.getVocabFrame({
+        studentId,
+        subject,
+        index,
+        mode
+      });
+    } catch (error) {
+      console.info(
+        `[eink-vocab] subject=${subject} mode=${mode || "default"} ` +
+          `index=${index} status=${error.status || 500} cache=miss ` +
+          `duration=${Date.now() - startedAt}ms`
+      );
+      throw error;
+    }
+
+    if (url.pathname === "/api/eink/vocab/page") {
+      const notModified = etagMatches(
+        request.headers["if-none-match"],
+        vocab.etag
+      );
+      if (notModified) {
+        response.writeHead(304, {
+          ETag: vocab.etag,
+          "X-Etag": vocab.etag,
+          "Cache-Control": "no-transform",
+          "X-Content-Type-Options": "nosniff"
+        });
+        response.end();
+      } else {
+        response.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": vocab.frame.length,
+          ETag: vocab.etag,
+          "X-Etag": vocab.etag,
+          "Cache-Control": "no-transform",
+          "X-Content-Type-Options": "nosniff"
+        });
+        response.end(vocab.frame);
+      }
+      console.info(
+        `[eink-vocab] subject=${subject} mode=${mode || "default"} ` +
+          `index=${index} status=${notModified ? 304 : 200} ` +
+          `cache=${vocab.cacheHit ? "hit" : "miss"} ` +
+          `duration=${Date.now() - startedAt}ms`
+      );
+      return;
+    }
+
+    response.writeHead(200, {
+      "Content-Type": "image/png",
+      "Content-Length": vocab.png.length,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    });
+    response.end(vocab.png);
+    console.info(
+      `[eink-vocab] subject=${subject} mode=${mode || "default"} ` +
+        `index=${index} status=200 preview=1 ` +
+        `cache=${vocab.cacheHit ? "hit" : "miss"} ` +
         `duration=${Date.now() - startedAt}ms`
     );
     return;
